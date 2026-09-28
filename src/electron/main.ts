@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_WORKSPACE } from "../paths.js";
+import { DEFAULT_WORKSPACE, migrateLegacyWorkspace } from "../paths.js";
 import { configuredModels, configPath, DEFAULT_TELEMETRY_SETTINGS, initializeWorkspace, isOnboardingComplete, loadConfig, markOnboardingComplete, readOobeProgress, readSettings, saveOobeProgress, saveSettings, useConfiguredModel, writeWorkspaceEnv, type OobeProgress, type SettingsPayload } from "../config.js";
 import { loadEnabledSkills } from "../skills.js";
 import { AuditStore } from "../audit.js";
@@ -19,7 +19,7 @@ import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRe
 import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
-import { listGoogleModels } from "../google-models.js";
+import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { synthesizeSpeech } from "./tts.js";
 import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
@@ -37,6 +37,16 @@ import { normalizeReasoningEffort } from "../reasoning.js";
 import { WindowsUpdateManager } from "./update-manager.js";
 import { diagnosticLogDirectory, exportDiagnosticLogs } from "./diagnostic-logs.js";
 import { TelemetryClient, hashIdentifier, normalizeMessage, sanitizeStack, type TelemetryFailure } from "../telemetry.js";
+
+// One-time move of the legacy `~/SecAgentWorkspace` tree into the
+// platform-standard data directory. Must run before anything reads the
+// workspace, so it lives at module scope ahead of the first loadConfig call.
+try {
+  const migratedTo = migrateLegacyWorkspace();
+  if (migratedTo) console.info(`[paths] 已将旧工作区迁移到 ${migratedTo}`);
+} catch (error) {
+  console.warn("[paths] 旧工作区迁移失败，将继续使用新路径", error);
+}
 
 const SENTRY_DSN = process.env.SENTRY_DSN?.trim() || "";
 function readInitialTelemetryEnabled(): boolean {
@@ -836,8 +846,12 @@ const OFFICIAL_TIER_IDS = ["virtual-fast", "virtual-standard", "virtual-deep"] a
 
 ipcMain.handle("models:list", async () => {
   const { config } = loadConfig(DEFAULT_WORKSPACE);
-  const googleProfile = config.agent.models?.find((model) => model.provider === "google");
-  const googleModels = googleProfile ? await listGoogleModels(process.env[googleProfile.apiKeyEnv] || "", googleProfile.baseUrl).catch(() => []) : [];
+  // Pull the live catalog for every Google provider (official key, relays, ...)
+  // instead of only the first one — the rest used to lose all their models.
+  const googleProfiles = (config.agent.models || []).filter((model) => model.provider === "google");
+  const googleModels = googleProfiles.length
+    ? (await Promise.all(googleProfiles.map((profile) => listGoogleModels(process.env[profile.apiKeyEnv] || "", profile.baseUrl).catch(() => [] as GoogleModelInfo[])))).flat()
+    : [];
   const options = configuredModels(config, googleModels).filter((option) => option.id !== "sectl-official" && !option.id.startsWith("sectl-official:"));
   const customModelMode = Boolean(config.defaults?.customModelMode);
   const token = process.env.SECTL_OFFICIAL_TOKEN;

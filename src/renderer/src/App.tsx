@@ -91,7 +91,23 @@ export function App() {
   const answerScrollLockTimer = useRef<number | undefined>(undefined);
   const answerStartScrollPending = useRef(false);
   const modelMenuEnd = useRef<HTMLDivElement>(null);
-  const orderedModels = useMemo(() => [...models.filter(isOfficialModel), ...models.filter((model) => !isOfficialModel(model))], [models]);
+  // Official tiers first, then custom models clustered by provider so the
+  // submenu can render a labelled group header per provider.
+  const orderedModels = useMemo(() => {
+    const official = models.filter(isOfficialModel);
+    const custom = models.filter((model) => !isOfficialModel(model));
+    const clustered: ModelOption[] = [];
+    const byProvider = new Map<string, ModelOption[]>();
+    for (const model of custom) {
+      const group = model.providerLabel || "自定义模型";
+      const bucket = byProvider.get(group);
+      if (bucket) bucket.push(model);
+      else { byProvider.set(group, [model]); }
+    }
+    for (const bucket of byProvider.values()) clustered.push(...bucket);
+    return [...official, ...clustered];
+  }, [models]);
+  const modelGroupLabel = (model: ModelOption): string => isOfficialModel(model) ? "官方服务" : (model.providerLabel || "自定义模型");
   const selectedModel = models.find((model) => model.id === selectedModelId);
   const reasoningEfforts = useMemo(() => reasoningEffortsForModel(selectedModel), [selectedModel]);
   useEffect(() => {
@@ -872,7 +888,7 @@ export function App() {
             {modelMenuOpen && <div className="model-options" role="menu">
               {customModelMode ? <Fragment>
                 <button type="button" className={`model-setting-row ${modelSubmenu === "model" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "model" ? null : "model")}><span>模型</span><span className="model-setting-value">{selectedModel?.name || "未配置模型"}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{index > 0 && isOfficialModel(orderedModels[index - 1]) !== isOfficialModel(model) && <div className="model-divider" role="separator" /> }<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
+                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{(index === 0 || modelGroupLabel(orderedModels[index - 1]) !== modelGroupLabel(model)) && <div className="model-group-label" role="presentation">{modelGroupLabel(model)}</div>}<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
                 <button type="button" className={`model-setting-row ${modelSubmenu === "effort" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "effort" ? null : "effort")}><span>推理强度</span><span className="model-setting-value">{reasoningEffortLabels[reasoningEffort]}<span className="model-row-chevron">›</span></span></button>
                 {modelSubmenu === "effort" && <div className="model-submenu" role="listbox">{reasoningEfforts.map((effort) => <button type="button" className={`model-option ${effort === reasoningEffort ? "selected" : ""}`} role="option" aria-selected={effort === reasoningEffort} key={effort} onClick={() => { setReasoningEffort(effort); setModelSubmenu(null); }}>{reasoningEffortLabels[effort]}</button>)}</div>}
               </Fragment> : orderedModels.map((model) => (

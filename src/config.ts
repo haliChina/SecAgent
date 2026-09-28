@@ -168,18 +168,31 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
   // Multi-model configuration is canonical. Populate the legacy top-level fields in memory
   // so the runtime can keep using one normalized AgentConfig shape.
   if (raw?.agent?.providers?.length) {
-    raw.agent.models = raw.agent.providers.flatMap((provider) => provider.models.map((model) => ({
-      id: `${provider.id}:${model.id}`,
-      name: model.name || model.id,
-      enabled: model.enabled,
-      provider: provider.provider,
-      model: model.id,
-      apiKeyEnv: provider.apiKeyEnv,
-      baseUrl: provider.baseUrl,
-      endpoint: provider.endpoint,
-      anthropicVersion: provider.anthropicVersion,
-      maxTokens: provider.maxTokens
-    })));
+    raw.agent.models = raw.agent.providers.flatMap((provider) => {
+      const seenModelIds = new Set<string>();
+      // Drop duplicate model ids within one provider instead of failing the
+      // whole save: duplicates used to abort normalizeAndValidate with a bare
+      // "id 重复" error, which made every later autosave fail too until the
+      // YAML was fixed by hand.
+      const uniqueModels = provider.models.filter((model) => {
+        if (!model?.id || seenModelIds.has(model.id)) return false;
+        seenModelIds.add(model.id);
+        return true;
+      });
+      return uniqueModels.map((model) => ({
+        id: `${provider.id}:${model.id}`,
+        name: model.name || model.id,
+        enabled: model.enabled,
+        provider: provider.provider,
+        model: model.id,
+        apiKeyEnv: provider.apiKeyEnv,
+        baseUrl: provider.baseUrl,
+        endpoint: provider.endpoint,
+        anthropicVersion: provider.anthropicVersion,
+        maxTokens: provider.maxTokens,
+        providerName: provider.name || provider.id
+      }));
+    });
   }
   if (raw?.agent?.models?.length) {
     const first = raw.agent.models[0];
@@ -233,7 +246,7 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
   if (raw.agent.models?.length) {
     const ids = new Set<string>();
     for (const model of raw.agent.models) {
-      if (ids.has(model.id)) errors.push(`agent.models.id 重复：${model.id}`);
+      if (ids.has(model.id)) errors.push(`agent.models.id 重复：${model.id}${model.providerName ? `（提供商「${model.providerName}」）` : ""}`);
       ids.add(model.id);
       model.name = model.name?.trim() || model.model;
       model.baseUrl = model.baseUrl.replace(/\/$/, "");
@@ -259,6 +272,8 @@ export interface ModelOption {
   name: string;
   model: string;
   provider: SecAgentConfig["agent"]["provider"];
+  /** Display name of the provider this model belongs to, used to group the model pickers. */
+  providerLabel?: string;
 }
 
 function commaValues(value: string | undefined): string[] {
@@ -268,26 +283,27 @@ function commaValues(value: string | undefined): string[] {
 export function configuredModels(config: SecAgentConfig, googleModels: GoogleModelInfo[] = []): ModelOption[] {
   const profiles = config.agent.models?.length ? config.agent.models : [{ id: "default", name: config.agent.model, model: config.agent.model, provider: config.agent.provider, apiKeyEnv: config.agent.apiKeyEnv, baseUrl: config.agent.baseUrl } as ModelProfile];
   const options: ModelOption[] = [];
-  let googleSeen = false;
   for (const profile of profiles) {
     if (profile.enabled === false) continue;
-    if (profile.provider === "google" && googleSeen) continue;
-    if (profile.provider === "google") googleSeen = true;
+    const providerLabel = profile.providerName || profile.id;
     const configuredNames = commaValues(profile.name);
     const configuredModelNames = commaValues(profile.model);
+    // Every provider gets its own entry now. Previously only the first Google
+    // profile was expanded (`googleSeen`) and later Google providers — e.g. an
+    // official key plus a relay — silently lost all of their models.
     if (profile.provider !== "google" || !googleModels.length) {
       const modelNames = configuredModelNames.length ? configuredModelNames : [""];
-      modelNames.forEach((modelName, index) => options.push({ id: index ? `${profile.id}#${index}` : profile.id, name: configuredNames[index] || configuredNames[0] || modelName || "Google Gemini（自动选择）", model: modelName, provider: profile.provider }));
+      modelNames.forEach((modelName, index) => options.push({ id: index ? `${profile.id}#${index}` : profile.id, name: configuredNames[index] || configuredNames[0] || modelName || "Google Gemini（自动选择）", model: modelName, provider: profile.provider, providerLabel }));
       continue;
     }
     if (configuredModelNames.length) {
-      configuredModelNames.forEach((modelName, index) => options.push({ id: index ? `${profile.id}#${index}` : profile.id, name: configuredNames[index] || configuredNames[0] || modelName, model: modelName, provider: profile.provider }));
+      configuredModelNames.forEach((modelName, index) => options.push({ id: index ? `${profile.id}#${index}` : profile.id, name: configuredNames[index] || configuredNames[0] || modelName, model: modelName, provider: profile.provider, providerLabel }));
       continue;
     }
     for (const model of googleModels) {
       const modelName = model.name?.replace(/^models\//, "");
       if (!modelName) continue;
-      options.push({ id: `google:${profile.id}:${modelName}`, name: model.displayName || modelName, model: modelName, provider: "google" });
+      options.push({ id: `google:${profile.id}:${modelName}`, name: model.displayName || modelName, model: modelName, provider: "google", providerLabel });
     }
   }
   return options;
@@ -358,6 +374,25 @@ function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
   return [...groups.values()];
 }
 
+/**
+ * Derive a stable, filesystem-safe env-var name for a provider from its name
+ * (or baseUrl host when the name has no ASCII letters, e.g. Chinese-only).
+ * Users never see or type this name — it only lives in the workspace .env.
+ */
+function deriveEnvName(name: string, baseUrl: string): string {
+  const slug = (source: string) => source.replace(/[^A-Za-z0-9]+/g, "_").replace(/^_+|_+$/g, "").toUpperCase().slice(0, 32);
+  const fromName = slug(name);
+  if (fromName) return `SECAGENT_${fromName}_API_KEY`;
+  try {
+    const host = slug(new URL(baseUrl).hostname.replace(/\./g, "_"));
+    if (host) return `SECAGENT_${host}_API_KEY`;
+  } catch { /* invalid/empty baseUrl — fall through */ }
+  return "SECAGENT_CUSTOM_API_KEY";
+}
+
+/** Legacy placeholder the old "new provider" form used to plant into the config. */
+const LEGACY_DEFAULT_PROVIDER_ENVS = new Set(["CUSTOM_API_KEY"]);
+
 export function saveSettings(workspaceInput: string, payload: SettingsPayload): SettingsPayload {
   const workspace = expandPath(workspaceInput);
   const file = configPath(workspace);
@@ -365,10 +400,36 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   const inputProviders: Array<ProviderConfig & { apiKey?: string; apiKeyConfigured?: boolean }> = Array.isArray(payload?.providers) && payload.providers.length ? payload.providers : groupLegacyModels(payload?.models || []);
   if (!inputProviders.length) throw new Error("至少需要配置一个提供商");
   if (!payload.mcp?.servers || typeof payload.mcp.servers !== "object") throw new Error("MCP 服务配置无效");
+  // The env-var name used to be a manual text field in the settings UI, which
+  // forced users to invent a valid identifier before an API key could be
+  // saved. Auto-derive one instead whenever it is missing or still the legacy
+  // placeholder; explicitly configured names (yaml, presets) are preserved.
+  const takenEnvs = new Set(inputProviders.map((provider) => provider.apiKeyEnv).filter(Boolean));
+  for (const provider of inputProviders) {
+    const current = provider.apiKeyEnv?.trim() || "";
+    if (current && !LEGACY_DEFAULT_PROVIDER_ENVS.has(current)) continue;
+    let generated = deriveEnvName(provider.name || "", provider.baseUrl || "");
+    if (takenEnvs.has(generated) && current !== generated) {
+      let suffix = 2;
+      while (takenEnvs.has(`${generated}_${suffix}`)) suffix++;
+      generated = `${generated}_${suffix}`;
+    }
+    takenEnvs.add(generated);
+    provider.apiKeyEnv = generated;
+  }
   const providers = inputProviders.map(({ apiKey, apiKeyConfigured: _apiKeyConfigured, ...provider }) => {
     if (typeof apiKey === "string" && apiKey.trim()) writeWorkspaceEnv(workspace, provider.apiKeyEnv, apiKey.trim());
     return provider;
   });
+  // Two providers sharing one env var used to silently overwrite each other's
+  // API key (last write wins in .env), which looked like "I fixed the key but
+  // the other provider broke". Refuse ambiguous saves with an explicit error.
+  const envOwners = new Map<string, string>();
+  for (const provider of providers) {
+    const owner = envOwners.get(provider.apiKeyEnv);
+    if (owner && owner !== provider.name) throw new Error(`提供商「${owner}」和「${provider.name}」使用了相同的环境变量 ${provider.apiKeyEnv}，请为其中一个改用独立变量名，否则 API Key 会互相覆盖`);
+    envOwners.set(provider.apiKeyEnv, provider.name);
+  }
   const models = providers.flatMap((provider) => provider.models.map((model) => ({ id: `${provider.id}:${model.id}`, name: model.name || model.id, enabled: model.enabled, provider: provider.provider, model: model.id, apiKeyEnv: provider.apiKeyEnv, baseUrl: provider.baseUrl, endpoint: provider.endpoint, anthropicVersion: provider.anthropicVersion, maxTokens: provider.maxTokens })));
   const nextTts = { voice: payload.tts?.voice || DEFAULT_TTS_VOICE, rate: payload.tts?.rate || DEFAULT_TTS_RATE };
   const nextWake = { hotkey: normalizeWakeHotkey(payload.wake?.hotkey || DEFAULT_WAKE_HOTKEY), ...(payload.wake?.modelId ? { modelId: payload.wake.modelId } : {}), voiceEnabled: payload.wake?.voiceEnabled === true, voicePhrase: payload.wake?.voicePhrase?.trim() || DEFAULT_WAKE_PHRASE };
@@ -378,10 +439,14 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   delete (canonicalAgent as { systemPrompt?: unknown }).systemPrompt;
   const candidateAgent = { ...canonicalAgent, models: models.map((model) => ({ ...model })) } as SecAgentConfig["agent"];
   // Third-party ASR keys follow the same env-var convention as model providers.
+  // The env-var name is no longer a visible form field; auto-assign a stable
+  // default whenever the payload arrives without a valid one.
   const inputOpenAi = payload.speech?.openai;
   if (inputOpenAi && typeof inputOpenAi.apiKey === "string" && inputOpenAi.apiKey.trim()) {
-    if (!inputOpenAi.apiKeyEnv || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(inputOpenAi.apiKeyEnv)) throw new Error("第三方语音识别 API Key 环境变量名无效");
-    writeWorkspaceEnv(workspace, inputOpenAi.apiKeyEnv, inputOpenAi.apiKey.trim());
+    let envName = (inputOpenAi.apiKeyEnv || "").trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "SECAGENT_ASR_KEY";
+    inputOpenAi.apiKeyEnv = envName;
+    writeWorkspaceEnv(workspace, envName, inputOpenAi.apiKey.trim());
   }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;

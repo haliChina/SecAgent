@@ -2,7 +2,7 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { initializeWorkspace, loadConfig, normalizeAndValidate, useConfiguredModel } from "./config.js";
-import { DEFAULT_WORKSPACE, expandPath } from "./paths.js";
+import { DEFAULT_WORKSPACE, expandPath, migrateLegacyWorkspace } from "./paths.js";
 import { loadEnabledSkills } from "./skills.js";
 import { AuditStore } from "./audit.js";
 import { SecAgentRuntime, type RunResult, type TraceEvent } from "./runtime.js";
@@ -296,6 +296,12 @@ async function main(): Promise<void> {
   if (!command || ["-h", "--help", "help"].includes(command)) return void console.log(usage());
   const options = parseOptions(args);
   const { workspace, positionals } = options;
+  // Move a legacy ~/SecAgentWorkspace into the platform data directory before
+  // any command touches the default workspace.
+  try {
+    const migratedTo = workspace === DEFAULT_WORKSPACE ? migrateLegacyWorkspace() : undefined;
+    if (migratedTo) console.log(`已将旧工作区迁移到 ${migratedTo}`);
+  } catch { /* 迁移失败不阻塞命令 */ }
 
   if (command === "init") {
     initializeWorkspace(workspace);

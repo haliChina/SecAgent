@@ -19,6 +19,8 @@ export interface ModelProfile {
   endpoint?: string;
   anthropicVersion?: string;
   maxTokens?: number;
+  /** Display name of the ProviderConfig this profile was expanded from. */
+  providerName?: string;
 }
 
 export interface ProviderConfig {
