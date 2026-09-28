@@ -328,6 +328,21 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .provider-model-row { display: grid; grid-template-columns: auto minmax(120px, 1fr) minmax(140px, 1fr) auto; align-items: center; gap: 8px; margin-top: 8px; }
 .provider-model-row > input[type="checkbox"] { width: 15px; height: 15px; margin: 0; cursor: pointer; }
 .provider-model-row code { overflow: hidden; color: #888; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+/* Inline "add model" row (replaces window.prompt, which Electron does not implement). */
+.provider-model-add-row { grid-template-columns: minmax(200px, 1fr) auto auto; }
+.provider-model-add-row input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid #2389ec; border-radius: 7px; outline: none; background: #fff; color: #171717; font-size: 13px; box-shadow: 0 0 0 2px rgba(35,137,236,.12); }
+/* Speech recognition (ASR) settings */
+.asr-provider-grid { grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr); }
+.asr-openai-config { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line, #e4e8ed); }
+.asr-openai-config .card-heading { margin-bottom: 10px; }
+.asr-openai-config .form-grid { margin-top: 10px; }
+.asr-openai-config .wide-field { grid-column: 1 / -1; }
+.asr-test-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line, #e4e8ed); flex-wrap: wrap; }
+.asr-test-results { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.asr-test-results li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: #666; }
+.asr-test-results li strong { flex: none; font-size: 12px; }
+.asr-test-ok span { color: #1a7f37; }
+.asr-test-fail span { color: #c0392b; }
 .settings-section#settings-models > .section-title > button { display: none; }
 .provider-list { gap: 0; padding: 0; overflow: hidden; border: 1px solid #e3e3e3; border-radius: 12px; background: #fff; }
 .provider-list .provider-list-item { min-height: 58px; margin: 0; border: 0; border-bottom: 1px solid #ececec; border-radius: 0; box-shadow: none; }

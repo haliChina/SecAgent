@@ -16,7 +16,8 @@ import { AuditStore } from "../audit.js";
 import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
-import { cancelSpeech, sendSpeechAudio, sendVoiceWakeAudio, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake } from "./speech.js";
+import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
+import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels } from "../google-models.js";
 import { synthesizeSpeech } from "./tts.js";
@@ -976,111 +977,21 @@ ipcMain.handle("official:login", async (_event, email: string, password: string)
   const providers = current.providers.some((provider) => provider.id === "sectl-official") ? current.providers : [...current.providers, officialProvider(baseUrl)];
   return saveSettings(DEFAULT_WORKSPACE, { ...current, providers });
 });
-const PUBLIC_IP_ENDPOINTS = [
-  "https://api.ipify.org?format=json",
-  "https://httpbin.org/ip",
-  "https://api64.ipify.org?format=json"
-];
 
-async function resolvePublicIpv4(): Promise<string> {
-  for (const endpoint of PUBLIC_IP_ENDPOINTS) {
-    try {
-      const response = await fetch(endpoint, { signal: AbortSignal.timeout(5_000) });
-      if (!response.ok) continue;
-      const payload = await response.json().catch(() => ({})) as { ip?: unknown; origin?: unknown };
-      const candidate = String(payload.ip ?? payload.origin ?? "").split(",")[0].trim();
-      if (isIPv4(candidate)) return candidate;
-    } catch {
-      // Try the next public-IP provider.
-    }
-  }
-  throw new Error("无法获取本机公网 IPv4，请检查网络连接后重试");
-}
-
-async function runSectlOAuthLogin(): Promise<{ accessToken: string; userId?: string; email?: string; name?: string }> {
+async function runSectlOAuthLogin(): Promise<SectlOAuthResult> {
   loadConfig(DEFAULT_WORKSPACE);
-  const relayUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  const oauthUrl = (process.env.SECTL_OAUTH_API_URL || "https://appwrite.sectl.cn").replace(/\/$/, "");
-  const oauthWebUrl = (process.env.SECTL_OAUTH_WEB_URL || "https://sectl.cn").replace(/\/$/, "");
-  const clientId = process.env.SECTL_OFFICIAL_CLIENT_ID || "";
-  const port = Number(process.env.SECTL_OAUTH_CALLBACK_PORT || 49152);
-  if (!relayUrl) throw new Error("请在 SecAgent .env 配置 SECTL_OFFICIAL_API_URL");
-  if (!clientId) throw new Error("请在 SecAgent .env 配置 SECTL_OFFICIAL_CLIENT_ID");
-  if (!Number.isInteger(port) || port < 49152 || port > 65535) throw new Error("SECTL_OAUTH_CALLBACK_PORT 必须是 49152-65535 的固定端口");
-  const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
-  const state = crypto.randomBytes(24).toString("base64url");
-  const verifier = crypto.randomBytes(48).toString("base64url");
-  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
-  const authorize = new URL(`${oauthWebUrl}/oauth/authorize`);
-  authorize.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "user:read", state, code_challenge: challenge, code_challenge_method: "S256" }).toString();
-  const callback = await new Promise<{ code: string }>((resolve, reject) => {
-    const server = createServer((request, response) => {
-      const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
-      if (url.pathname !== "/oauth/callback") { response.writeHead(404); response.end("Not found"); return; }
-      if (url.searchParams.get("state") !== state) { response.writeHead(400); response.end("Invalid state"); reject(new Error("OAuth state validation failed")); server.close(); return; }
-      const error = url.searchParams.get("error");
-      if (error) { response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }); response.end("<h2>Login failed. You can close this page.</h2>"); reject(new Error(url.searchParams.get("error_description") || error)); server.close(); return; }
-      const code = url.searchParams.get("code");
-      if (!code) { response.writeHead(400); response.end("Missing code"); reject(new Error("OAuth callback missing code")); server.close(); return; }
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); response.end("<h2>Login successful. You can close this page.</h2>"); resolve({ code }); server.close();
-    });
-    server.on("error", (error) => reject(new Error(`无法监听 OAuth 回调端口 ${port}: ${error.message}`)));
-    server.listen(port, "127.0.0.1", () => { void shell.openExternal(authorize.toString()); });
-    setTimeout(() => { server.close(); reject(new Error("OAuth 登录超时，请重试")); }, 5 * 60 * 1000).unref();
-  });
-  const ipAddress = await resolvePublicIpv4();
-  const response = await fetch(`${oauthUrl}/api/oauth/token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grant_type: "authorization_code", code: callback.code, client_id: clientId, redirect_uri: redirectUri, code_verifier: verifier, device_uuid: crypto.randomUUID(), ip_address: ipAddress }) });
-  const payload = await response.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!response.ok || !payload.access_token) throw new Error(payload.error_description || "SECTL OAuth 换取令牌失败");
-  const relayResponse = await fetch(`${relayUrl}/auth/oauth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: payload.access_token, client_id: clientId, platform_id: process.env.SECTL_OFFICIAL_PLATFORM_ID || clientId }) });
-  const relayPayload = await relayResponse.json().catch(() => ({})) as { access_token?: string; user?: { id?: string; email?: string; name?: string }; detail?: string };
-  if (!relayResponse.ok || !relayPayload.access_token) throw new Error(relayPayload.detail || "官方服务 OAuth 登录失败");
-  return { accessToken: relayPayload.access_token, userId: relayPayload.user?.id, email: relayPayload.user?.email, name: relayPayload.user?.name };
+  return runSectlOAuthFlow();
 }
 
 ipcMain.handle("sectl:oauth-login", () => runSectlOAuthLogin());
 ipcMain.handle("official:oauth-login", async () => {
   loadConfig(DEFAULT_WORKSPACE);
   const relayUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  const oauthUrl = (process.env.SECTL_OAUTH_API_URL || "https://appwrite.sectl.cn").replace(/\/$/, "");
-  const oauthWebUrl = (process.env.SECTL_OAUTH_WEB_URL || "https://sectl.cn").replace(/\/$/, "");
-  const clientId = process.env.SECTL_OFFICIAL_CLIENT_ID || "";
-  const port = Number(process.env.SECTL_OAUTH_CALLBACK_PORT || 49152);
-  if (!relayUrl) throw new Error("请在 SecAgent 代码目录 .env 配置 SECTL_OFFICIAL_API_URL");
-  if (!clientId) throw new Error("请在 SecAgent 代码目录 .env 配置 SECTL_OFFICIAL_CLIENT_ID");
-  if (!Number.isInteger(port) || port < 49152 || port > 65535) throw new Error("SECTL_OAUTH_CALLBACK_PORT 必须是 49152-65535 的固定端口");
-  const redirectUri = `http://127.0.0.1:${port}/oauth/callback`;
-  const state = crypto.randomBytes(24).toString("base64url");
-  const verifier = crypto.randomBytes(48).toString("base64url");
-  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
-  const authorize = new URL(`${oauthWebUrl}/oauth/authorize`);
-  authorize.search = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri, response_type: "code", scope: "user:read", state, code_challenge: challenge, code_challenge_method: "S256" }).toString();
-  const callback = await new Promise<{ code: string }>((resolve, reject) => {
-    const server = createServer((request, response) => {
-      const url = new URL(request.url || "/", `http://127.0.0.1:${port}`);
-      if (url.pathname !== "/oauth/callback") { response.writeHead(404); response.end("Not found"); return; }
-      if (url.searchParams.get("state") !== state) { response.writeHead(400); response.end("Invalid state"); reject(new Error("OAuth state 校验失败")); server.close(); return; }
-      const error = url.searchParams.get("error");
-      if (error) { response.writeHead(400, { "Content-Type": "text/html; charset=utf-8" }); response.end("<h2>登录未完成，请返回 SecAgent 重试。</h2>"); reject(new Error(url.searchParams.get("error_description") || error)); server.close(); return; }
-      const code = url.searchParams.get("code");
-      if (!code) { response.writeHead(400); response.end("Missing code"); reject(new Error("OAuth 回调缺少 code")); server.close(); return; }
-      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" }); response.end("<h2>SecAgent 登录成功，可以关闭此页面。</h2>"); resolve({ code }); server.close();
-    });
-    server.on("error", (error) => reject(new Error(`无法监听 OAuth 回调端口 ${port}: ${error.message}`)));
-    server.listen(port, "127.0.0.1", () => { void shell.openExternal(authorize.toString()); });
-    setTimeout(() => { server.close(); reject(new Error("OAuth 登录超时，请重试")); }, 5 * 60 * 1000).unref();
-  });
-  const ipAddress = await resolvePublicIpv4();
-  const tokenResponse = await fetch(`${oauthUrl}/api/oauth/token`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ grant_type: "authorization_code", code: callback.code, client_id: clientId, redirect_uri: redirectUri, code_verifier: verifier, device_uuid: crypto.randomUUID(), ip_address: ipAddress }) });
-  const tokenPayload = await tokenResponse.json().catch(() => ({})) as { access_token?: string; error_description?: string };
-  if (!tokenResponse.ok || !tokenPayload.access_token) throw new Error(tokenPayload.error_description || "SECTL OAuth 换取令牌失败");
-  const relayResponse = await fetch(`${relayUrl}/auth/oauth`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ access_token: tokenPayload.access_token, client_id: clientId, platform_id: process.env.SECTL_OFFICIAL_PLATFORM_ID || clientId }) });
-  const relayPayload = await relayResponse.json().catch(() => ({})) as { access_token?: string; user?: { id?: string; email?: string; name?: string }; detail?: string };
-  if (!relayResponse.ok || !relayPayload.access_token) throw new Error(relayPayload.detail || "官方服务登录失败");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_TOKEN", relayPayload.access_token);
+  const result = await runSectlOAuthFlow();
+  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_TOKEN", result.accessToken);
   writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_SECTL_TOKEN", "");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_USER_ID", relayPayload.user?.id || "");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_EMAIL", relayPayload.user?.email || "SECTL 用户");
+  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_USER_ID", result.userId || "");
+  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_EMAIL", result.email || "SECTL 用户");
   const current = readSettings(DEFAULT_WORKSPACE);
   const providers = current.providers.some((provider) => provider.id === "sectl-official") ? current.providers : [...current.providers, officialProvider(relayUrl)];
   return saveSettings(DEFAULT_WORKSPACE, { ...current, providers });
@@ -1371,6 +1282,8 @@ ipcMain.handle("settings:save", (_event, payload: SettingsPayload) => {
   sentryTelemetryEnabled = saved.telemetry.enabled;
   initializeSentry();
   telemetry?.setEnabled(saved.telemetry.enabled);
+  // Apply the new speech-recognition preference (provider chain) immediately.
+  configureSpeech(saved.speech);
   sendToAppWindows("settings:changed", saved);
   updateManager?.setPreferences(saved.updates);
   closeVoiceWakeWindow();
@@ -1391,27 +1304,32 @@ ipcMain.on("wake:context", (_event, payload: unknown) => {
 });
 ipcMain.handle("wake:close", () => { closeWakeWindow(); return { ok: true }; });
 ipcMain.on("wake:interactive", (_event, interactive: boolean) => { if (wakeWindow && !wakeWindow.isDestroyed()) wakeWindow.setIgnoreMouseEvents(!interactive); });
-ipcMain.handle("speech:start", (event) => {
+ipcMain.handle("speech:start", async (event) => {
   const target = wakeWindow?.webContents.id === event.sender.id ? wakeWindow : windowRef;
   logMain("speech.start", { window: target === wakeWindow ? "wake" : "main" });
   try {
-    const result = startSpeech(target);
-    logMain("speech.start.ready", { window: target === wakeWindow ? "wake" : "main", remote: result.remote });
+    const result = await startSpeech(target);
+    logMain("speech.start.ready", { window: target === wakeWindow ? "wake" : "main", provider: result.provider, fallbacks: result.fallbacks });
     return result;
+  } catch (error) {
+    recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "start" } });
+    throw error;
   }
-  catch (error) { recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "start" } }); throw error; }
 });
-ipcMain.handle("speech:stop", () => { logMain("speech.stop"); stopSpeech(); return { ok: true }; });
+ipcMain.handle("speech:stop", () => { logMain("speech.stop"); void stopSpeech(); return { ok: true }; });
 ipcMain.handle("speech:cancel", () => { logMain("speech.cancel"); cancelSpeech(); return { ok: true }; });
+ipcMain.handle("speech:chain", () => speechChain());
+ipcMain.handle("speech:test", (_event, kind: unknown) => {
+  const scope = kind === "official" || kind === "openai" || kind === "local" ? kind : "auto";
+  return testSpeech(scope);
+});
 ipcMain.handle("voice-wake:start", (event, phrase: string) => {
-  try {
-    return startVoiceWake(voiceWakeWindow?.webContents.id === event.sender.id ? voiceWakeWindow : undefined, phrase, () => {
-      // Keep the hidden microphone window alive so the listener can be resumed
-      // after the one-shot wake overlay closes.
-      stopVoiceWake();
-      void openWakeWindow().catch((error) => logMain("wake.open.failed", { error: String(error), reason: "voice" }));
-    });
-  } catch (error) { recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "voice-wake-start" } }); throw error; }
+  return startVoiceWake(voiceWakeWindow?.webContents.id === event.sender.id ? voiceWakeWindow : undefined, phrase, () => {
+    // Keep the hidden microphone window alive so the listener can be resumed
+    // after the one-shot wake overlay closes.
+    stopVoiceWake();
+    void openWakeWindow().catch((error) => logMain("wake.open.failed", { error: String(error), reason: "voice" }));
+  }).catch((error) => { recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "voice-wake-start" } }); throw error; });
 });
 ipcMain.handle("voice-wake:stop", () => { stopVoiceWake(); return { ok: true }; });
 ipcMain.on("voice-wake:log", (_event, payload: unknown) => {
@@ -1622,6 +1540,8 @@ app.whenReady().then(async () => {
 async function startApplication(): Promise<void> {
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
+  // Apply the persisted ASR preference before any speech session can start.
+  configureSpeech(initialSettings.speech);
   pluginManager = new PluginManager(DEFAULT_WORKSPACE, {
     getSession: async () => {
       loadConfig(DEFAULT_WORKSPACE);

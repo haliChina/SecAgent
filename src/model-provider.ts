@@ -451,7 +451,7 @@ export class ModelToolAgent {
         }
         if (type === "response.failed") {
           const failed = event.response as { error?: { message?: string; code?: string } } | undefined;
-          throw new Error(failed?.error?.message || "妯″瀷璇锋眰澶辫触");
+          throw new Error(failed?.error?.message || "模型请求失败");
         }
       }, () => ({ output: [{ type: "message", content: answer || undefined }, ...[...calls.values()].map((call) => ({ type: "function_call", call_id: call.callId, name: call.name, arguments: call.arguments }))] }), signal);
       const functionCalls = [...calls.values()].filter((call) => call.name && call.callId);

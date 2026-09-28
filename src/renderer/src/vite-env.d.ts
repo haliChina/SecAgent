@@ -19,7 +19,10 @@ interface ProviderModel { id: string; name?: string; enabled?: boolean }
 interface ProviderConfig { id: string; name: string; preset?: string; provider: ModelProfile["provider"]; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number; models: ProviderModel[] }
 interface ProviderPreset { id: string; name: string; env: string[]; api: string; models: ProviderModel[] }
 interface TelemetrySettings { enabled: boolean }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: { betterRecognition?: boolean }; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean }
+type AsrProviderKind = "auto" | "official" | "openai" | "local";
+interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
+interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings }
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean }
 interface SkillSummary { name: string; description: string; path: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }
@@ -102,7 +105,7 @@ interface Window {
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;
     stopMessage(id: string): Promise<{ ok: true; stopped: boolean }>;
     onRuntimeEvent(listener: (event: unknown) => void): () => void;
-    startSpeech(hotwords?: string[]): Promise<{ ok: true; remote?: boolean }>;
+    startSpeech(hotwords?: string[]): Promise<{ ok: true; remote?: boolean; provider?: string; fallbacks?: string[] }>;
     startVoiceWake(phrase: string): Promise<{ ok: true }>;
     sendVoiceWakeAudio(samples: Float32Array): void;
     stopVoiceWake(): Promise<{ ok: true }>;
@@ -111,6 +114,8 @@ interface Window {
     logSpeech(event: unknown): void;
     stopSpeech(): Promise<{ ok: true }>;
     cancelSpeech(): Promise<{ ok: true }>;
+    testSpeech(kind?: string): Promise<Array<{ id: string; label: string; ok: boolean; message: string }>>;
+    speechChain(): Promise<string[]>;
     synthesizeSpeech(text: string): Promise<string>;
     logWakeTts(event: unknown): void;
     setWakeContext(context: { sessionId?: string; modelId?: string; reasoningEffort?: ReasoningEffort }): void;

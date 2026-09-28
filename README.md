@@ -56,9 +56,27 @@ node dist/index.js run "给高一三班的李明加 2 分" --workspace ./demo-wo
 
 CLI 直接调用 SecScore 的 HTTP MCP（默认 `http://127.0.0.1:3901/mcp`），支持查学生、真实写入、审计和撤销。
 
-## 云端中文语音输入
+## 语音输入（多提供方 + 自动回退）
 
-桌面端麦克风按钮统一通过 SecAgent 官方服务的 WebSocket 接口进行云端识别。使用前需要登录官方服务并配置 `SECTL_OFFICIAL_API_URL` 和 `SECTL_OFFICIAL_TOKEN`；音频不会在本地使用 `sherpa-onnx` 模型处理。
+语音识别（ASR）被抽象为独立的提供方层（`src/asr/`），支持四种后端并按链自动回退：
+
+| 顺序 | 提供方 | 说明 |
+|---|---|---|
+| 1 | 第三方云端 | 任意 OpenAI 兼容 `/audio/transcriptions` 端点，内置小米 MiMo ASR / SiliconFlow SenseVoice / Groq Whisper 预设 |
+| 2 | 官方云端 | SECTL 官方服务 WebSocket（需登录），仅在位于回退链中时启用 |
+| 3 | 本地离线 | 随应用打包的 sherpa-onnx 流式模型，无需网络 |
+
+设置 → 语音识别中可选择“自动”（默认，按上表顺序回退）或固定某一后端，并支持一键“测试识别服务连通性”。第三方配置示例：
+
+```yaml
+speech:
+  provider: openai        # auto | openai | official | local
+  openai:
+    name: 小米 MiMo ASR
+    baseUrl: https://token-plan-cn.xiaomimimo.com/v1
+    model: MiMo-ASR
+    apiKeyEnv: MIMO_API_KEY   # 密钥保存到工作区 .env
+```
 
 主界面输入框支持鼠标或触摸长按 0.7 秒说话，松开后一次性识别并插入输入框；向左侧“拖动至此取消”区域松开可取消。也可以点击麦克风按钮开始，再在录音条上松开完成识别。
 

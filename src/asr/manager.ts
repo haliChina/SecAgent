@@ -1,0 +1,146 @@
+/**
+ * ASR orchestration: picks providers by settings, starts an utterance with
+ * automatic fallback, and keeps at most one active session at a time.
+ *
+ * Fallback chain:
+ *   `auto`     third-party (explicit user config) → official relay → local
+ *   `official` official relay → local
+ *   `openai`   third-party → local
+ *   `local`    local only
+ */
+import type { AsrEvent, AsrEventSink, AsrProvider, AsrSession } from "./types.js";
+import type { AsrProviderKind } from "./settings.js";
+
+export interface AsrManagerOptions {
+  /** Reads the live provider preference (`auto` when absent). */
+  getProviderKind: () => AsrProviderKind | undefined;
+  log?: (message: string) => void;
+}
+
+export interface StartedAsr {
+  session: AsrSession;
+  providerId: string;
+  /** Ordered provider ids that were tried before one started. */
+  fallbacks: string[];
+}
+
+export class AsrManager {
+  private readonly providers = new Map<string, AsrProvider>();
+  private active: AsrSession | undefined;
+  private readonly options: AsrManagerOptions;
+
+  constructor(options: AsrManagerOptions) {
+    this.options = options;
+  }
+
+  register(provider: AsrProvider): this {
+    this.providers.set(provider.id, provider);
+    return this;
+  }
+
+  getProvider(id: string): AsrProvider | undefined {
+    return this.providers.get(id);
+  }
+
+  listProviders(): AsrProvider[] {
+    return [...this.providers.values()];
+  }
+
+  /** Resolve the fallback chain for the configured provider kind. */
+  resolveChain(): AsrProvider[] {
+    const kind = this.options.getProviderKind() || "auto";
+    const chainFor: Record<AsrProviderKind, string[]> = {
+      auto: ["openai", "official", "local"],
+      official: ["official", "local"],
+      openai: ["openai", "local"],
+      local: ["local"]
+    };
+    return chainFor[kind]
+      .map((id) => this.providers.get(id))
+      .filter((provider): provider is AsrProvider => Boolean(provider))
+      .filter((provider) => provider.isConfigured() || provider.id === "local");
+  }
+
+  /** Provider ids the current settings would try, in order (diagnostics). */
+  chain(): string[] {
+    return this.resolveChain().map((provider) => provider.id);
+  }
+
+  get activeProviderId(): string | undefined {
+    return this.active?.providerId;
+  }
+
+  /** Start an utterance, falling back down the chain when a provider cannot start. */
+  async start(sink: AsrEventSink): Promise<StartedAsr> {
+    if (this.active) await this.cancel();
+    const chain = this.resolveChain();
+    if (!chain.length) throw new Error("没有可用的语音识别服务：请登录官方服务、配置第三方识别，或安装本地模型");
+    const failures: Array<{ id: string; message: string }> = [];
+    for (const provider of chain) {
+      try {
+        const session = await provider.start(sink);
+        this.active = session;
+        this.options.log?.(`[asr] session started provider=${provider.id} chain=${chain.map((item) => item.id).join(">")}`);
+        sink({ type: "ready", provider: provider.id });
+        return { session, providerId: provider.id, fallbacks: failures.map((failure) => failure.id) };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.options.log?.(`[asr] provider ${provider.id} failed to start: ${message}`);
+        failures.push({ id: provider.id, message });
+      }
+    }
+    throw new Error(failures.map((failure) => `${failure.id}：${failure.message}`).join("；"));
+  }
+
+  /** Push audio into the active session (if any). */
+  push(samples: Float32Array): void {
+    this.active?.push(samples);
+  }
+
+  /** Finish the active utterance. */
+  async stop(): Promise<void> {
+    const session = this.active;
+    this.active = undefined;
+    if (!session) return;
+    try { await session.stop(); } catch { /* stop errors surface as error events */ }
+  }
+
+  /** Abort the active utterance without a final result. */
+  async cancel(): Promise<void> {
+    const session = this.active;
+    this.active = undefined;
+    if (!session) return;
+    try { session.cancel(); } catch { /* cancel must never throw */ }
+  }
+
+  /** Probe every configured provider (used by the settings page). */
+  async test(kind: AsrProviderKind): Promise<Array<{ id: string; label: string; ok: boolean; message: string }>> {
+    const ids: Record<AsrProviderKind, string[]> = {
+      auto: ["openai", "official", "local"],
+      official: ["official"],
+      openai: ["openai"],
+      local: ["local"]
+    };
+    const results: Array<{ id: string; label: string; ok: boolean; message: string }> = [];
+    for (const id of ids[kind]) {
+      const provider = this.providers.get(id);
+      if (!provider) continue;
+      if (!provider.test) {
+        results.push({ id, label: provider.label, ok: provider.isConfigured(), message: provider.isConfigured() ? "已配置" : "未配置" });
+        continue;
+      }
+      try {
+        const result = await provider.test();
+        results.push({ id, label: provider.label, ok: result.ok, message: result.message });
+      } catch (error) {
+        results.push({ id, label: provider.label, ok: false, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    return results;
+  }
+}
+
+/** Convenience wrapper matching the legacy `startSpeech` result shape. */
+export function isRemoteAsrEvent(event: AsrEvent): boolean {
+  return event.type === "ready" || event.type === "partial" || event.type === "final";
+}

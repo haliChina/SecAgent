@@ -3,6 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { expandPath } from "./paths.js";
 import type { McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
+import { normalizeSpeechSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
 import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
@@ -226,6 +227,8 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
   if (errors.length) throw new Error(`配置校验失败：${errors.join("；")}`);
   raw.agent.baseUrl = raw.agent.baseUrl.replace(/\/$/, "");
   raw.agent.maxTokens = raw.agent.maxTokens || DEFAULT_MAX_TOKENS;
+  // Keep the speech/ASR block canonical (no UI-only extras like raw API keys).
+  raw.speech = normalizeSpeechSettings(raw.speech);
   for (const model of raw.agent.models ?? []) validateModelProfile(model, errors);
   if (raw.agent.models?.length) {
     const ids = new Set<string>();
@@ -309,7 +312,8 @@ export interface SettingsPayload {
   models: Array<ModelProfile & { apiKey?: string; apiKeyConfigured?: boolean }>;
   tts: { voice: string; rate: string };
   wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string };
-  speech: { betterRecognition?: boolean };
+  /** Speech-to-text settings; `openai.apiKey`/`openai.apiKeyConfigured` are UI-only extras. */
+  speech: SpeechAsrSettings & { openai?: OpenAiAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
   updates: UpdatePreferences;
   telemetry: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
@@ -338,7 +342,8 @@ export function readSettings(workspaceInput: string): SettingsPayload {
       maxTokens: config.agent.maxTokens
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { voice: config.tts?.voice || DEFAULT_TTS_VOICE, rate: config.tts?.rate || DEFAULT_TTS_RATE }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { betterRecognition: config.speech?.betterRecognition === true }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false };
+  const speech = normalizeSpeechSettings(config.speech);
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { voice: config.tts?.voice || DEFAULT_TTS_VOICE, rate: config.tts?.rate || DEFAULT_TTS_RATE }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -372,7 +377,13 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   // 系统提示词写死在源码中，保存时从工作区配置文件里移除该键。
   delete (canonicalAgent as { systemPrompt?: unknown }).systemPrompt;
   const candidateAgent = { ...canonicalAgent, models: models.map((model) => ({ ...model })) } as SecAgentConfig["agent"];
-  const nextSpeech = { betterRecognition: payload.speech?.betterRecognition === true };
+  // Third-party ASR keys follow the same env-var convention as model providers.
+  const inputOpenAi = payload.speech?.openai;
+  if (inputOpenAi && typeof inputOpenAi.apiKey === "string" && inputOpenAi.apiKey.trim()) {
+    if (!inputOpenAi.apiKeyEnv || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(inputOpenAi.apiKeyEnv)) throw new Error("第三方语音识别 API Key 环境变量名无效");
+    writeWorkspaceEnv(workspace, inputOpenAi.apiKeyEnv, inputOpenAi.apiKey.trim());
+  }
+  const nextSpeech = normalizeSpeechSettings(payload.speech);
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;
   const nextUpdates: UpdatePreferences = { channel: payload.updates?.channel === "preview" ? "preview" : payload.updates?.channel === "stable" ? "stable" : currentUpdates.channel, autoCheck: payload.updates ? payload.updates.autoCheck !== false : currentUpdates.autoCheck, autoDownload: payload.updates ? payload.updates.autoDownload !== false : currentUpdates.autoDownload, autoInstallOnQuit: payload.updates ? payload.updates.autoInstallOnQuit !== false : currentUpdates.autoInstallOnQuit };
   const nextTelemetry: TelemetrySettings = { enabled: payload.telemetry?.enabled !== false };

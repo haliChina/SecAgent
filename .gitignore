@@ -21,5 +21,9 @@ __pycache__/
 .claude-tmp-*
 secagent-ce-icon-generated.png
 
+# Windows-style temp fixtures the test suite creates when run on Linux
+# (literal-backslash names such as "\tmp\secagent-...")
+\\tmp*
+
 
 AGENTS.local.md

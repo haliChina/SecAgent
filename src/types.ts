@@ -1,3 +1,5 @@
+import type { SpeechAsrSettings } from "./asr/settings.js";
+
 export interface McpServerConfig {
   transport: "stdio" | "http";
   command?: string;
@@ -121,7 +123,8 @@ export interface SecAgentConfig {
   agent: AgentConfig;
   tts?: { voice?: string; rate?: string };
   wake?: { hotkey?: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string };
-  speech?: { betterRecognition?: boolean };
+  /** Speech-to-text settings: provider preference + third-party endpoint. */
+  speech?: SpeechAsrSettings;
   updates?: UpdatePreferences;
   telemetry?: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
