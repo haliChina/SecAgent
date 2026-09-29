@@ -19,9 +19,10 @@ interface ProviderModel { id: string; name?: string; enabled?: boolean }
 interface ProviderConfig { id: string; name: string; preset?: string; provider: ModelProfile["provider"]; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number; models: ProviderModel[] }
 interface ProviderPreset { id: string; name: string; env: string[]; api: string; models: ProviderModel[] }
 interface TelemetrySettings { enabled: boolean }
-type AsrProviderKind = "auto" | "official" | "openai" | "local";
+type AsrProviderKind = "auto" | "official" | "openai" | "local" | "bailian" | "bailian-ws";
 interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
-interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings }
+interface BailianAsrSettings { name?: string; apiKeyEnv: string; baseUrl: string; wsUrl: string; model: string; streamModel: string; language?: string; enableItn?: boolean; apiKey?: string; apiKeyConfigured?: boolean }
+interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings; bailian?: BailianAsrSettings }
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
 interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; hallucinationEnabled?: boolean }

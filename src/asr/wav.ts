@@ -32,6 +32,18 @@ export function encodeWav(samples: Float32Array, sampleRate = ASR_SAMPLE_RATE): 
   return new Uint8Array(buffer);
 }
 
+/** Encode Float32 samples as 16-bit little-endian mono PCM (raw stream frames). */
+export function encodePcm16(samples: Float32Array): Uint8Array {
+  const bytes = new Uint8Array(samples.length * 2);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < samples.length; index += 1) {
+    const sample = samples[index];
+    const clamped = Math.max(-1, Math.min(1, Number.isFinite(sample) ? sample : 0));
+    view.setInt16(index * 2, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+  }
+  return bytes;
+}
+
 /** Concatenate Float32 chunks without mutating the inputs. */
 export function mergeSamples(chunks: readonly Float32Array[]): Float32Array {
   let length = 0;

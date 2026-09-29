@@ -1381,7 +1381,7 @@ ipcMain.handle("speech:stop", () => { logMain("speech.stop"); void stopSpeech();
 ipcMain.handle("speech:cancel", () => { logMain("speech.cancel"); cancelSpeech(); return { ok: true }; });
 ipcMain.handle("speech:chain", () => speechChain());
 ipcMain.handle("speech:test", (_event, kind: unknown) => {
-  const scope = kind === "official" || kind === "openai" || kind === "local" ? kind : "auto";
+  const scope = kind === "official" || kind === "openai" || kind === "local" || kind === "bailian" || kind === "bailian-ws" ? kind : "auto";
   return testSpeech(scope);
 });
 ipcMain.handle("voice-wake:start", (event, phrase: string) => {
