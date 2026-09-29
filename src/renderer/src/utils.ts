@@ -34,7 +34,7 @@ export function toolTitle(name: string): string {
 }
 
 export const emptyModel = (): ModelProfile => ({ id: `model-${Date.now()}`, name: "新模型", provider: "openai-compatible", model: "", apiKeyEnv: "OPENAI_API_KEY", baseUrl: "https://api.openai.com/v1", endpoint: "/chat/completions", maxTokens: 16384 });
-export const emptyProvider = (): ProviderConfig => ({ id: `provider-${Date.now()}`, name: "新提供商", preset: "custom", provider: "openai-compatible", apiKeyEnv: "CUSTOM_API_KEY", baseUrl: "https://api.example.com/v1", endpoint: "/chat/completions", maxTokens: 16384, models: [] });
+export const emptyProvider = (): ProviderConfig => ({ id: `provider-${Date.now()}`, name: "新提供商", preset: "custom", provider: "openai-compatible", apiKeyEnv: "", baseUrl: "https://api.example.com/v1", endpoint: "/chat/completions", maxTokens: 16384, models: [] });
 export const emptyMcp = (): McpServerConfig => ({ transport: "http", url: "http://127.0.0.1:3901/mcp", enabled: true });
 
 export function pluginStateLabel(plugin: PluginStatus): string {

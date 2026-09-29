@@ -8,8 +8,9 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import YAML from "yaml";
 import { pathToFileURL } from "node:url";
-import { DEFAULT_WORKSPACE } from "../paths.js";
+import { DEFAULT_WORKSPACE, migrateLegacyWorkspace } from "../paths.js";
 import { configuredModels, configPath, DEFAULT_TELEMETRY_SETTINGS, initializeWorkspace, isOnboardingComplete, loadConfig, markOnboardingComplete, readOobeProgress, readSettings, saveOobeProgress, saveSettings, useConfiguredModel, writeWorkspaceEnv, type OobeProgress, type SettingsPayload } from "../config.js";
 import { loadEnabledSkills } from "../skills.js";
 import { AuditStore } from "../audit.js";
@@ -19,7 +20,7 @@ import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRe
 import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
-import { listGoogleModels } from "../google-models.js";
+import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { synthesizeSpeech } from "./tts.js";
 import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
@@ -37,6 +38,16 @@ import { normalizeReasoningEffort } from "../reasoning.js";
 import { WindowsUpdateManager } from "./update-manager.js";
 import { diagnosticLogDirectory, exportDiagnosticLogs } from "./diagnostic-logs.js";
 import { TelemetryClient, hashIdentifier, normalizeMessage, sanitizeStack, type TelemetryFailure } from "../telemetry.js";
+
+// One-time move of the legacy `~/SecAgentWorkspace` tree into the
+// platform-standard data directory. Must run before anything reads the
+// workspace, so it lives at module scope ahead of the first loadConfig call.
+try {
+  const migratedTo = migrateLegacyWorkspace();
+  if (migratedTo) console.info(`[paths] 已将旧工作区迁移到 ${migratedTo}`);
+} catch (error) {
+  console.warn("[paths] 旧工作区迁移失败，将继续使用新路径", error);
+}
 
 const SENTRY_DSN = process.env.SENTRY_DSN?.trim() || "";
 function readInitialTelemetryEnabled(): boolean {
@@ -836,8 +847,12 @@ const OFFICIAL_TIER_IDS = ["virtual-fast", "virtual-standard", "virtual-deep"] a
 
 ipcMain.handle("models:list", async () => {
   const { config } = loadConfig(DEFAULT_WORKSPACE);
-  const googleProfile = config.agent.models?.find((model) => model.provider === "google");
-  const googleModels = googleProfile ? await listGoogleModels(process.env[googleProfile.apiKeyEnv] || "", googleProfile.baseUrl).catch(() => []) : [];
+  // Pull the live catalog for every Google provider (official key, relays, ...)
+  // instead of only the first one — the rest used to lose all their models.
+  const googleProfiles = (config.agent.models || []).filter((model) => model.provider === "google");
+  const googleModels = googleProfiles.length
+    ? (await Promise.all(googleProfiles.map((profile) => listGoogleModels(process.env[profile.apiKeyEnv] || "", profile.baseUrl).catch(() => [] as GoogleModelInfo[])))).flat()
+    : [];
   const options = configuredModels(config, googleModels).filter((option) => option.id !== "sectl-official" && !option.id.startsWith("sectl-official:"));
   const customModelMode = Boolean(config.defaults?.customModelMode);
   const token = process.env.SECTL_OFFICIAL_TOKEN;
@@ -1238,6 +1253,49 @@ ipcMain.handle("oobe:complete", (event) => {
   if (windowRef && !windowRef.isDestroyed()) { windowRef.show(); windowRef.focus(); }
   return { ok: true };
 });
+const pendingToolConfirmations = new Map<string, { resolve: (approved: boolean) => void; timer: NodeJS.Timeout }>();
+let toolConfirmationSeq = 0;
+
+/** Pause the agent until the user approves a sensitive tool call (Codex-style). */
+function confirmSensitiveToolCall(sessionId: string, confirmation: { tool: string; arguments: Record<string, unknown>; reason: string }): Promise<boolean> {
+  return new Promise((resolve) => {
+    const confirmationId = `tool-confirm-${++toolConfirmationSeq}`;
+    const timer = setTimeout(() => {
+      pendingToolConfirmations.delete(confirmationId);
+      logMain("tool.confirm.timeout", { confirmationId });
+      resolve(false);
+    }, 5 * 60_000);
+    pendingToolConfirmations.set(confirmationId, { resolve, timer });
+    logMain("tool.confirm.request", { confirmationId, sessionId, tool: confirmation.tool });
+    sendToAppWindows("runtime:tool-confirmation", { confirmationId, sessionId, ...confirmation });
+  });
+}
+
+ipcMain.handle("runtime:tool-confirmation-reply", (_event, payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }) => {
+  const pending = pendingToolConfirmations.get(payload.confirmationId);
+  if (!pending) return { ok: false, error: "确认请求已过期" };
+  pendingToolConfirmations.delete(payload.confirmationId);
+  clearTimeout(pending.timer);
+  if (payload.approved && payload.always && payload.signature) appendGuardApproval(payload.signature);
+  logMain("tool.confirm.reply", { confirmationId: payload.confirmationId, approved: payload.approved, always: Boolean(payload.always) });
+  pending.resolve(payload.approved);
+  return { ok: true };
+});
+
+/** Persist a "不再提示" approval straight into the yaml without a full settings rewrite. */
+function appendGuardApproval(signature: string): void {
+  try {
+    const file = configPath(DEFAULT_WORKSPACE);
+    const raw = YAML.parse(fs.readFileSync(file, "utf8")) as { guard?: { approved?: string[] } };
+    const approved = new Set(raw?.guard?.approved || []);
+    approved.add(signature);
+    raw.guard = { ...(raw.guard || {}), approved: [...approved] };
+    fs.writeFileSync(file, YAML.stringify(raw), "utf8");
+  } catch (error) {
+    logMain("tool.confirm.persist.failed", { error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 ipcMain.handle("settings:save", (_event, payload: SettingsPayload) => {
   const customModelMode = Boolean(payload?.customModelMode);
   let providers = Array.isArray(payload?.providers) ? payload.providers : [];
@@ -1447,7 +1505,7 @@ ipcMain.handle("sessions:send", async (_event, id: string, text: string, modelId
     const runtimeConfig = isWakeRequest
       ? { ...config, agent: { ...config.agent, systemPrompt: `${config.agent.systemPrompt}\n\n## 快速唤起输出协议\n${QUICK_WAKE_OUTPUT_PROMPT}` } }
       : config;
-    runtime = new SecAgentRuntime(runtimeConfig, audit, skills, trace, pluginManager);
+    runtime = new SecAgentRuntime(runtimeConfig, audit, skills, trace, pluginManager, { confirmToolCall: (confirmation) => confirmSensitiveToolCall(id, confirmation) });
     const previousReadSkillNames = before.messages.flatMap((message) => message.toolCalls || []).filter((call) => call.name === "secagent__read_skill" || call.name === "read_skill").map((call) => typeof (call.arguments as { name?: unknown })?.name === "string" ? (call.arguments as { name: string }).name : "");
     const result = await runtime.run(historyInput(before, text), selectedReasoningEffort, conversationInput(before, text, attachments), abortController.signal, { previousAutoLoadedSkills: before.autoLoadedSkills, previousReadSkillNames, preRule });
     if (result.autoLoadedSkills?.length) {
@@ -1456,7 +1514,12 @@ ipcMain.handle("sessions:send", async (_event, id: string, text: string, modelId
       // Reuse the store's normal persistence path without adding a visible message.
       sessionStore.setAutoLoadedSkills(id, current.autoLoadedSkills);
     }
-    sessionStore.appendMessage(id, "assistant", result.message, toolCalls, activities);
+    // Surface resilience + hallucination findings inline so they survive the
+    // session history and stay visible without extra UI plumbing.
+    let finalMessage = result.message;
+    if ("usedFallbackModels" in result && result.usedFallbackModels?.length) finalMessage += `\n\n> ⚙️ 模型稳定性：已自动切换备用模型（${result.usedFallbackModels.join(" → ")}），原模型暂时不可用。`;
+    if ("hallucination" in result && result.hallucination?.signals.length) finalMessage += `\n\n> ⚠️ 幻觉检测提醒（仅提示，不代表一定有错）：\n${result.hallucination.signals.map((signal) => `> - ${signal.detail}`).join("\n")}\n> 建议人工核对以上要点。`;
+    sessionStore.appendMessage(id, "assistant", finalMessage, toolCalls, activities);
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     trace({ stage: "assistant.response", data: { text: result.message } });

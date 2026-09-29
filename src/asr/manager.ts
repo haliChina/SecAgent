@@ -70,22 +70,41 @@ export class AsrManager {
     return this.active?.providerId;
   }
 
+  /**
+   * Consecutive-start failures per provider (session-scoped). After 3 in a
+   * row a provider is skipped for a cool-off window (5 minutes), mirroring the
+   * model-level resilience cooldown. Reset on any successful start.
+   */
+  private startFailures = new Map<string, { count: number; until: number }>();
+  private isAsrCoolingDown(id: string): boolean {
+    const entry = this.startFailures.get(id);
+    return Boolean(entry && entry.until > Date.now());
+  }
+
   /** Start an utterance, falling back down the chain when a provider cannot start. */
   async start(sink: AsrEventSink): Promise<StartedAsr> {
     if (this.active) await this.cancel();
     const chain = this.resolveChain();
     if (!chain.length) throw new Error("没有可用的语音识别服务：请登录官方服务、配置第三方识别，或安装本地模型");
+    // Keep at least one option even when everything is cooling down.
+    const ready = chain.filter((provider) => !this.isAsrCoolingDown(provider.id));
+    const ordered = ready.length ? [...ready, ...chain.filter((provider) => this.isAsrCoolingDown(provider.id))] : chain;
     const failures: Array<{ id: string; message: string }> = [];
-    for (const provider of chain) {
+    for (const provider of ordered) {
       try {
         const session = await provider.start(sink);
         this.active = session;
-        this.options.log?.(`[asr] session started provider=${provider.id} chain=${chain.map((item) => item.id).join(">")}`);
+        this.startFailures.delete(provider.id);
+        this.options.log?.(`[asr] session started provider=${provider.id} chain=${ordered.map((item) => item.id).join(">")}`);
         sink({ type: "ready", provider: provider.id });
         return { session, providerId: provider.id, fallbacks: failures.map((failure) => failure.id) };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         this.options.log?.(`[asr] provider ${provider.id} failed to start: ${message}`);
+        const entry = this.startFailures.get(provider.id) || { count: 0, until: 0 };
+        entry.count += 1;
+        if (entry.count >= 3) entry.until = Date.now() + 5 * 60_000;
+        this.startFailures.set(provider.id, entry);
         failures.push({ id: provider.id, message });
       }
     }

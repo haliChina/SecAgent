@@ -122,5 +122,11 @@ contextBridge.exposeInMainWorld("secagent", {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
     ipcRenderer.on("plugins:changed", wrapped);
     return () => ipcRenderer.removeListener("plugins:changed", wrapped);
+  },
+  respondToolConfirmation: (payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }) => ipcRenderer.invoke("runtime:tool-confirmation-reply", payload),
+  onToolConfirmation: (listener: (payload: unknown) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: unknown) => listener(payload);
+    ipcRenderer.on("runtime:tool-confirmation", wrapped);
+    return () => ipcRenderer.removeListener("runtime:tool-confirmation", wrapped);
   }
 });

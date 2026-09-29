@@ -1,22 +1,83 @@
-# SecAgent CLI
+# SecAgent
 
-## Workspace selection
+SecAgent 是一个把自然语言转换为工具调用的桌面 Agent：支持多模型提供商、语音输入、本地工具、MCP 服务与插件。本仓库包含桌面端（Electron + React）与 CLI 两种使用方式。
 
-The default workspace is `~/SecAgentWorkspace`. Set `SECTL_WORKSPACE` before starting
-the CLI or desktop app to use another directory. An explicit `--workspace` argument
-overrides the environment variable for CLI commands.
+## 数据目录
 
-```powershell
-$env:SECTL_WORKSPACE = "D:\Temp\SecAgentTest"
-npm run build:cli
-node dist/index.js init
-node dist/index.js sessions list
+SecAgent 的所有数据（配置、密钥、会话、日志）集中存放在**一个**按平台约定的工作区目录：
+
+| 平台 | 默认工作区 |
+|---|---|
+| Windows | `%APPDATA%\SecAgent\workspace` |
+| macOS | `~/Library/Application Support/SecAgent/workspace` |
+| Linux | `$XDG_CONFIG_HOME/SecAgent/workspace`（未设置时为 `~/.config/SecAgent/workspace`） |
+
+首次启动时，旧版遗留在 `~/SecAgentWorkspace` 的数据会**自动迁移**到上述目录（跨盘符时降级为复制，旧目录改名为 `SecAgentWorkspace.migrated` 备查）。
+
+需要使用其他目录时，设置 `SECTL_WORKSPACE` 环境变量；CLI 命令可用 `--workspace` 参数覆盖。工作区内布局：
+
+```
+<工作区>/
+├── secagent.yaml      # 配置（模型提供商、MCP、语音、更新等）
+├── .env               # API 密钥（不要提交、不要手写变量名，见下文）
+├── sessions/          # 会话历史（session.json + runtime.jsonl）
+├── logs/              # 运行日志
+└── skills/            # SKILL.md 技能文件
 ```
 
-To use the setting for the desktop development app, keep the environment variable in
-the same PowerShell session and run `npm run build` followed by `npm run start`.
+## 模型提供商
 
-## CLI 调试 Agent
+桌面端“设置 → 模型提供商”中添加提供商：填名称、Base URL、粘贴 API Key 即可。**不需要手写环境变量名**——保存时按提供商名自动生成（如 `SECAGENT_DEEPSEEK_API_KEY`），密钥只写入工作区 `.env`，绝不进入 `secagent.yaml`。同一个预设添加两次（例如两个账号）会自动加编号后缀，避免密钥互相覆盖。
+
+所有模型选择处（主页模型菜单、默认模型、唤醒模型）均**按提供商分组显示**，不同提供商下的同名模型不会再混淆。多个 Google 提供商（官方 key + 中转）的模型会全部列出。
+
+YAML 手写示例（与设置界面等价）：
+
+```yaml
+agent:
+  providers:
+    - id: deepseek
+      name: DeepSeek
+      provider: openai-compatible
+      apiKeyEnv: SECAGENT_DEEPSEEK_API_KEY   # .env 中的变量名（自动生成）
+      baseUrl: https://api.deepseek.com/v1
+      endpoint: /chat/completions
+      maxTokens: 16384
+      models:
+        - id: deepseek-chat
+          name: DeepSeek V3
+```
+
+## 模型稳定性（重试 / 备用切换 / 冷却）
+
+面向阿里云百炼等“赠送资源包”平台设计——资源包用尽时无需手动换模型：
+
+- **自动重试**：同一模型对网络类错误重试一次；
+- **多轮 fallback**：当前模型失败后按顺序切换到其他已配置模型，全部失败才报错；切换链覆盖每一个已启用模型；
+- **失败记忆与冷却**：配额耗尽 / 鉴权失败的模型进入冷却期（普通错误 5 分钟起指数退避；资源包类 60 分钟），期间被跳过，成功一次即自动恢复。状态持久化在工作区 `.model-health.json`，重启后仍然生效；
+- 语音识别（ASR）链同样支持：第三方 → 官方 → 本地逐级回退，连续失败的提供方短暂禁用。
+
+以上行为均可在“设置 → 系统 → 模型稳定性”中分开关控制。
+
+## 敏感操作确认（Codex 风格）
+
+模型请求执行删除文件、格式化磁盘、强制推送、写系统注册表、写工作区外路径、下载并执行等操作时，会弹窗要求确认：
+
+- **拒绝**：工具调用被拦截，模型收到说明并改用其他方式；
+- **允许一次**：仅本次放行；
+- **总是允许此类**：按「工具 + 命令头」签名记忆（如 `bash|rm`），不同命令不会误放行；签名保存在 `secagent.yaml` 的 `guard.approved`。
+
+CLI 模式下通过终端 `y/N` 确认；非交互环境（管道 / CI）默认拒绝。5 分钟无响应自动拒绝。总开关位于“设置 → 系统 → 安全与检测”。
+
+## 幻觉检测
+
+最终回答会经过轻量启发式检测，命中时在回答下方显示提醒条（仅提醒、不拦截）：
+
+- 工具调用**失败**后回答却声称“已成功完成”；
+- 回答陷入重复循环（小模型过载时的常见模式）；
+- 引用了本轮从未产生的材料（“如上表所示”但没有任何工具产出）。
+
+## CLI
 
 CLI 的每次 `run` 都会持久化为一个会话，并默认实时打印模型思考片段、工具调用、工具返回结果和最终回答。模型请求失败时会保存错误消息并返回非零退出码。
 
@@ -25,8 +86,8 @@ cd SecAgent
 npm install
 npm run build:cli
 
-# 初始化工作区，并在 .env 中填写模型密钥
-node dist/index.js init --workspace ./demo-workspace
+# 初始化工作区（默认使用上文平台目录；也可用 --workspace 指定）
+node dist/index.js init
 
 # 执行单条消息；命令结束时会打印 [session] <会话 ID>
 node dist/index.js run "查询李明当前积分" --workspace ./demo-workspace
@@ -41,24 +102,13 @@ node dist/index.js run "把刚才的结果总结一下" --session <会话 ID> --
 node dist/index.js chat --session <会话 ID> --workspace ./demo-workspace
 ```
 
-交互式 `chat` 中输入 `:history` 查看当前会话，输入 `:use <会话 ID>` 切换会话，输入 `exit` 退出。需要完整的模型请求/响应原始事件时，加上 `--verbose`；普通模式已经会打印思考和工具过程。
-
-会话文件位于工作区的 `sessions/<会话 ID>/session.json`，运行时事件位于同目录的 `runtime.jsonl`，因此 CLI 和桌面端可以共享历史会话。
-
-SecAgent：把自然语言转换为工具调用。
-
-```bash
-npm install
-npm run build
-node dist/index.js init --workspace ./demo-workspace
-node dist/index.js run "给高一三班的李明加 2 分" --workspace ./demo-workspace
-```
+交互式 `chat` 中输入 `:history` 查看当前会话，输入 `:use <会话 ID>` 切换会话，输入 `exit` 退出。需要完整的模型请求/响应原始事件时，加上 `--verbose`。
 
 CLI 直接调用 SecScore 的 HTTP MCP（默认 `http://127.0.0.1:3901/mcp`），支持查学生、真实写入、审计和撤销。
 
 ## 语音输入（多提供方 + 自动回退）
 
-语音识别（ASR）被抽象为独立的提供方层（`src/asr/`），支持四种后端并按链自动回退：
+语音识别（ASR）被抽象为独立的提供方层（`src/asr/`），支持三种后端并按链自动回退：
 
 | 顺序 | 提供方 | 说明 |
 |---|---|---|
@@ -66,94 +116,11 @@ CLI 直接调用 SecScore 的 HTTP MCP（默认 `http://127.0.0.1:3901/mcp`）�
 | 2 | 官方云端 | SECTL 官方服务 WebSocket（需登录），仅在位于回退链中时启用 |
 | 3 | 本地离线 | 随应用打包的 sherpa-onnx 流式模型，无需网络 |
 
-设置 → 语音识别中可选择“自动”（默认，按上表顺序回退）或固定某一后端，并支持一键“测试识别服务连通性”。第三方配置示例：
-
-```yaml
-speech:
-  provider: openai        # auto | openai | official | local
-  openai:
-    name: 小米 MiMo ASR
-    baseUrl: https://token-plan-cn.xiaomimimo.com/v1
-    model: MiMo-ASR
-    apiKeyEnv: MIMO_API_KEY   # 密钥保存到工作区 .env
-```
+设置 → 语音识别中可选择“自动”（默认，按上表顺序回退）或固定某一后端，并支持一键“测试识别服务连通性”。API Key 同样不需要手写环境变量名，保存时自动写入 `.env`。
 
 主界面输入框支持鼠标或触摸长按 0.7 秒说话，松开后一次性识别并插入输入框；向左侧“拖动至此取消”区域松开可取消。也可以点击麦克风按钮开始，再在录音条上松开完成识别。
 
-## 模型配置
-
-`secagent init` 会在工作区创建 `.env`。将密钥填入其中，密钥不会写进 `secagent.yaml`：
-
-```dotenv
-OPENAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-GEMINI_API_KEY=...
-```
-
-桌面端打开“设置”后，可在“协议”中选择“Google Gemini”，粘贴从 Google AI Studio 获取的 API key 并保存。程序会使用 Gemini 原生 API；key 会保存到工作区 `.env`，不会写入 `secagent.yaml`。
-
-在 `secagent.yaml` 的 `agent` 区块选择协议、模型和端点：
-
-```yaml
-# OpenAI Responses 协议
-agent:
-  provider: openai-responses
-  model: gpt-5
-  apiKeyEnv: OPENAI_API_KEY
-  baseUrl: https://api.openai.com/v1
-  endpoint: /responses
-  maxTokens: 16384
-
-# OpenAI 或任何兼容 Chat Completions 的服务
-agent:
-  provider: openai-compatible
-  model: gpt-5
-  apiKeyEnv: OPENAI_API_KEY
-  baseUrl: https://api.openai.com/v1
-  endpoint: /chat/completions
-  maxTokens: 16384
-
-  # 可选：配置多个模型后，可在桌面端输入框右侧切换。
-  models:
-    - id: gpt-5
-      name: GPT-5
-      provider: openai-compatible
-      model: gpt-5
-      apiKeyEnv: OPENAI_API_KEY
-      baseUrl: https://api.openai.com/v1
-      endpoint: /chat/completions
-      maxTokens: 16384
-    - id: claude
-      name: Claude Sonnet
-      provider: anthropic
-      model: claude-sonnet-4-20250514
-      apiKeyEnv: ANTHROPIC_API_KEY
-      baseUrl: https://api.anthropic.com
-      endpoint: /v1/messages
-      anthropicVersion: "2023-06-01"
-      maxTokens: 16384
-
-# Anthropic Messages API 或其兼容端点
-# agent:
-#   provider: anthropic
-#   model: claude-sonnet-4-20250514
-#   apiKeyEnv: ANTHROPIC_API_KEY
-#   baseUrl: https://api.anthropic.com
-#   endpoint: /v1/messages
-#   anthropicVersion: "2023-06-01"
-#   maxTokens: 16384
-
-# Google Gemini 原生 API
-# agent:
-#   provider: google
-#   model: gemini-2.5-flash
-#   apiKeyEnv: GEMINI_API_KEY
-#   baseUrl: https://generativelanguage.googleapis.com/v1beta
-#   endpoint: ""
-#   maxTokens: 16384
-```
-
-桌面端输入框右侧的模型菜单可以分别选择模型和推理强度（不思考、低、中、高）。OpenAI Responses 会将其映射到 `reasoning.effort`；Anthropic 和 Gemini 会映射到各自的 thinking 配置。Responses、Anthropic thinking 和 Gemini thought summary 的流式内容会按时间顺序显示在工具执行过程内，最终答案仍单独显示。
+## 工具与技能
 
 模型可直接调用所有已发现的 MCP 工具，以及 Pi 风格的 `look_at`、`read`、`write`、`edit`、`bash` 五个本地工具；`look_at` 会读取工作区或本地路径中的图片并以多模态内容返回给模型，每次调用仍会写入本地审计。
 
@@ -169,10 +136,23 @@ description: 处理学生查询、积分加减分和撤销。
 
 隐藏 MCP 工具的声明方式、通用调用入口，以及 Skill/MCP 开发者约定见 [`docs/skill-mcp-convention.md`](docs/skill-mcp-convention.md)。
 
+## 开发与 CI
+
+```bash
+npm install
+npm run build    # tsc 全量类型检查 + electron-vite 打包（main/preload/renderer）
+npm test         # node --test dist/**/*.test.js
+```
+
+GitHub Actions：
+
+- **CI**（`.github/workflows/ci.yml`）：每次 push / PR 运行——类型检查、完整构建、单元测试、CLI 冒烟（`init` + `doctor`）；
+- **Build**（`.github/workflows/build.yml`）：三平台打包并上传构建产物。
+
 ## 更新检查与诊断日志
 
 SecAgent 会优先读取签名的 `updates.json` 通道清单；清单暂不可用时回退到 GitHub Releases API，并依次尝试代理和直连。安装包下载后必须通过 SHA-256 校验。
 
-更新设置页面中的“打开日志目录”可直接打开工作区的 `logs` 目录；“导出诊断日志”会生成脱敏 ZIP，适合提交故障信息。日志通常位于 `%USERPROFILE%\SecAgentWorkspace\logs`。
+更新设置页面中的“打开日志目录”可直接打开工作区的 `logs` 目录；“导出诊断日志”会生成脱敏 ZIP，适合提交故障信息。日志位于上文“数据目录”表格中对应平台的 `<工作区>/logs`。
 
 发布者如需启用签名清单，应将与 `src/update-public-key.ts` 匹配的私钥配置为 GitHub Actions Secret：`SECAGENT_UPDATE_PRIVATE_KEY`。私钥不得提交到仓库。

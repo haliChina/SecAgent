@@ -320,6 +320,18 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 }
 .points-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }.points-card .card-heading { margin: 0; }.points-value { margin: 0; color: #1676d2; font-size: 22px; font-weight: 700; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line, #e4e8ed); cursor: pointer; }.settings-card > .toggle-row:first-child { margin-top: 0; padding-top: 0; border-top: 0; }.toggle-row .toggle-copy { display: grid; gap: 4px; }.toggle-row .toggle-copy strong { font-size: 14px; }.toggle-row .toggle-copy small { color: var(--muted, #66717d); font-size: 12px; line-height: 1.5; }.toggle-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; cursor: pointer; accent-color: #2389ec; }.toggle-row.nested-toggle-row { margin-left: 28px; }.official-balance-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line, #e4e8ed); }.official-balance-row .points-value { margin-right: auto; }.official-redeem-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line, #e4e8ed); }.official-redeem-row input { flex: 1; min-width: 0; padding: 8px 9px; border: 1px solid #d8d8d8; border-radius: 7px; outline: none; background: #fff; color: #171717; font-size: 13px; }.official-redeem-row input:focus { border-color: #2389ec; box-shadow: 0 0 0 2px rgba(35,137,236,.12); }.default-model-settings { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line, #e4e8ed); }.default-model-settings label { display: grid; gap: 6px; color: var(--muted, #66717d); font-size: 13px; }.default-model-settings select { min-width: 0; }.model-divider { height: 1px; margin: 6px 10px; background: #e3e7eb; }
+.model-group-label { margin: 8px 10px 2px; color: #8a94a0; font-size: 11px; font-weight: 650; letter-spacing: .04em; }
+.model-submenu .model-group-label:first-child { margin-top: 2px; }
+.tool-confirmation-overlay { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .45); backdrop-filter: blur(2px); }
+.tool-confirmation-card { display: grid; gap: 12px; width: min(520px, 100%); max-height: 80vh; overflow: auto; padding: 20px; border: 1px solid #e2a03e; border-radius: 12px; background: #fff; box-shadow: 0 18px 48px rgba(0,0,0,.22); }
+.tool-confirmation-card h3 { margin: 0; color: #9a5b00; font-size: 16px; }
+.tool-confirmation-reason { margin: 0; color: #b3541e; font-size: 13px; font-weight: 600; }
+.tool-confirmation-detail { display: grid; gap: 6px; padding: 10px; border: 1px solid #eee; border-radius: 8px; background: #fafafa; font-size: 12px; }
+.tool-confirmation-detail strong { color: #333; }
+.tool-confirmation-detail pre { margin: 0; overflow: auto; max-height: 200px; color: #555; font-size: 11px; white-space: pre-wrap; word-break: break-all; }
+.tool-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.hallucination-notice { margin: 8px 0 0; padding: 8px 12px; border: 1px solid #f0c36d; border-radius: 8px; background: #fff8e8; color: #8a5a00; font-size: 12px; line-height: 1.6; }
+.hallucination-notice strong { display: block; margin-bottom: 2px; }
 .provider-list-item .card-heading { align-items: center; }
 .provider-list-item .card-heading > div:first-child { display: grid; gap: 5px; }
 .provider-list-item .card-heading span { color: #999; font-size: 12px; }
@@ -362,7 +374,9 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .select-combobox-chevron { flex: 0 0 auto; color: #777; font-size: 13px; line-height: 1; transform: translateY(-1px); transition: transform .15s ease; }
 .select-combobox[aria-expanded="true"] .select-combobox-chevron, .select-combobox-trigger[aria-expanded="true"] .select-combobox-chevron { transform: rotate(180deg) translateY(-1px); }
 .select-combobox-options { z-index: 5; display: grid; align-content: start; gap: 1px; overflow: auto; padding: 4px; border: 1px solid #d8d8d8; border-radius: 8px; background: #fff; box-shadow: 0 10px 28px rgba(0,0,0,.16); }
-.select-combobox-option { width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: #333; font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.select-combobox-item { display: grid; gap: 1px; }
+.select-combobox-group { position: sticky; top: 0; padding: 8px 9px 4px; background: #fff; color: #8a94a0; font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: none; box-shadow: 0 6px 6px -6px rgba(0,0,0,.08); }
+.select-combobox-option { width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: #333; font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .select-combobox-option:hover, .select-combobox-option.active { background: #eef6ff; color: #17406e; }
 .select-combobox-option.selected { color: #1676d2; font-weight: 650; }
 .select-combobox-empty { padding: 9px; color: #999; font-size: 12px; }

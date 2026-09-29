@@ -381,7 +381,7 @@ export function OobeWizard() {
         if (!officialLoggedIn) throw new Error("请先登录 SECTL 账号");
         await persist({ ...settings, customModelMode: false });
       } else {
-        if (!provider.name.trim() || !provider.apiKeyEnv.trim() || !provider.baseUrl.trim() || !provider.models.length) {
+        if (!provider.name.trim() || !provider.baseUrl.trim() || !provider.models.length) {
           throw new Error("请填写提供商信息并至少添加一个模型");
         }
         const providers = settings.providers.some((item) => item.id === provider.id)
@@ -986,7 +986,6 @@ export function OobeWizard() {
           <label>提供商名称<input value={provider.name} onChange={(event) => updateProvider({ name: event.target.value })} /></label>
           <label>预设<PresetCombobox value={provider.preset || "custom"} presets={presets} onSelect={applyPreset} /></label>
           <label>协议<SelectCombobox ariaLabel="协议" value={provider.provider} options={[{ value: "openai-compatible", label: "OpenAI Chat 兼容" }, { value: "openai-responses", label: "OpenAI Responses" }, { value: "anthropic", label: "Anthropic" }, { value: "google", label: "Google Gemini" }]} onChange={(protocol) => updateProvider({ provider: protocol as ProviderConfig["provider"] })} /></label>
-          <label>API Key 环境变量<input value={provider.apiKeyEnv} onChange={(event) => updateProvider({ apiKeyEnv: event.target.value })} /></label>
           <label className="wide-field">Base URL<input value={provider.baseUrl} onChange={(event) => updateProvider({ baseUrl: event.target.value })} /></label>
           <label>Endpoint<input value={provider.endpoint || ""} onChange={(event) => updateProvider({ endpoint: event.target.value })} /></label>
           <label>API Key<input type="password" placeholder={provider.apiKeyConfigured ? "已配置（留空保持不变）" : "粘贴 API Key"} value={provider.apiKey || ""} onChange={(event) => updateProvider({ apiKey: event.target.value })} /></label>

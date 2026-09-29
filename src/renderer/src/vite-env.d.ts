@@ -12,7 +12,7 @@ interface UpdatePreferences { channel: UpdateChannel; autoCheck: boolean; autoDo
 interface UpdateRelease { version: string; tag: string; releaseType?: "alpha" | "beta"; channel: UpdateChannel; htmlUrl: string; body: string; publishedAt?: string; assetName: string; assetUrl: string; checksumUrl?: string; sha256?: string; size?: number }
 interface UpdateRequestAttempt { phase: "metadata" | "release-api" | "checksum" | "asset"; route: "proxy" | "direct"; url: string; ok: boolean; status?: number; contentType?: string; responseBytes?: number; durationMs: number; error?: string }
 interface UpdateState { currentVersion: string; channel: UpdateChannel; status: UpdateStatus; release?: UpdateRelease; downloadedVersion?: string; downloadedBytes: number; totalBytes?: number; checkedAt?: string; error?: string; operationId?: string; attempts?: UpdateRequestAttempt[]; supportReason?: string }
-interface ModelOption { id: string; name: string; model: string; provider: string; virtual?: boolean }
+interface ModelOption { id: string; name: string; model: string; provider: string; virtual?: boolean; providerLabel?: string }
 interface ModelProfile { id: string; name?: string; enabled?: boolean; provider: "openai-compatible" | "openai-responses" | "anthropic" | "google"; model: string; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number }
 interface McpServerConfig { transport: "stdio" | "http"; command?: string; args?: string[]; url?: string; enabled: boolean }
 interface ProviderModel { id: string; name?: string; enabled?: boolean }
@@ -22,7 +22,9 @@ interface TelemetrySettings { enabled: boolean }
 type AsrProviderKind = "auto" | "official" | "openai" | "local";
 interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean }
+interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
+interface ToolGuardSettings { enabled: boolean; approved: string[] }
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; hallucinationEnabled?: boolean }
 interface SkillSummary { name: string; description: string; path: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }
@@ -126,5 +128,7 @@ interface Window {
     onSettingsChanged(listener: (settings: SettingsPayload) => void): () => void;
     onUpdateState(listener: (state: UpdateState) => void): () => void;
     onPluginsChanged(listener: (plugins: PluginStatus[]) => void): () => void;
+    respondToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }): Promise<{ ok: boolean; error?: string }>;
+    onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string }) => void): () => void;
   };
 }

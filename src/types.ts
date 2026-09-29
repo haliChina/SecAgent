@@ -19,6 +19,8 @@ export interface ModelProfile {
   endpoint?: string;
   anthropicVersion?: string;
   maxTokens?: number;
+  /** Display name of the ProviderConfig this profile was expanded from. */
+  providerName?: string;
 }
 
 export interface ProviderConfig {
@@ -129,6 +131,12 @@ export interface SecAgentConfig {
   telemetry?: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
   defaults?: { modelId?: string; reasoningEffort?: ReasoningEffort; customModelMode?: boolean; autostart?: boolean; autostartHidden?: boolean };
+  /** Model-failure resilience (retry/fallback/cooldown) — see resilience.ts. */
+  resilience?: import("./resilience.js").ResilienceSettings;
+  /** Sensitive tool-call confirmations — see tool-guard.ts. */
+  guard?: import("./tool-guard.js").ToolGuardSettings;
+  /** Hallucination warning strip for final answers. */
+  hallucination?: { enabled?: boolean };
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */

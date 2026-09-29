@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 
-export interface SelectOption { value: string; label: string }
+export interface SelectOption { value: string; label: string; group?: string }
 
 /**
  * A styled replacement for native <select>. Chromium cannot restyle the
  * built-in dropdown popup, so the expanded list is rendered manually with the
  * same positioning strategy as PresetCombobox (fixed panel, flips above/below).
+ *
+ * Options may carry a `group` label; a non-interactive header is rendered
+ * whenever it changes, so models from different providers stay visually
+ * separated even when their model names collide.
  */
 export function SelectCombobox({ value, options, onChange, disabled, ariaLabel }: { value: string; options: SelectOption[]; onChange: (value: string) => void; disabled?: boolean; ariaLabel?: string }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -13,6 +17,7 @@ export function SelectCombobox({ value, options, onChange, disabled, ariaLabel }
   const [pos, setPos] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(() => Math.max(0, options.findIndex((option) => option.value === value)));
   const selected = options.find((option) => option.value === value);
+  const selectedDisplay = selected ? (selected.group ? `${selected.group} · ${selected.label}` : selected.label) : "";
 
   useEffect(() => {
     if (!open) return;
@@ -63,12 +68,15 @@ export function SelectCombobox({ value, options, onChange, disabled, ariaLabel }
   };
 
   return <div className={`select-combobox ${disabled ? "disabled" : ""}`} ref={boxRef} onKeyDown={handleKeyDown}>
-    <button type="button" className="select-combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} disabled={disabled} onClick={() => (open ? setOpen(false) : openOptions())}>
-      <span className="select-combobox-value">{selected?.label || value || "—"}</span>
+    <button type="button" className="select-combobox-trigger" aria-haspopup="listbox" aria-expanded={open} aria-label={ariaLabel} title={selectedDisplay || undefined} disabled={disabled} onClick={() => (open ? setOpen(false) : openOptions())}>
+      <span className="select-combobox-value">{selectedDisplay || value || "—"}</span>
       <span className="select-combobox-chevron" aria-hidden="true">⌄</span>
     </button>
     {open && pos && <div className="select-combobox-options" style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, maxHeight: pos.height, zIndex: 200 }} role="listbox">
-      {options.map((option, index) => <button type="button" role="option" aria-selected={option.value === value} key={option.value} className={`select-combobox-option ${option.value === value ? "selected" : ""} ${index === activeIndex ? "active" : ""}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>{option.label}</button>)}
+      {options.map((option, index) => <div key={option.value} className="select-combobox-item">
+        {option.group && option.group !== options[index - 1]?.group && <div className="select-combobox-group" role="presentation">{option.group}</div>}
+        <button type="button" role="option" aria-selected={option.value === value} className={`select-combobox-option ${option.value === value ? "selected" : ""} ${index === activeIndex ? "active" : ""}`} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(option)}>{option.label}</button>
+      </div>)}
       {options.length === 0 && <span className="select-combobox-empty">暂无选项</span>}
     </div>}
   </div>;

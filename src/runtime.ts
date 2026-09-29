@@ -11,10 +11,27 @@ import { callPiTool, piTools } from "./pi-tools.js";
 import { PluginManager } from "./plugin-manager.js";
 import type { ResolvedPluginPreRule } from "./plugin-manager.js";
 import { summarizeToolResult } from "./tool-content.js";
+import { useConfiguredModel } from "./config.js";
+import { DEFAULT_RESILIENCE, ModelHealthStore, classifyFailure, isFallbackable, planModelChain, type ResilienceSettings } from "./resilience.js";
+import { checkToolCall, normalizeToolGuardSettings, type GuardCheckRequest, type ToolGuardSettings } from "./tool-guard.js";
+import { detectHallucination, type HallucinationReport } from "./hallucination.js";
 
 export type RunResult =
-  | { kind: "completed"; message: string; actionId?: string; autoLoadedSkills?: string[] }
+  | { kind: "completed"; message: string; actionId?: string; autoLoadedSkills?: string[]; hallucination?: HallucinationReport; usedFallbackModels?: string[] }
   | { kind: "needs-disambiguation"; message: string; autoLoadedSkills?: string[] };
+
+export interface ToolConfirmation {
+  tool: string;
+  arguments: Record<string, unknown>;
+  reason: string;
+}
+
+export interface RuntimeOptions {
+  /** Sensitive-tool confirmation bridge to the UI. Return false to reject. */
+  confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
+  /** Persisted model health store; defaults to one in the workspace. */
+  health?: ModelHealthStore;
+}
 
 export type TraceEvent = { sequence: number; at: string; stage: string; data: unknown };
 
@@ -45,9 +62,19 @@ export class SecAgentRuntime {
   private registry: McpRegistry;
   private agent: ModelToolAgent;
   private sequence = 0;
-  constructor(private config: SecAgentConfig, private audit: AuditStore, private skills: LoadedSkill[], private trace?: (event: TraceEvent) => void, private plugins?: PluginManager) {
+  private health: ModelHealthStore;
+  private resilience: ResilienceSettings;
+  private guard: ToolGuardSettings;
+  private confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
+  /** Per-run tool outcomes feeding hallucination detection. */
+  private toolEvidence: Array<{ name: string; ok: boolean }> = [];
+  constructor(private config: SecAgentConfig, private audit: AuditStore, private skills: LoadedSkill[], private trace?: (event: TraceEvent) => void, private plugins?: PluginManager, options: RuntimeOptions = {}) {
     this.registry = new McpRegistry(config, plugins?.getMcpServers());
     this.agent = new ModelToolAgent(config, skills, (stage, data) => this.emit(stage, data), () => this.plugins?.getPromptContributions() ?? Promise.resolve([]));
+    this.health = options.health ?? ModelHealthStore.load(config.workspace);
+    this.resilience = config.resilience ?? DEFAULT_RESILIENCE;
+    this.guard = normalizeToolGuardSettings(config.guard);
+    this.confirmToolCall = options.confirmToolCall;
   }
   async run(input: string, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule } = {}): Promise<RunResult> {
     signal?.throwIfAborted();
@@ -103,9 +130,72 @@ export class SecAgentRuntime {
     const prepared = this.prepareAutoLoadedSkills(conversation, state);
     this.emit("secagent.skills/auto-load", prepared.loaded.map((skill) => ({ name: skill.name, path: skill.path })));
     this.emit("model.agent.request", { provider: this.config.agent.provider, model: this.config.agent.model, baseUrl: this.config.agent.baseUrl, instruction: input });
-    const message = await this.agent.run(input, tools, async (key, args) => this.callTool(input, key, args, hiddenTools), reasoningEffort, prepared.conversation, signal);
+    this.toolEvidence = [];
+    const { message, usedFallbacks } = await this.runWithFallback(input, tools, (key, args) => this.callTool(input, key, args, hiddenTools), reasoningEffort, prepared.conversation, signal);
     this.emit("model.agent.result", { message });
-    return { kind: "completed", message, autoLoadedSkills: prepared.loaded.map((skill) => skill.name) };
+    const hallucination = this.config.hallucination?.enabled === false ? undefined : detectHallucination(message, { toolCalls: this.toolEvidence, runCompleted: true });
+    if (hallucination?.score) this.emit("model.hallucination/flagged", { score: hallucination.score, signals: hallucination.signals });
+    return { kind: "completed", message, autoLoadedSkills: prepared.loaded.map((skill) => skill.name), ...(usedFallbacks.length ? { usedFallbackModels: usedFallbacks } : {}), ...(hallucination?.score ? { hallucination } : {}) };
+  }
+
+  /**
+   * Run the agent with retry + model-chain fallback. The chain covers every
+   * enabled model (requested one first), skipping models that are cooling
+   * down after remembered failures — the Aliyun Bailian free-quota scenario:
+   * when the granted package runs out mid-conversation, the next model in the
+   * list answers instead of an error dialog.
+   */
+  private async runWithFallback(input: string, tools: Parameters<ModelToolAgent["run"]>[1], callTool: (key: string, args: Record<string, unknown>) => Promise<unknown>, reasoningEffort: ReasoningEffort, conversation: ConversationMessage[] | undefined, signal?: AbortSignal): Promise<{ message: string; usedFallbacks: string[] }> {
+    const candidates = (this.config.agent.models || []).filter((model) => model.enabled !== false);
+    const requested = candidates.find((model) => `${model.provider}:${model.model}` === `${this.config.agent.provider}:${this.config.agent.model}`) || candidates.find((model) => model.model === this.config.agent.model);
+    const chain = planModelChain(requested, candidates, (model) => model.id, this.resilience, this.health);
+    if (!chain.length) {
+      // Legacy single-model config without an agent.models list: there is
+      // nothing to switch to, so run the configured agent with retry only.
+      const attempts = this.resilience.autoRetry ? 2 : 1;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+          const message = await this.agent.run(input, tools, callTool, reasoningEffort, conversation, signal);
+          return { message, usedFallbacks: [] };
+        } catch (error) {
+          if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+          lastError = error;
+          const kind = classifyFailure(error);
+          this.emit("model.request/failed", { model: this.config.agent.model, kind, error: error instanceof Error ? error.message : String(error), attempt });
+          if (kind === "auth" || kind === "aborted" || kind === "unknown") break;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "模型请求失败"));
+    }
+    const usedFallbacks: string[] = [];
+    let lastError: unknown;
+    for (let index = 0; index < chain.length; index++) {
+      const model = chain[index];
+      const modelLabel = model.providerName ? `${model.providerName} / ${model.model}` : model.model;
+      if (index > 0) {
+        useConfiguredModel(this.config, model.id);
+        this.agent = new ModelToolAgent(this.config, this.skills, (stage, data) => this.emit(stage, data), () => this.plugins?.getPromptContributions() ?? Promise.resolve([]));
+        this.emit("model.fallback/switch", { to: modelLabel, modelId: model.id, attempt: index });
+        usedFallbacks.push(modelLabel);
+      }
+      const attempts = this.resilience.autoRetry ? 2 : 1;
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        try {
+          const message = await this.agent.run(input, tools, callTool, reasoningEffort, conversation, signal);
+          if (this.resilience.rememberFailures && index > 0) this.health.reportSuccess(model.id);
+          return { message, usedFallbacks };
+        } catch (error) {
+          if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
+          lastError = error;
+          const kind = classifyFailure(error);
+          this.emit("model.request/failed", { model: modelLabel, kind, error: error instanceof Error ? error.message : String(error), attempt });
+          if (this.resilience.rememberFailures && (kind === "quota" || kind === "auth" || kind === "rate_limit" || attempt === attempts - 1)) this.health.reportFailure(model.id, kind, error instanceof Error ? error.message : String(error), this.resilience);
+          if (kind === "auth" || kind === "unknown") break; // switching models cannot fix a broken prompt schema
+        }
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error(String(lastError ?? "模型请求失败且没有可用的备用模型"));
   }
   async close(): Promise<void> { await this.registry.close(); }
   private prepareAutoLoadedSkills(conversation: ConversationMessage[] | undefined, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[] }): { conversation?: ConversationMessage[]; loaded: LoadedSkill[] } {
@@ -137,7 +227,31 @@ export class SecAgentRuntime {
     const response = await this.callTool(`undo ${actionId}`, connectorUndoKey || "secscore__undo_score", { event_uuid: result.event_uuid, student_id: result.student_id });
     return { kind: "completed", message: `已请求撤销 ${actionId}：${JSON.stringify(response)}` };
   }
+  /**
+   * Guarded tool-call entry point: sensitive operations pause for user
+   * confirmation (Codex-style) and every outcome feeds hallucination evidence.
+   */
   private async callTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>): Promise<unknown> {
+    const decision = checkToolCall({ tool: key, arguments: args }, this.guard);
+    if (decision.action === "confirm") {
+      const approved = this.confirmToolCall ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason }) : false;
+      if (!approved) {
+        this.toolEvidence.push({ name: key, ok: false });
+        this.emit("secagent.tools/rejected", { name: key, reason: decision.reason });
+        throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${decision.reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
+      }
+    }
+    try {
+      const result = await this.executeGuardedTool(request, key, args, hiddenTools);
+      this.toolEvidence.push({ name: key, ok: true });
+      return result;
+    } catch (error) {
+      this.toolEvidence.push({ name: key, ok: false });
+      throw error;
+    }
+  }
+
+  private async executeGuardedTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>): Promise<unknown> {
     if (piTools.some((tool) => tool.key === key)) {
       this.emit("secagent.tools/call", { name: key, arguments: args });
       try {

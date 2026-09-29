@@ -83,6 +83,8 @@ export function App() {
   const [quotedText, setQuotedText] = useState("");
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [readingStatus, setReadingStatus] = useState<"loading" | "playing" | null>(null);
+  // Codex-style sensitive tool-call confirmation, pending user decision.
+  const [toolConfirmation, setToolConfirmation] = useState<{ confirmationId: string; tool: string; arguments: Record<string, unknown>; reason: string } | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const answerContentRef = useRef<HTMLDivElement>(null);
@@ -91,7 +93,23 @@ export function App() {
   const answerScrollLockTimer = useRef<number | undefined>(undefined);
   const answerStartScrollPending = useRef(false);
   const modelMenuEnd = useRef<HTMLDivElement>(null);
-  const orderedModels = useMemo(() => [...models.filter(isOfficialModel), ...models.filter((model) => !isOfficialModel(model))], [models]);
+  // Official tiers first, then custom models clustered by provider so the
+  // submenu can render a labelled group header per provider.
+  const orderedModels = useMemo(() => {
+    const official = models.filter(isOfficialModel);
+    const custom = models.filter((model) => !isOfficialModel(model));
+    const clustered: ModelOption[] = [];
+    const byProvider = new Map<string, ModelOption[]>();
+    for (const model of custom) {
+      const group = model.providerLabel || "自定义模型";
+      const bucket = byProvider.get(group);
+      if (bucket) bucket.push(model);
+      else { byProvider.set(group, [model]); }
+    }
+    for (const bucket of byProvider.values()) clustered.push(...bucket);
+    return [...official, ...clustered];
+  }, [models]);
+  const modelGroupLabel = (model: ModelOption): string => isOfficialModel(model) ? "官方服务" : (model.providerLabel || "自定义模型");
   const selectedModel = models.find((model) => model.id === selectedModelId);
   const reasoningEfforts = useMemo(() => reasoningEffortsForModel(selectedModel), [selectedModel]);
   useEffect(() => {
@@ -274,6 +292,19 @@ export function App() {
       setTrace((current) => [...current, item]);
     });
   }, [bridge]);
+
+  // Sensitive tool calls pause here until the user approves, rejects, or the
+  // 5-minute main-process timeout fires.
+  useEffect(() => {
+    if (!bridge) return;
+    return bridge.onToolConfirmation((payload) => setToolConfirmation(payload));
+  }, [bridge]);
+
+  const resolveToolConfirmation = (approved: boolean, always = false) => {
+    if (!toolConfirmation) return;
+    void bridge?.respondToolConfirmation({ confirmationId: toolConfirmation.confirmationId, approved, always, signature: always ? `${toolConfirmation.tool}|${String(toolConfirmation.arguments.command ?? "").trim().split(/\s+/)[0] || "*"}`.toLowerCase() : undefined });
+    setToolConfirmation(null);
+  };
 
   useEffect(() => {
     const closeOnOutsideClick = (event: PointerEvent) => {
@@ -858,6 +889,19 @@ export function App() {
           {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
           <div />
         </div>
+        {toolConfirmation && <div className="tool-confirmation-overlay" role="dialog" aria-modal="true" aria-label="敏感操作确认">
+          <div className="tool-confirmation-card">
+            <h3>模型请求执行敏感操作</h3>
+            <p className="tool-confirmation-reason">{toolConfirmation.reason}</p>
+            <div className="tool-confirmation-detail"><strong>{toolConfirmation.tool}</strong><pre>{JSON.stringify(toolConfirmation.arguments, null, 2).slice(0, 2000)}</pre></div>
+            <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
+            <div className="tool-confirmation-actions">
+              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(false)}>拒绝</button>
+              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(true, true)}>总是允许此类</button>
+              <button type="button" className="primary-button" onClick={() => resolveToolConfirmation(true)}>允许一次</button>
+            </div>
+          </div>
+        </div>}
         <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
@@ -872,7 +916,7 @@ export function App() {
             {modelMenuOpen && <div className="model-options" role="menu">
               {customModelMode ? <Fragment>
                 <button type="button" className={`model-setting-row ${modelSubmenu === "model" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "model" ? null : "model")}><span>模型</span><span className="model-setting-value">{selectedModel?.name || "未配置模型"}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{index > 0 && isOfficialModel(orderedModels[index - 1]) !== isOfficialModel(model) && <div className="model-divider" role="separator" /> }<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
+                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{(index === 0 || modelGroupLabel(orderedModels[index - 1]) !== modelGroupLabel(model)) && <div className="model-group-label" role="presentation">{modelGroupLabel(model)}</div>}<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
                 <button type="button" className={`model-setting-row ${modelSubmenu === "effort" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "effort" ? null : "effort")}><span>推理强度</span><span className="model-setting-value">{reasoningEffortLabels[reasoningEffort]}<span className="model-row-chevron">›</span></span></button>
                 {modelSubmenu === "effort" && <div className="model-submenu" role="listbox">{reasoningEfforts.map((effort) => <button type="button" className={`model-option ${effort === reasoningEffort ? "selected" : ""}`} role="option" aria-selected={effort === reasoningEffort} key={effort} onClick={() => { setReasoningEffort(effort); setModelSubmenu(null); }}>{reasoningEffortLabels[effort]}</button>)}</div>}
               </Fragment> : orderedModels.map((model) => (

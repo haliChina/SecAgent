@@ -2,7 +2,7 @@
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { initializeWorkspace, loadConfig, normalizeAndValidate, useConfiguredModel } from "./config.js";
-import { DEFAULT_WORKSPACE, expandPath } from "./paths.js";
+import { DEFAULT_WORKSPACE, expandPath, migrateLegacyWorkspace } from "./paths.js";
 import { loadEnabledSkills } from "./skills.js";
 import { AuditStore } from "./audit.js";
 import { SecAgentRuntime, type RunResult, type TraceEvent } from "./runtime.js";
@@ -160,7 +160,19 @@ async function openRuntime(workspace: string, modelId: string | undefined, trace
   const plugins = new PluginManager(workspace);
   await plugins.initialize();
   const skills = [...loadEnabledSkills(config), ...plugins.getSkills()];
-  return { runtime: new SecAgentRuntime(config, audit, skills, trace, plugins), audit, plugins, config };
+  // Interactive sensitive-tool confirmation for the CLI: default-deny when
+  // stdin is not a TTY (piped/CI runs) so nothing dangerous executes unattended.
+  const confirmToolCall = async (confirmation: { tool: string; reason: string }): Promise<boolean> => {
+    if (!process.stdin.isTTY) return false;
+    process.stdout.write(`\n⚠ 敏感操作确认（${confirmation.tool}）：${confirmation.reason}\n允许执行？[y/N] `);
+    const reply = await new Promise<string>((resolve) => {
+      const onData = (chunk: Buffer) => { process.stdin.removeListener("data", onData); resolve(chunk.toString("utf8")); };
+      process.stdin.once("data", onData);
+      setTimeout(() => { process.stdin.removeListener("data", onData); resolve(""); }, 60_000).unref();
+    });
+    return /^y(es)?$/i.test(reply.trim());
+  };
+  return { runtime: new SecAgentRuntime(config, audit, skills, trace, plugins, { confirmToolCall }), audit, plugins, config };
 }
 
 async function closeRuntime(handle: RuntimeHandle | undefined): Promise<void> {
@@ -296,6 +308,12 @@ async function main(): Promise<void> {
   if (!command || ["-h", "--help", "help"].includes(command)) return void console.log(usage());
   const options = parseOptions(args);
   const { workspace, positionals } = options;
+  // Move a legacy ~/SecAgentWorkspace into the platform data directory before
+  // any command touches the default workspace.
+  try {
+    const migratedTo = workspace === DEFAULT_WORKSPACE ? migrateLegacyWorkspace() : undefined;
+    if (migratedTo) console.log(`已将旧工作区迁移到 ${migratedTo}`);
+  } catch { /* 迁移失败不阻塞命令 */ }
 
   if (command === "init") {
     initializeWorkspace(workspace);
