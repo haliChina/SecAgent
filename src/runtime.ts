@@ -83,7 +83,8 @@ export class SecAgentRuntime {
         [],
         (stage, data) => this.emit(`vision.${stage}`, data),
         undefined,
-        false // includeRuntimePrompts: keep only the dedicated vision system prompt
+        false, // includeRuntimePrompts: keep only the dedicated vision system prompt
+        true // allowEmptyTools: the vision sub-model runs tool-less by design
       )
       : undefined;
     this.health = options.health ?? ModelHealthStore.load(config.workspace);
