@@ -122,7 +122,6 @@ test("defaults and persists Windows update preferences", () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
-import { OFFICIAL_VISION_MODEL, configPath, initializeWorkspace, isOnboardingComplete, loadConfig, markOnboardingComplete, oobeProgressPath, readOobeProgress, readSettings, resolveVisionAgentConfig, saveOobeProgress, saveSettings, type OobeProgress } from "./config.js";
 
 test("persists the vision model id with the settings", () => {
   const workspace = temporaryWorkspace();
@@ -206,4 +205,4 @@ test("resolveVisionAgentConfig does not fall back in custom model mode", () => {
     if (previous === undefined) delete process.env.SECTL_OFFICIAL_TOKEN;
     else process.env.SECTL_OFFICIAL_TOKEN = previous;
   }
-});import type { SecAgentConfig } from "./types.js";
+});
