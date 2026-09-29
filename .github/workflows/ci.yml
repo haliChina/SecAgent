@@ -43,5 +43,6 @@ jobs:
 
       - name: Smoke test the CLI
         run: |
-          SECTL_WORKSPACE="$(mktemp -d)/workspace" node dist/index.js init
-          SECTL_WORKSPACE="$(mktemp -d)/workspace" node dist/index.js doctor
+          SMOKE_WORKSPACE="$(mktemp -d)/workspace"
+          SECTL_WORKSPACE="$SMOKE_WORKSPACE" node dist/index.js init
+          SECTL_WORKSPACE="$SMOKE_WORKSPACE" node dist/index.js doctor
