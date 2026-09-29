@@ -3,7 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { expandPath } from "./paths.js";
 import type { McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
-import { normalizeSpeechSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
+import { normalizeSpeechSettings, type BailianAsrSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
 import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
 import { normalizeResilienceSettings } from "./resilience.js";
@@ -375,8 +375,11 @@ export interface SettingsPayload {
   models: Array<ModelProfile & { apiKey?: string; apiKeyConfigured?: boolean }>;
   tts: { voice: string; rate: string };
   wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string };
-  /** Speech-to-text settings; `openai.apiKey`/`openai.apiKeyConfigured` are UI-only extras. */
-  speech: SpeechAsrSettings & { openai?: OpenAiAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
+  /**
+   * Speech-to-text settings; `openai.apiKey`/`bailian.apiKey` and their
+   * `apiKeyConfigured` flags are UI-only extras (keys live in the workspace .env).
+   */
+  speech: SpeechAsrSettings & { openai?: OpenAiAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean }; bailian?: BailianAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
   updates: UpdatePreferences;
   telemetry: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
@@ -411,7 +414,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { voice: config.tts?.voice || DEFAULT_TTS_VOICE, rate: config.tts?.rate || DEFAULT_TTS_RATE }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), hallucinationEnabled: config.hallucination?.enabled !== false };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { voice: config.tts?.voice || DEFAULT_TTS_VOICE, rate: config.tts?.rate || DEFAULT_TTS_RATE }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), hallucinationEnabled: config.hallucination?.enabled !== false };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -499,6 +502,15 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "SECAGENT_ASR_KEY";
     inputOpenAi.apiKeyEnv = envName;
     writeWorkspaceEnv(workspace, envName, inputOpenAi.apiKey.trim());
+  }
+  // 百炼 uses the documented BAILIAN_API_KEY name so headless .env setups and
+  // the settings UI share one variable.
+  const inputBailian = payload.speech?.bailian;
+  if (inputBailian && typeof inputBailian.apiKey === "string" && inputBailian.apiKey.trim()) {
+    let envName = (inputBailian.apiKeyEnv || "").trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "BAILIAN_API_KEY";
+    inputBailian.apiKeyEnv = envName;
+    writeWorkspaceEnv(workspace, envName, inputBailian.apiKey.trim());
   }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;

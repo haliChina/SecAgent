@@ -13,6 +13,8 @@ import type { AsrProviderKind } from "../asr/settings.js";
 import { LocalSherpaAsrProvider } from "../asr/local-sherpa.js";
 import { RelayAsrProvider } from "../asr/relay.js";
 import { OpenAiHttpAsrProvider } from "../asr/openai-http.js";
+import { BailianHttpAsrProvider } from "../asr/bailian-http.js";
+import { BailianWsAsrProvider } from "../asr/bailian-ws.js";
 import { VoiceWakeEngine } from "../asr/voice-wake.js";
 import type { SpeechAsrSettings } from "../asr/settings.js";
 
@@ -51,6 +53,16 @@ manager.register(new RelayAsrProvider({
 }));
 manager.register(new OpenAiHttpAsrProvider({
   getSettings: () => speechSettings?.openai,
+  getApiKey: (envName) => process.env[envName] || "",
+  log
+}));
+manager.register(new BailianHttpAsrProvider({
+  getSettings: () => speechSettings?.bailian,
+  getApiKey: (envName) => process.env[envName] || "",
+  log
+}));
+manager.register(new BailianWsAsrProvider({
+  getSettings: () => speechSettings?.bailian,
   getApiKey: (envName) => process.env[envName] || "",
   log
 }));

@@ -3,10 +3,12 @@
  * automatic fallback, and keeps at most one active session at a time.
  *
  * Fallback chain:
- *   `auto`     third-party (explicit user config) → official relay → local
- *   `official` official relay → local
- *   `openai`   third-party → local
- *   `local`    local only
+ *   `auto`       third-party (explicit user config) → official relay → local
+ *   `official`   official relay → local
+ *   `openai`     third-party → local
+ *   `local`      local only
+ *   `bailian`    百炼 chat/completions → local
+ *   `bailian-ws` 百炼 realtime WebSocket → 百炼 chat/completions → local
  */
 import type { AsrEvent, AsrEventSink, AsrProvider, AsrSession } from "./types.js";
 import type { AsrProviderKind } from "./settings.js";
@@ -53,7 +55,9 @@ export class AsrManager {
       auto: ["openai", "official", "local"],
       official: ["official", "local"],
       openai: ["openai", "local"],
-      local: ["local"]
+      local: ["local"],
+      bailian: ["bailian", "local"],
+      "bailian-ws": ["bailian-ws", "bailian", "local"]
     };
     return chainFor[kind]
       .map((id) => this.providers.get(id))
@@ -138,7 +142,9 @@ export class AsrManager {
       auto: ["openai", "official", "local"],
       official: ["official"],
       openai: ["openai"],
-      local: ["local"]
+      local: ["local"],
+      bailian: ["bailian"],
+      "bailian-ws": ["bailian-ws"]
     };
     const results: Array<{ id: string; label: string; ok: boolean; message: string }> = [];
     for (const id of ids[kind]) {
