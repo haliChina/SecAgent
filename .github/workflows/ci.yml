@@ -41,8 +41,11 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # `doctor` intentionally fails on a fresh workspace (it requires a fully
+      # configured install with SecScore MCP enabled), so the smoke test only
+      # covers init + a read-only config command.
       - name: Smoke test the CLI
         run: |
           SMOKE_WORKSPACE="$(mktemp -d)/workspace"
           SECTL_WORKSPACE="$SMOKE_WORKSPACE" node dist/index.js init
-          SECTL_WORKSPACE="$SMOKE_WORKSPACE" node dist/index.js doctor
+          SECTL_WORKSPACE="$SMOKE_WORKSPACE" node dist/index.js mcp list
