@@ -11,7 +11,7 @@ import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
 import { reasoningEffortLabels, traceLabel } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
-import { isOfficialModel, isOfficialTierModel, reasoningEffortsForModel } from "./utils.js";
+import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
 import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
 
@@ -94,10 +94,12 @@ export function App() {
   const answerStartScrollPending = useRef(false);
   const modelMenuEnd = useRef<HTMLDivElement>(null);
   // Official tiers first, then custom models clustered by provider so the
-  // submenu can render a labelled group header per provider.
+  // submenu can render a labelled group header per provider. The relay's
+  // virtual-vision model is a vision-tool backend only, never a main model.
   const orderedModels = useMemo(() => {
-    const official = models.filter(isOfficialModel);
-    const custom = models.filter((model) => !isOfficialModel(model));
+    const visible = models.filter((model) => !isOfficialVisionModel(model));
+    const official = visible.filter(isOfficialModel);
+    const custom = visible.filter((model) => !isOfficialModel(model));
     const clustered: ModelOption[] = [];
     const byProvider = new Map<string, ModelOption[]>();
     for (const model of custom) {
@@ -205,9 +207,10 @@ export function App() {
       setSession(active);
       requestAnimationFrame(() => textareaRef.current?.focus());
       const configured = await modelsPromise;
-      const preferred = configured.find((model) => model.id === savedSettings.defaultModelId)
-        || configured.find((model) => isOfficialTierModel(model) && model.model === tierDefaultId)
-        || configured[0];
+      const mainModels = configured.filter((model) => !isOfficialVisionModel(model));
+      const preferred = mainModels.find((model) => model.id === savedSettings.defaultModelId)
+        || mainModels.find((model) => isOfficialTierModel(model) && model.model === tierDefaultId)
+        || mainModels[0];
       setSelectedModelId(preferred?.id || "");
     })();
   }, [bridge]);
@@ -222,10 +225,10 @@ export function App() {
           setCustomModelMode(customMode);
           setDefaultEffort((settings.defaultReasoningEffort || "high") as ReasoningEffort);
           setSelectedModelId((current) => {
-            if (models.some((model) => model.id === (settings.defaultModelId || current))) return settings.defaultModelId || current;
+            if (models.some((model) => !isOfficialVisionModel(model) && model.id === (settings.defaultModelId || current))) return settings.defaultModelId || current;
             const tier = models.find((model) => isOfficialTierModel(model) && model.model === tierDefaultId);
             if (tier) return tier.id;
-            return models[0]?.id || "";
+            return models.find((model) => !isOfficialVisionModel(model))?.id || "";
           });
           setReasoningEffort(settings.defaultReasoningEffort || "high");
         });

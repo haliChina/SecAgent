@@ -11,7 +11,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { pathToFileURL } from "node:url";
 import { DEFAULT_WORKSPACE, migrateLegacyWorkspace } from "../paths.js";
-import { configuredModels, configPath, DEFAULT_TELEMETRY_SETTINGS, initializeWorkspace, isOnboardingComplete, loadConfig, markOnboardingComplete, readOobeProgress, readSettings, saveOobeProgress, saveSettings, useConfiguredModel, writeWorkspaceEnv, type OobeProgress, type SettingsPayload } from "../config.js";
+import { configuredModels, configPath, DEFAULT_TELEMETRY_SETTINGS, initializeWorkspace, isOnboardingComplete, loadConfig, markOnboardingComplete, OFFICIAL_VISION_MODEL, readOobeProgress, readSettings, resolveVisionAgentConfig, saveOobeProgress, saveSettings, useConfiguredModel, writeWorkspaceEnv, type OobeProgress, type SettingsPayload } from "../config.js";
 import { loadEnabledSkills } from "../skills.js";
 import { AuditStore } from "../audit.js";
 import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
@@ -877,8 +877,11 @@ ipcMain.handle("models:list", async () => {
       // 自定义模型模式开启：只加入后台允许的官方真实模型与本地自定义模型。
       return [...visibleRemote, ...options];
     }
-    // 关闭：官方档位模式 —— 下拉只有快速/标准/深度三个虚拟档位，看不到具体模型。
-    return visibleRemote.filter((model) => (OFFICIAL_TIER_IDS as readonly string[]).includes(model.model));
+    // 关闭：官方档位模式 —— 下拉只有快速/标准/深度三个虚拟档位，看不到具体模型；
+    // 另外提供一个识图虚拟模型（virtual-vision），它只作为识图工具的后端模型，
+    // 不作为主 Agent 模型出现在前端下拉中（前端按 vision 标记过滤）。
+    return visibleRemote.filter((model) => (OFFICIAL_TIER_IDS as readonly string[]).includes(model.model) || model.model === OFFICIAL_VISION_MODEL)
+      .map((model) => ({ ...model, vision: model.model === OFFICIAL_VISION_MODEL }));
   } catch { return customModelMode ? options : []; }
 });
 ipcMain.handle("providers:list", async () => {
@@ -1506,6 +1509,8 @@ ipcMain.handle("sessions:send", async (_event, id: string, text: string, modelId
       ? { ...config, agent: { ...config.agent, systemPrompt: `${config.agent.systemPrompt}\n\n## 快速唤起输出协议\n${QUICK_WAKE_OUTPUT_PROMPT}` } }
       : config;
     runtime = new SecAgentRuntime(runtimeConfig, audit, skills, trace, pluginManager, { confirmToolCall: (confirmation) => confirmSensitiveToolCall(id, confirmation) });
+    const visionConfig = resolveVisionAgentConfig(config);
+    if (visionConfig) logMain("session.vision-model", { model: visionConfig.agent.model, provider: visionConfig.agent.provider, baseUrl: visionConfig.agent.baseUrl });
     const previousReadSkillNames = before.messages.flatMap((message) => message.toolCalls || []).filter((call) => call.name === "secagent__read_skill" || call.name === "read_skill").map((call) => typeof (call.arguments as { name?: unknown })?.name === "string" ? (call.arguments as { name: string }).name : "");
     const result = await runtime.run(historyInput(before, text), selectedReasoningEffort, conversationInput(before, text, attachments), abortController.signal, { previousAutoLoadedSkills: before.autoLoadedSkills, previousReadSkillNames, preRule });
     if (result.autoLoadedSkills?.length) {
