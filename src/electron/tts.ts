@@ -11,49 +11,43 @@
  */
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { EdgeTtsProvider, WindowsSapiProvider, MimoTtsProvider, BailianTtsProvider } from "../tts/providers.js";
-import { TtsManager, type TtsManagerOptions } from "../tts/manager.js";
+import { EdgeTtsProvider, WindowsSapiTtsProvider, MimoTtsProvider, BailianTtsProvider } from "../tts/providers.js";
+import { TtsManager } from "../tts/manager.js";
 import type { TtsProviderKind, TtsSettings } from "../tts/types.js";
 import { DEFAULT_TTS_VOICE, DEFAULT_TTS_RATE } from "../config.js";
 
 const execFileAsync = promisify(execFile);
 
 let ttsSettings: TtsSettings | undefined;
-let managerOptions: TtsManagerOptions | undefined;
+/** Cache keyed on the settings object identity — configureTts() swaps the object. */
+let managerCache: { ref: TtsSettings | undefined; manager: TtsManager } | undefined;
 
 const log = (message: string): void => console.info(message);
 
 /** Update the live TTS preference (called after settings load/save). */
 export function configureTts(settings: TtsSettings | undefined): void {
   ttsSettings = settings;
-  managerOptions = undefined; // rebuilt lazily with the latest settings
+  managerCache = undefined; // rebuilt lazily with the latest settings
 }
 
 function ensureManager(): TtsManager {
-  if (managerOptions?.settings === ttsSettings) return managerOptions.manager;
-  const settings: TtsSettings = ttsSettings || { provider: "edge", voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE };
-  const manager = new TtsManager({ getSettings: () => settings, log });
-  manager.register(new EdgeTtsProvider({
-    getVoice: () => settings.voice || DEFAULT_TTS_VOICE,
-    getRate: () => settings.rate || DEFAULT_TTS_RATE,
-    log
-  }));
-  manager.register(new WindowsSapiProvider({
-    getVoice: () => settings.windows?.voice,
-    getRate: () => settings.rate || DEFAULT_TTS_RATE,
-    log
-  }));
+  if (managerCache && managerCache.ref === ttsSettings) return managerCache.manager;
+  const liveSettings = (): TtsSettings => ttsSettings || { provider: "edge", voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE };
+  const manager = new TtsManager({ getSettings: liveSettings, log });
+  // Edge/Windows take no constructor options — voice/rate ride on synthesize options.
+  manager.register(new EdgeTtsProvider());
+  manager.register(new WindowsSapiTtsProvider());
   manager.register(new MimoTtsProvider({
-    getSettings: () => settings.mimo,
+    getSettings: () => ttsSettings?.mimo,
     getApiKey: (envName) => process.env[envName] || "",
     log
   }));
   manager.register(new BailianTtsProvider({
-    getSettings: () => settings.bailian,
+    getSettings: () => ttsSettings?.bailian,
     getApiKey: (envName) => process.env[envName] || "",
     log
   }));
-  managerOptions = { settings: ttsSettings, manager };
+  managerCache = { ref: ttsSettings, manager };
   return manager;
 }
 
@@ -62,7 +56,7 @@ export async function synthesizeSpeech(text: string, settingsSnapshot?: TtsSetti
   if (settingsSnapshot) configureTts(settingsSnapshot);
   const clean = text.replace(/\s+/g, " ").trim();
   if (!clean) return Buffer.alloc(0);
-  const chunk = await ensureManager().synthesize(clean);
+  const chunk = await ensureManager().synthesize(clean, { voice: ttsSettings?.voice, rate: ttsSettings?.rate });
   return chunk.data;
 }
 

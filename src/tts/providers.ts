@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { EdgeTTS } from "@andresaya/edge-tts";
-import type { BailianTtsSettings, MimoTtsSettings, TtsAudioChunk, TtsProvider, TtsSynthesisOptions } from "./types.js";
+import type { BailianTtsSettings, MimoTtsSettings, TtsAudioChunk, TtsProvider, TtsSynthesisOptions, TtsTestResult } from "./types.js";
 
 function cleanText(text: string): string {
   return text.replace(/\s+/g, " ").trim();
@@ -49,6 +49,15 @@ export class EdgeTtsProvider implements TtsProvider {
   isConfigured(): boolean { return true; }
   displayName(): string { return "Edge TTS"; }
 
+  async test(): Promise<TtsTestResult> {
+    try {
+      const chunk = await this.synthesize("测试");
+      return { ok: chunk.data.length > 0, message: chunk.data.length ? "合成正常" : "返回空音频" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
   async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
     if (!clean) return { data: Buffer.alloc(0) };
@@ -59,7 +68,7 @@ export class EdgeTtsProvider implements TtsProvider {
       try {
         const client = new EdgeTTS();
         const audio = await client.synthesize(escapeXml(clean), options.voice || "zh-CN-XiaoxiaoNeural", { rate: options.rate || "+0%" });
-        const bytes = Buffer.isBuffer(audio) ? audio : Buffer.from(audio as ArrayBuffer);
+        const bytes = Buffer.isBuffer(audio) ? audio : Buffer.from(audio as unknown as ArrayBuffer);
         if (bytes.length) return { data: bytes };
         throw new Error("Edge TTS 返回空音频");
       } catch (error) {
@@ -78,6 +87,16 @@ export class WindowsSapiTtsProvider implements TtsProvider {
 
   isConfigured(): boolean { return process.platform === "win32"; }
   displayName(): string { return "Windows 系统朗读"; }
+
+  async test(): Promise<TtsTestResult> {
+    if (process.platform !== "win32") return { ok: false, message: "仅在 Windows 上可用" };
+    try {
+      const chunk = await this.synthesize("测试");
+      return { ok: chunk.data.length > 0, message: chunk.data.length ? "合成正常" : "返回空音频" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
   async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
@@ -183,6 +202,16 @@ export class MimoTtsProvider implements TtsProvider {
 
   isConfigured(): boolean { return resolveMimoTtsConfig(this.options.getSettings(), this.options.getApiKey) !== null; }
   displayName(): string { return "小米 MiMo TTS"; }
+
+  async test(): Promise<TtsTestResult> {
+    if (!this.isConfigured()) return { ok: false, message: "未配置 API Key / Base URL" };
+    try {
+      const chunk = await this.synthesize("测试");
+      return { ok: chunk.data.length > 0, message: chunk.data.length ? "合成正常" : "返回空音频" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
   async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
@@ -291,6 +320,16 @@ export class BailianTtsProvider implements TtsProvider {
 
   isConfigured(): boolean { return resolveBailianTtsConfig(this.options.getSettings(), this.options.getApiKey) !== null; }
   displayName(): string { return "阿里云百炼 CosyVoice"; }
+
+  async test(): Promise<TtsTestResult> {
+    if (!this.isConfigured()) return { ok: false, message: "未配置 API Key / Base URL" };
+    try {
+      const chunk = await this.synthesize("测试");
+      return { ok: chunk.data.length > 0, message: chunk.data.length ? "合成正常" : "返回空音频" };
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) };
+    }
+  }
 
   async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
