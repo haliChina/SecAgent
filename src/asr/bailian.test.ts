@@ -361,7 +361,7 @@ test("channel B runs the documented duplex handshake and streams ~100ms PCM fram
   assert.equal(runTask.payload.task, "asr");
   assert.equal(runTask.payload.function, "recognition");
   assert.equal(runTask.payload.model, "qwen-audio-3.1-asr-flash-streaming");
-  assert.deepEqual(runTask.payload.parameters, { format: "pcm", sample_rate: 16_000 });
+  assert.deepEqual(runTask.payload.parameters, { format: "pcm", sample_rate: 16_000, language_hints: ["zh"] });
 
   session.push(new Float32Array(16_000)); // 1s → ten 3.2KB frames
   const frames = socket.binaryFrames();

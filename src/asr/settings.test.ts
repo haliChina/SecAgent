@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ASR_OPENAI_PRESETS, isOpenAiAsrConfigured, normalizeSpeechSettings, type SpeechAsrSettings } from "./settings.js";
+import { ASR_OPENAI_PRESETS, MIMO_ASR_DEFAULTS, isOpenAiAsrConfigured, normalizeSpeechSettings, type SpeechAsrSettings } from "./settings.js";
 
-test("presets include Xiaomi MiMo ASR with an OpenAI-compatible base URL", () => {
-  const mimo = ASR_OPENAI_PRESETS.find((preset) => preset.id === "mimo");
-  assert.ok(mimo, "MiMo preset exists");
-  assert.match(mimo!.baseUrl, /^https:\/\/.+\/v1$/);
-  assert.ok(mimo!.model);
-  assert.ok(mimo!.apiKeyEnv);
+test("MiMo ASR ships dedicated chat/completions defaults (not /audio/transcriptions)", () => {
+  // 小米 MiMo 走专用 chat/completions + input_audio 协议（mimo-http.ts），
+  // 不在 ASR_OPENAI_PRESETS 里，但必须提供开箱默认端点。
+  assert.equal(ASR_OPENAI_PRESETS.some((preset) => preset.id === "mimo"), false);
+  assert.match(MIMO_ASR_DEFAULTS.baseUrl, /^https:\/\/.+\/v1$/);
+  assert.ok(MIMO_ASR_DEFAULTS.model);
+  assert.ok(MIMO_ASR_DEFAULTS.apiKeyEnv);
 });
 
 test("presets are unique by id and base URL", () => {
@@ -18,8 +19,10 @@ test("presets are unique by id and base URL", () => {
 });
 
 test("normalizeSpeechSettings accepts undefined and garbage", () => {
-  assert.deepEqual(normalizeSpeechSettings(undefined), { betterRecognition: false, provider: "auto" });
-  assert.deepEqual(normalizeSpeechSettings("nonsense"), { betterRecognition: false, provider: "auto" });
+  // MiMo 默认块始终带出（有官方默认端点，设置页开箱即用）。
+  const defaults = { betterRecognition: false, provider: "auto", mimo: { apiKeyEnv: "MIMO_API_KEY", baseUrl: "https://api.xiaomimimo.com/v1", model: "mimo-v2.5-asr" } };
+  assert.deepEqual(normalizeSpeechSettings(undefined), defaults);
+  assert.deepEqual(normalizeSpeechSettings("nonsense"), defaults);
 });
 
 test("normalizeSpeechSettings keeps a valid provider and trims endpoint fields", () => {
