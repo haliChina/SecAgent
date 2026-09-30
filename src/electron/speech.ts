@@ -15,6 +15,8 @@ import { RelayAsrProvider } from "../asr/relay.js";
 import { OpenAiHttpAsrProvider } from "../asr/openai-http.js";
 import { BailianHttpAsrProvider } from "../asr/bailian-http.js";
 import { BailianWsAsrProvider } from "../asr/bailian-ws.js";
+import { MimoHttpAsrProvider } from "../asr/mimo-http.js";
+import { LocalSenseVoiceProvider } from "../asr/local-sensevoice.js";
 import { VoiceWakeEngine } from "../asr/voice-wake.js";
 import type { SpeechAsrSettings } from "../asr/settings.js";
 
@@ -44,6 +46,8 @@ const log = (message: string): void => console.info(message);
 
 const manager = new AsrManager({
   getProviderKind: () => speechSettings?.provider,
+  // 完全自定义回退链（用户在设置里排好的顺序，例：A → C → 本地）。
+  getCustomChain: () => speechSettings?.chain,
   log
 });
 manager.register(new RelayAsrProvider({
@@ -64,8 +68,15 @@ manager.register(new BailianHttpAsrProvider({
 manager.register(new BailianWsAsrProvider({
   getSettings: () => speechSettings?.bailian,
   getApiKey: (envName) => process.env[envName] || "",
+  getNoise: () => speechSettings?.noise,
   log
 }));
+manager.register(new MimoHttpAsrProvider({
+  getSettings: () => speechSettings?.mimo,
+  getApiKey: (envName) => process.env[envName] || "",
+  log
+}));
+manager.register(new LocalSenseVoiceProvider({ extraRoots: appModelRoots(), log }));
 manager.register(new LocalSherpaAsrProvider({ extraRoots: appModelRoots(), log }));
 
 const voiceWake = new VoiceWakeEngine({ extraRoots: appModelRoots(), log });

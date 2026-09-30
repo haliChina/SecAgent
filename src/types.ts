@@ -123,7 +123,7 @@ export interface SecAgentConfig {
   version: number;
   workspace: string;
   agent: AgentConfig;
-  tts?: { voice?: string; rate?: string };
+  tts?: import("./tts/types.js").TtsSettings;
   wake?: { hotkey?: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string };
   /** Speech-to-text settings: provider preference + third-party endpoint. */
   speech?: SpeechAsrSettings;

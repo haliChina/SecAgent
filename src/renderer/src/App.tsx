@@ -126,6 +126,8 @@ export function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<{ context: AudioContext; stream: MediaStream; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode } | undefined>(undefined);
   const recordingRef = useRef(false);
+  /** 选定的输入音频设备 ID（settings.speech.audio.input；undefined = 系统默认）。 */
+  const audioInputRef = useRef<string | undefined>(undefined);
   const voicePendingSendRef = useRef<PendingVoiceSend | undefined>(undefined);
   const speechInputId = useRef(0);
   const speechSessionRef = useRef<{
@@ -200,6 +202,8 @@ export function App() {
       ]);
       const customMode = Boolean(savedSettings.customModelMode);
       setCustomModelMode(customMode);
+      const savedInput = (savedSettings as { speech?: { audio?: { input?: string } } }).speech?.audio?.input;
+      audioInputRef.current = savedInput && savedInput !== "auto" && savedInput !== "default" ? savedInput : undefined;
       const defaultReasoning = (savedSettings.defaultReasoningEffort || "high") as ReasoningEffort;
       setDefaultEffort(defaultReasoning);
       setReasoningEffort(defaultReasoning);
@@ -218,6 +222,10 @@ export function App() {
   useEffect(() => {
     if (!bridge) return;
     return bridge.onSettingsChanged(() => {
+      void bridge.getSettings().then((current) => {
+        const input = (current as { speech?: { audio?: { input?: string } } } | null)?.speech?.audio?.input;
+        audioInputRef.current = input && input !== "auto" && input !== "default" ? input : undefined;
+      }).catch(() => undefined);
       void bridge.listModels().then((models) => {
         setModels(models);
         void bridge.getSettings().then((settings) => {
@@ -611,7 +619,7 @@ export function App() {
         setSpeechMode(null);
         return false;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(audioInputRef.current ? { deviceId: { exact: audioInputRef.current } } : {}) } });
       if (speechSession.stopRequested) {
         stream.getTracks().forEach((track) => track.stop());
         if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
@@ -909,7 +917,7 @@ export function App() {
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
-          </div> : <><div className="composer-actions"><button type="button" className="icon-button" aria-label="添加图片"><img className="composer-icon" src="/image-icon.svg" alt="" /></button><button type="button" className={`icon-button mic-button ${recording ? "recording" : ""}`} aria-label={recording ? "停止语音输入" : "语音输入"} aria-pressed={recording} disabled={voicePendingSend} onClick={handleMicClick}><img className="composer-icon" src="/mic-icon.svg" alt="" /></button></div>
+          </div> : <><div className="composer-actions"><button type="button" className="icon-button" aria-label="添加图片" onClick={() => fileInputRef.current?.click()} onPointerDown={(event) => event.stopPropagation()}><img className="composer-icon" src="/image-icon.svg" alt="" /></button><button type="button" className={`icon-button mic-button ${recording ? "recording" : ""}`} aria-label={recording ? "停止语音输入" : "语音输入"} aria-pressed={recording} disabled={voicePendingSend} onClick={handleMicClick}><img className="composer-icon" src="/mic-icon.svg" alt="" /></button></div>
           <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !event.currentTarget.readOnly) { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder={speechMode === "streaming" && recording ? speechStatus || "正在聆听…" : "输入文字或按住说话..."} rows={1} readOnly={recording || speechProcessing} disabled={!session || sending} />
           <div className={`model-menu ${customModelMode ? "" : "virtual-model-menu"}`} ref={modelMenuEnd}>
             <button type="button" className={`model-picker ${customModelMode ? "" : "virtual-model-picker"}`} aria-label={customModelMode ? "选择模型和推理强度" : "选择虚拟模型"} aria-expanded={modelMenuOpen} onClick={() => { setModelMenuOpen((open) => !open); setModelSubmenu(null); }}>

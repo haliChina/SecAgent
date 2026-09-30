@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@andresaya/edge-tts": "^1.8.0",
+    "ws": "^8.21.1",
     "@opencode-ai/models": "^0.0.35",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",

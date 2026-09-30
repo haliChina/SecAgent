@@ -19,13 +19,17 @@ interface ProviderModel { id: string; name?: string; enabled?: boolean }
 interface ProviderConfig { id: string; name: string; preset?: string; provider: ModelProfile["provider"]; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number; models: ProviderModel[] }
 interface ProviderPreset { id: string; name: string; env: string[]; api: string; models: ProviderModel[] }
 interface TelemetrySettings { enabled: boolean }
-type AsrProviderKind = "auto" | "official" | "openai" | "local" | "bailian" | "bailian-ws";
+type AsrProviderKind = "auto" | "official" | "openai" | "local" | "bailian" | "bailian-ws" | "mimo" | "local-pro";
 interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface BailianAsrSettings { name?: string; apiKeyEnv: string; baseUrl: string; wsUrl: string; model: string; streamModel: string; language?: string; enableItn?: boolean; apiKey?: string; apiKeyConfigured?: boolean }
-interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings; bailian?: BailianAsrSettings }
-interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
+interface MimoAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
+interface AsrNoiseSettings { profile?: "standard" | "classroom" | "custom"; speechNoiseThreshold?: number; vadModel?: "near_meeting_16k" | "far_field_meeting_16k"; hotwords?: string[] }
+interface AsrAudioDeviceSettings { input?: string; output?: string }
+interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings; bailian?: BailianAsrSettings; mimo?: MimoAsrSettings; chain?: string[]; noise?: AsrNoiseSettings; audio?: AsrAudioDeviceSettings }
+interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian"; chain?: Array<"edge" | "windows" | "mimo" | "bailian">; voice: string; rate: string; windows?: { voice?: string }; mimo?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; voiceDescription?: string; apiKey?: string; apiKeyConfigured?: boolean }; bailian?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; apiKey?: string; apiKeyConfigured?: boolean } }
+interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: { voice: string; rate: string }; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; hallucinationEnabled?: boolean }
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; hallucinationEnabled?: boolean }
 interface SkillSummary { name: string; description: string; path: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }
@@ -120,6 +124,10 @@ interface Window {
     testSpeech(kind?: string): Promise<Array<{ id: string; label: string; ok: boolean; message: string }>>;
     speechChain(): Promise<string[]>;
     synthesizeSpeech(text: string): Promise<string>;
+    testTts(kind?: string): Promise<{ ok: boolean; message: string; results: Array<{ provider: string; ok: boolean; message: string }> }>;
+    ttsChain(): Promise<string[]>;
+    listWindowsVoices(): Promise<string[]>;
+    fetchRemoteModels(request: { baseUrl: string; apiKey?: string; apiKeyEnv?: string }): Promise<{ ok: boolean; message: string; models: Array<{ id: string; ownedBy?: string }> }>;
     logWakeTts(event: unknown): void;
     setWakeContext(context: { sessionId?: string; modelId?: string; reasoningEffort?: ReasoningEffort }): void;
     closeWake(): Promise<{ ok: true }>;

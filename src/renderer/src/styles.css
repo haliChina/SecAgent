@@ -389,6 +389,32 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .preset-combobox-options button:hover { background: #eef6ff; }
 .preset-combobox-options small { color: #999; font-size: 11px; }
 .preset-combobox-empty { padding: 9px; color: #999; font-size: 12px; }
+
+/* Dropdown v2 — native <select>: touch/keyboard/scroll-proof on classroom panels. */
+.select-combobox-native { position: relative; display: flex; width: 100%; }
+.select-combobox-select { appearance: none; -webkit-appearance: none; width: 100%; min-height: 36px; padding: 8px 28px 8px 10px; border: 1px solid #d8d8d8; border-radius: 8px; outline: none; background: #fff; color: #171717; font-size: 13px; font-family: inherit; text-align: left; cursor: pointer; }
+.select-combobox-select:hover { border-color: #b9c5d1; }
+.select-combobox-select:focus-visible { border-color: #2389ec; box-shadow: 0 0 0 2px rgba(35,137,236,.12); }
+.select-combobox-select:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
+.select-combobox-select option, .select-combobox-select optgroup { color: #333; background: #fff; }
+.select-combobox-native .select-combobox-chevron { position: absolute; top: 50%; right: 10px; transform: translateY(-55%); color: #777; font-size: 13px; line-height: 1; pointer-events: none; }
+
+/* Provider-preset picker v2 — datalist search + native select dropdown. */
+.preset-combobox-native { position: relative; display: flex; width: 100%; gap: 6px; }
+.preset-combobox-input { flex: 1 1 auto; min-width: 0; min-height: 36px; padding: 8px 9px; border: 1px solid #d8d8d8; border-radius: 7px; outline: none; background: #fff; color: #171717; font-size: 13px; font-family: inherit; }
+.preset-combobox-input:focus { border-color: #2389ec; box-shadow: 0 0 0 2px rgba(35,137,236,.12); }
+.preset-combobox-select { flex: 0 0 auto; max-width: 45%; min-height: 36px; padding: 8px 24px 8px 9px; border: 1px solid #d8d8d8; border-radius: 7px; outline: none; background: #fff; color: #171717; font-size: 13px; font-family: inherit; cursor: pointer; }
+.preset-combobox-select:focus { border-color: #2389ec; box-shadow: 0 0 0 2px rgba(35,137,236,.12); }
+
+/* ASR 自定义回退链 / 嘈杂环境 / 设备 / TTS 链编辑器 */
+.asr-chain-config, .asr-noise-config, .asr-audio-config, .asr-mimo-config { margin-top: 12px; padding: 12px; border: 1px solid #e3e3e3; border-radius: 10px; background: #fbfbfb; }
+.asr-chain-list { margin: 8px 0; padding: 0 0 0 20px; display: grid; gap: 4px; }
+.asr-chain-list li { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.asr-chain-list li > span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asr-chain-add { max-width: 320px; }
+.tts-chain-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 10px; border: 1px solid #e3e3e3; border-radius: 8px; background: #fbfbfb; }
+.tts-chain-editor small { flex-basis: 100%; color: #8a94a0; }
+.tts-chain-editor .checkbox-label { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; white-space: nowrap; }
 .form-grid input:disabled, .form-grid select:disabled, .provider-model-row input:disabled, .preset-combobox > input:disabled { background: #f5f5f5; color: #999; cursor: not-allowed; }
 .provider-model-editor .secondary-button:disabled, .text-button:disabled { cursor: not-allowed; opacity: .55; }
 

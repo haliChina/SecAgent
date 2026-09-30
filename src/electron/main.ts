@@ -21,7 +21,7 @@ import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, spe
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
-import { synthesizeSpeech } from "./tts.js";
+import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices, configureTts } from "./tts.js";
 import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
 import { detectCompanionApps } from "../companion-apps.js";
@@ -1345,6 +1345,7 @@ ipcMain.handle("settings:save", (_event, payload: SettingsPayload) => {
   telemetry?.setEnabled(saved.telemetry.enabled);
   // Apply the new speech-recognition preference (provider chain) immediately.
   configureSpeech(saved.speech);
+  configureTts(saved.tts);
   sendToAppWindows("settings:changed", saved);
   updateManager?.setPreferences(saved.updates);
   closeVoiceWakeWindow();
@@ -1420,6 +1421,19 @@ ipcMain.handle("tts:synthesize", async (_event, text: string) => {
   }
 });
 ipcMain.on("wake:tts-log", (_event, payload: unknown) => logMain("wake.tts.playback", payload));
+// TTS diagnostics: connectivity probe, active fallback chain, installed SAPI voices.
+ipcMain.handle("tts:test", (_event, kind?: string) => testTts(kind as never));
+ipcMain.handle("tts:chain", () => ttsChain());
+ipcMain.handle("tts:voices", () => listWindowsVoices());
+// Fetch an OpenAI-compatible provider's model catalogue (GET {base}/models),
+// e.g. https://api.xiaomimimo.com/v1/models — feeds the settings dropdowns.
+ipcMain.handle("models:fetch", async (_event, request: { baseUrl?: string; apiKey?: string; apiKeyEnv?: string }) => {
+  const apiKey = (request.apiKey && request.apiKey.trim()) || (request.apiKeyEnv ? process.env[request.apiKeyEnv] || "" : "");
+  if (!request.baseUrl?.trim()) return { ok: false, message: "请填写 Base URL（例如 https://api.xiaomimimo.com/v1）", models: [] };
+  if (!apiKey) return { ok: false, message: "缺少 API Key（先保存到工作区 .env 或在输入框填写）", models: [] };
+  const { fetchProviderModels } = await import("../models/fetch-models.js");
+  return fetchProviderModels({ baseUrl: request.baseUrl, apiKey, timeoutMs: 15_000 });
+});
 ipcMain.on("speech:audio", (_event, samples: Float32Array) => sendSpeechAudio(samples));
 ipcMain.on("voice-wake:audio", (_event, samples: Float32Array) => sendVoiceWakeAudio(samples));
 ipcMain.handle("sessions:stop", (_event, id: string) => {
@@ -1610,6 +1624,7 @@ async function startApplication(): Promise<void> {
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
   // Apply the persisted ASR preference before any speech session can start.
   configureSpeech(initialSettings.speech);
+  configureTts(initialSettings.tts);
   pluginManager = new PluginManager(DEFAULT_WORKSPACE, {
     getSession: async () => {
       loadConfig(DEFAULT_WORKSPACE);

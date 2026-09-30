@@ -3,7 +3,7 @@ import path from "node:path";
 import YAML from "yaml";
 import { expandPath } from "./paths.js";
 import type { McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
-import { normalizeSpeechSettings, type BailianAsrSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
+import { normalizeSpeechSettings, type BailianAsrSettings, type MimoAsrSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
 import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
 import { normalizeResilienceSettings } from "./resilience.js";
@@ -33,6 +33,49 @@ export const PROJECT_ENV_FILE = BUNDLED_ENV_FILES.find((file) => fs.existsSync(f
 if (fs.existsSync(PROJECT_ENV_FILE)) loadEnvFile(PROJECT_ENV_FILE, "project");
 export const DEFAULT_TTS_VOICE = "zh-CN-XiaoxiaoNeural";
 export const DEFAULT_TTS_RATE = "+0%";
+
+/** TTS provider kinds allowed in the YAML block (mirror of tts/types.ts). */
+const TTS_KINDS = new Set(["edge", "windows", "mimo", "bailian"]);
+
+/**
+ * Normalize the `tts:` YAML block into a full TtsSettings, keeping provider
+ * and the ordered fallback chain plus per-provider sub-blocks intact.
+ */
+function normalizeTtsBlock(raw: unknown): import("./tts/types.js").TtsSettings {
+  const source = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const text = (value: unknown, fallback: string): string => (typeof value === "string" && value.trim() ? value.trim() : fallback);
+  const provider = typeof source.provider === "string" && TTS_KINDS.has(source.provider) ? source.provider as "edge" | "windows" | "mimo" | "bailian" : "edge";
+  const chain = Array.isArray(source.chain)
+    ? (source.chain.filter((kind): kind is "edge" | "windows" | "mimo" | "bailian" => typeof kind === "string" && TTS_KINDS.has(kind)) as Array<"edge" | "windows" | "mimo" | "bailian">)
+    : (["edge", "windows"] as Array<"edge" | "windows" | "mimo" | "bailian">);
+  const sub = (key: string): Record<string, unknown> => source[key] && typeof source[key] === "object" ? source[key] as Record<string, unknown> : {};
+  const windows = sub("windows");
+  const mimo = sub("mimo");
+  const bailian = sub("bailian");
+  const has = (block: Record<string, unknown>): boolean => Object.keys(block).length > 0;
+  return {
+    provider,
+    chain: chain.length ? chain : [provider],
+    voice: text(source.voice, DEFAULT_TTS_VOICE),
+    rate: text(source.rate, DEFAULT_TTS_RATE),
+    ...(has(windows) ? { windows: { ...(typeof windows.voice === "string" && windows.voice.trim() ? { voice: windows.voice.trim() } : {}) } } : {}),
+    ...(has(mimo) ? { mimo: {
+      ...(typeof mimo.apiKeyEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(mimo.apiKeyEnv) ? { apiKeyEnv: mimo.apiKeyEnv } : {}),
+      ...(typeof mimo.baseUrl === "string" && mimo.baseUrl.trim() ? { baseUrl: mimo.baseUrl.trim().replace(/\/+$/, "") } : {}),
+      ...(typeof mimo.model === "string" && mimo.model.trim() ? { model: mimo.model.trim() } : {}),
+      ...(typeof mimo.voice === "string" && mimo.voice.trim() ? { voice: mimo.voice.trim() } : {}),
+      ...(typeof mimo.format === "string" && mimo.format.trim() ? { format: mimo.format.trim() } : {}),
+      ...(typeof mimo.voiceDescription === "string" && mimo.voiceDescription.trim() ? { voiceDescription: mimo.voiceDescription.trim() } : {})
+    } } : {}),
+    ...(has(bailian) ? { bailian: {
+      ...(typeof bailian.apiKeyEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(bailian.apiKeyEnv) ? { apiKeyEnv: bailian.apiKeyEnv } : {}),
+      ...(typeof bailian.baseUrl === "string" && bailian.baseUrl.trim() ? { baseUrl: bailian.baseUrl.trim().replace(/\/+$/, "") } : {}),
+      ...(typeof bailian.model === "string" && bailian.model.trim() ? { model: bailian.model.trim() } : {}),
+      ...(typeof bailian.voice === "string" && bailian.voice.trim() ? { voice: bailian.voice.trim() } : {}),
+      ...(typeof bailian.format === "string" && bailian.format.trim() ? { format: bailian.format.trim() } : {})
+    } } : {})
+  };
+}
 export const DEFAULT_WAKE_PHRASE = "小泽同学";
 export const DEFAULT_UPDATE_PREFERENCES: UpdatePreferences = { channel: "stable", autoCheck: true, autoDownload: true, autoInstallOnQuit: true };
 // Installers for managed/education deployments can opt out before the first
@@ -54,7 +97,7 @@ const template = (workspace: string): SecAgentConfig => ({
       maxTokens: DEFAULT_MAX_TOKENS
     }]
   } as SecAgentConfig["agent"],
-  tts: { voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE },
+  tts: { provider: "edge" as const, chain: ["edge", "windows"], voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE },
   wake: { hotkey: DEFAULT_WAKE_HOTKEY, voiceEnabled: false, voicePhrase: DEFAULT_WAKE_PHRASE },
   updates: { ...DEFAULT_UPDATE_PREFERENCES },
   telemetry: { ...DEFAULT_TELEMETRY_SETTINGS },
@@ -230,7 +273,7 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
   }
   // 系统提示词写死在源码 system-prompt.ts 中，忽略工作区 YAML 里的 agent.systemPrompt。
   raw.agent.systemPrompt = SYSTEM_PROMPT;
-  raw.tts = { voice: raw.tts?.voice || DEFAULT_TTS_VOICE, rate: raw.tts?.rate || DEFAULT_TTS_RATE };
+  raw.tts = normalizeTtsBlock(raw.tts);
   raw.updates = {
     channel: raw.updates?.channel === "preview" ? "preview" : DEFAULT_UPDATE_PREFERENCES.channel,
     autoCheck: raw.updates?.autoCheck !== false,
@@ -373,13 +416,13 @@ export interface SettingsPayload {
   providers: Array<ProviderConfig & { apiKey?: string; apiKeyConfigured?: boolean }>;
   /** Compatibility field for older IPC callers; the settings UI uses providers. */
   models: Array<ModelProfile & { apiKey?: string; apiKeyConfigured?: boolean }>;
-  tts: { voice: string; rate: string };
+  tts: import("./tts/types.js").TtsSettings & { mimo?: import("./tts/types.js").MimoTtsSettings & { apiKey?: string; apiKeyConfigured?: boolean }; bailian?: import("./tts/types.js").BailianTtsSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
   wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string };
   /**
    * Speech-to-text settings; `openai.apiKey`/`bailian.apiKey` and their
    * `apiKeyConfigured` flags are UI-only extras (keys live in the workspace .env).
    */
-  speech: SpeechAsrSettings & { openai?: OpenAiAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean }; bailian?: BailianAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
+  speech: SpeechAsrSettings & { openai?: OpenAiAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean }; bailian?: BailianAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean }; mimo?: MimoAsrSettings & { apiKey?: string; apiKeyConfigured?: boolean } };
   updates: UpdatePreferences;
   telemetry: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
@@ -414,7 +457,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { voice: config.tts?.voice || DEFAULT_TTS_VOICE, rate: config.tts?.rate || DEFAULT_TTS_RATE }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), hallucinationEnabled: config.hallucination?.enabled !== false };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...config.tts, ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), hallucinationEnabled: config.hallucination?.enabled !== false };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -486,7 +529,21 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     envOwners.set(provider.apiKeyEnv, provider.name);
   }
   const models = providers.flatMap((provider) => provider.models.map((model) => ({ id: `${provider.id}:${model.id}`, name: model.name || model.id, enabled: model.enabled, provider: provider.provider, model: model.id, apiKeyEnv: provider.apiKeyEnv, baseUrl: provider.baseUrl, endpoint: provider.endpoint, anthropicVersion: provider.anthropicVersion, maxTokens: provider.maxTokens })));
-  const nextTts = { voice: payload.tts?.voice || DEFAULT_TTS_VOICE, rate: payload.tts?.rate || DEFAULT_TTS_RATE };
+  // TTS: keep the full provider/fallback-chain block (voice/rate stay shared).
+  const nextTts = normalizeTtsBlock(payload.tts);
+  // TTS API keys follow the same env-var convention as model providers.
+  const inputTtsMimo = payload.tts?.mimo;
+  if (inputTtsMimo && typeof (inputTtsMimo as { apiKey?: string }).apiKey === "string" && (inputTtsMimo as { apiKey?: string }).apiKey!.trim()) {
+    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputTtsMimo.apiKeyEnv || "") ? inputTtsMimo.apiKeyEnv! : "MIMO_TTS_API_KEY";
+    inputTtsMimo.apiKeyEnv = envName;
+    writeWorkspaceEnv(workspace, envName, (inputTtsMimo as { apiKey?: string }).apiKey!.trim());
+  }
+  const inputTtsBailian = payload.tts?.bailian;
+  if (inputTtsBailian && typeof (inputTtsBailian as { apiKey?: string }).apiKey === "string" && (inputTtsBailian as { apiKey?: string }).apiKey!.trim()) {
+    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputTtsBailian.apiKeyEnv || "") ? inputTtsBailian.apiKeyEnv! : "BAILIAN_TTS_API_KEY";
+    inputTtsBailian.apiKeyEnv = envName;
+    writeWorkspaceEnv(workspace, envName, (inputTtsBailian as { apiKey?: string }).apiKey!.trim());
+  }
   const nextWake = { hotkey: normalizeWakeHotkey(payload.wake?.hotkey || DEFAULT_WAKE_HOTKEY), ...(payload.wake?.modelId ? { modelId: payload.wake.modelId } : {}), voiceEnabled: payload.wake?.voiceEnabled === true, voicePhrase: payload.wake?.voicePhrase?.trim() || DEFAULT_WAKE_PHRASE };
   const canonicalAgent = { ...(raw.agent as unknown as Record<string, unknown>), providers, models } as SecAgentConfig["agent"];
   for (const field of LEGACY_AGENT_MODEL_FIELDS) delete (canonicalAgent as unknown as Record<string, unknown>)[field];
@@ -511,6 +568,13 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "BAILIAN_API_KEY";
     inputBailian.apiKeyEnv = envName;
     writeWorkspaceEnv(workspace, envName, inputBailian.apiKey.trim());
+  }
+  // MiMo ASR key: same convention, MIMO_API_KEY by default.
+  const inputMimo = payload.speech?.mimo;
+  if (inputMimo && typeof (inputMimo as { apiKey?: string }).apiKey === "string" && (inputMimo as { apiKey?: string }).apiKey!.trim()) {
+    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputMimo.apiKeyEnv || "") ? inputMimo.apiKeyEnv! : "MIMO_API_KEY";
+    inputMimo.apiKeyEnv = envName;
+    writeWorkspaceEnv(workspace, envName, (inputMimo as { apiKey?: string }).apiKey!.trim());
   }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;

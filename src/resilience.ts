@@ -15,6 +15,12 @@ export interface ResilienceSettings {
   autoRetry: boolean;
   /** Try other configured models when the current one fails. Default true. */
   fallbackEnabled: boolean;
+  /**
+   * Fully custom ordered fallback chain of model ids (e.g. ["A","C","D"]).
+   * When set, it replaces the automatic "requested first, then every other
+   * enabled model" ordering — A 失败后严格按用户给定的顺序回退到 C…
+   */
+  fallbackModelIds?: string[];
   /** Remember failures and skip cooling-down models in later runs. Default true. */
   rememberFailures: boolean;
   /** First cooldown in minutes; doubles per consecutive failure, capped. Default 5. */
@@ -41,6 +47,9 @@ export function normalizeResilienceSettings(raw: unknown): ResilienceSettings {
   return {
     autoRetry: input.autoRetry !== false,
     fallbackEnabled: input.fallbackEnabled !== false,
+    ...(Array.isArray(input.fallbackModelIds)
+      ? { fallbackModelIds: input.fallbackModelIds.filter((id): id is string => typeof id === "string" && id.trim().length > 0).map((id) => id.trim()).slice(0, 20) }
+      : {}),
     rememberFailures: input.rememberFailures !== false,
     cooldownBaseMinutes: clampNumber(input.cooldownBaseMinutes, DEFAULT_RESILIENCE.cooldownBaseMinutes, 1, 720),
     quotaCooldownMinutes: clampNumber(input.quotaCooldownMinutes, DEFAULT_RESILIENCE.quotaCooldownMinutes, 1, 10080)
@@ -191,6 +200,17 @@ export class ModelHealthStore {
  * cooling-down ones pushed to the end. Returns [] when there is no option.
  */
 export function planModelChain<T>(requested: T | undefined, candidates: T[], idOf: (model: T) => string, settings: ResilienceSettings, health: ModelHealthStore): T[] {
+  // 用户自定义回退链（例：A 遇错 → C → D）：严格按给定顺序，缺号跳过。
+  const custom = settings.fallbackModelIds?.filter(Boolean) ?? [];
+  if (custom.length) {
+    const byId = new Map(candidates.map((model) => [idOf(model), model]));
+    const ordered = custom.map((id) => byId.get(id)).filter((model): model is T => Boolean(model));
+    if (ordered.length) {
+      const ready = ordered.filter((model) => !health.isCoolingDown(idOf(model), settings));
+      const cooling = ordered.filter((model) => health.isCoolingDown(idOf(model), settings));
+      return [...ready, ...cooling];
+    }
+  }
   const pool = [...candidates];
   if (requested !== undefined) {
     const index = pool.findIndex((model) => idOf(model) === idOf(requested));

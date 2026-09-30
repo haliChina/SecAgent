@@ -16,8 +16,11 @@
  */
 import type { AsrEventSink, AsrProvider, AsrSession, AsrTestResult } from "./types.js";
 import { ASR_SAMPLE_RATE, encodePcm16, mergeSamples } from "./wav.js";
-import type { BailianAsrSettings } from "./settings.js";
+import type { AsrNoiseSettings, BailianAsrSettings } from "./settings.js";
 import { bailianDisplayName, resolveBailianConfig, type ResolvedBailianConfig } from "./bailian-config.js";
+// `ws`（而非全局 WebSocket）：DashScope 在握手阶段校验 Authorization 头，
+// Node 全局 WebSocket 不支持自定义请求头，必须用 ws 包。
+import Ws from "ws";
 
 const CONNECT_TIMEOUT_MS = 8_000;
 const FINISH_TIMEOUT_MS = 8_000;
@@ -36,7 +39,7 @@ type WsLike = Pick<WebSocket, "readyState" | "send" | "close" | "binaryType"> & 
   onopen: ((event: Event) => void) | null;
   onclose: ((event: CloseEvent) => void) | null;
   onerror: ((event: Event) => void) | null;
-  onmessage: ((event: MessageEvent) => void) | null;
+  onmessage: ((event: { data?: unknown }) => void) | null;
 };
 
 /** Node's WebSocket accepts handshake headers through a non-standard option bag. */
@@ -47,6 +50,8 @@ export interface BailianWsAsrOptions {
   getSettings: () => BailianAsrSettings | undefined;
   /** Resolves the API key for an env var name (usually process.env). */
   getApiKey: (envName: string) => string | undefined;
+  /** 嘈杂环境参数（speech_noise_threshold / vad_model / 即时热词）。 */
+  getNoise?: () => AsrNoiseSettings | undefined;
   WebSocketCtor?: BailianWsConstructor;
   log?: (message: string) => void;
   /** Injectable UUID source (tests only). */
@@ -132,7 +137,7 @@ class BailianWsSession implements AsrSession {
   }
 
   private connect(): Promise<void> {
-    const Ctor = this.options.WebSocketCtor || (WebSocket as unknown as BailianWsConstructor);
+    const Ctor = this.options.WebSocketCtor || (Ws as unknown as BailianWsConstructor);
     if (typeof Ctor === "undefined") return Promise.reject(new Error("当前环境不支持 WebSocket"));
     return new Promise<void>((resolve, reject) => {
       let socket: WsLike;
@@ -170,6 +175,16 @@ class BailianWsSession implements AsrSession {
       socket.onopen = () => {
         this.options.log?.("[asr:bailian-ws] websocket opened");
         try {
+          // 嘈杂环境参数（官方文档）：
+          //  - speech_noise_threshold [-1,1]：-1 方向更不易漏音（教室场景建议 -0.2 ~ -0.6）
+          //  - vad_model：far_field_meeting_16k 远场（希沃顶部麦克风）/ near_meeting_16k 近场
+          //  - vocabulary：即时热词（权重 50 = 超级热词）
+          const noise = this.options.getNoise?.();
+          const parameters: Record<string, unknown> = { format: "pcm", sample_rate: ASR_SAMPLE_RATE };
+          if (typeof noise?.speechNoiseThreshold === "number") parameters.speech_noise_threshold = noise.speechNoiseThreshold;
+          if (noise?.vadModel) parameters.vad_model = noise.vadModel;
+          if (noise?.hotwords?.length) parameters.vocabulary = Object.fromEntries(noise.hotwords.map((word) => [word, 50]));
+          if (this.config.language) parameters.language_hints = [this.config.language];
           socket.send(JSON.stringify({
             header: { action: "run-task", task_id: this.taskId, streaming: "duplex" },
             payload: {
@@ -177,7 +192,7 @@ class BailianWsSession implements AsrSession {
               task: "asr",
               function: "recognition",
               model: this.config.streamModel,
-              parameters: { format: "pcm", sample_rate: ASR_SAMPLE_RATE },
+              parameters,
               input: {}
             }
           }));
@@ -186,10 +201,13 @@ class BailianWsSession implements AsrSession {
         }
       };
 
-      socket.onmessage = (event: MessageEvent) => {
-        if (typeof event.data !== "string") return; // server never sends client audio back
+      socket.onmessage = (event) => {
+        // ws 包的文本帧给 Buffer，全局 WebSocket 给 string——统一成 string。
+        const raw = event.data;
+        const text = typeof raw === "string" ? raw : Buffer.isBuffer(raw) ? raw.toString("utf8") : typeof ArrayBuffer !== "undefined" && raw instanceof ArrayBuffer ? new TextDecoder().decode(raw) : undefined;
+        if (!text) return; // binary audio is never sent back by the server
         let message: { header?: { event?: string; error_code?: string; error_message?: string }; payload?: { message?: string; output?: { sentence?: { text?: string; sentence_end?: boolean; heartbeat?: boolean } } } };
-        try { message = JSON.parse(event.data) as typeof message; } catch { return; }
+        try { message = JSON.parse(text) as typeof message; } catch { return; }
         const header = message.header || {};
         if (header.event === "task-started") {
           this.started = true;

@@ -16,6 +16,8 @@ import type { AsrProviderKind } from "./settings.js";
 export interface AsrManagerOptions {
   /** Reads the live provider preference (`auto` when absent). */
   getProviderKind: () => AsrProviderKind | undefined;
+  /** Reads the user's fully custom ordered fallback chain, if configured. */
+  getCustomChain?: () => string[] | undefined;
   log?: (message: string) => void;
 }
 
@@ -50,6 +52,19 @@ export class AsrManager {
 
   /** Resolve the fallback chain for the configured provider kind. */
   resolveChain(): AsrProvider[] {
+    // 用户自定义链优先：完全按用户给的顺序，只过滤未配置项（local 始终保留在末尾兜底）。
+    const custom = this.options.getCustomChain?.();
+    if (custom && custom.length) {
+      const picked = custom
+        .map((id) => this.providers.get(id))
+        .filter((provider): provider is AsrProvider => Boolean(provider))
+        .filter((provider) => provider.isConfigured() || provider.id === "local");
+      if (!picked.some((provider) => provider.id === "local")) {
+        const local = this.providers.get("local");
+        if (local && (local.isConfigured() || true)) picked.push(local);
+      }
+      if (picked.length) return picked;
+    }
     const kind = this.options.getProviderKind() || "auto";
     const chainFor: Record<AsrProviderKind, string[]> = {
       auto: ["openai", "official", "local"],
@@ -57,7 +72,9 @@ export class AsrManager {
       openai: ["openai", "local"],
       local: ["local"],
       bailian: ["bailian", "local"],
-      "bailian-ws": ["bailian-ws", "bailian", "local"]
+      "bailian-ws": ["bailian-ws", "bailian", "local"],
+      mimo: ["mimo", "local"],
+      "local-pro": ["local-pro", "local"]
     };
     return chainFor[kind]
       .map((id) => this.providers.get(id))
@@ -144,7 +161,9 @@ export class AsrManager {
       openai: ["openai"],
       local: ["local"],
       bailian: ["bailian"],
-      "bailian-ws": ["bailian-ws"]
+      "bailian-ws": ["bailian-ws"],
+      mimo: ["mimo"],
+      "local-pro": ["local-pro"]
     };
     const results: Array<{ id: string; label: string; ok: boolean; message: string }> = [];
     for (const id of ids[kind]) {
