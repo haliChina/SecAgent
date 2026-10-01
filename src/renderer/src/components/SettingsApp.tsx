@@ -366,7 +366,16 @@ export function SettingsApp() {
   ];
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
     <div className="settings-window-title">SecAgent设置</div>
-    {!isOobe && <HookSidebar activeId={activePage} items={settingsNavItems} onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }} />}
+    {!isOobe && <HookSidebar activeId={activePage} items={[
+      ...settingsNavItems,
+      // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
+      // 否则插件配置页（含 SecScore）只能靠手输 hash 才能到达。
+      ...plugins.flatMap((plugin, pluginIndex) => plugin.settingsPages.map((page, pageIndex) => ({
+        id: `plugin-${plugin.id}-${page.id}`,
+        label: page.title,
+        dividerBefore: pluginIndex === 0 && pageIndex === 0
+      })))
+    ]} onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }} />}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2><p>按下全局快捷键后，在当前显示器工作区唤起语音 Agent。窗口不会覆盖任务栏。</p></div></div>

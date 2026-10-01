@@ -21,13 +21,29 @@ export function ScrollProgress({ container }: { container: React.RefObject<HTMLE
   useEffect(() => {
     const element = container.current;
     if (!element) return;
+    // 会话历史异步加载、流式输出都会改变 scrollHeight：监听内容变化（ResizeObserver + MutationObserver），
+    // 并用 rAF 合并高频事件（流式逐字符时避免每帧多次强制布局）。
+    let frame = 0;
     const update = (): void => {
       const max = element.scrollHeight - element.clientHeight;
       setProgress(max > 4 ? Math.min(1, Math.max(0, element.scrollTop / max)) : 1);
     };
+    const schedule = (): void => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => { frame = 0; update(); });
+    };
     update();
-    element.addEventListener("scroll", update, { passive: true });
-    return () => element.removeEventListener("scroll", update);
+    element.addEventListener("scroll", schedule, { passive: true });
+    const resize = new ResizeObserver(schedule);
+    resize.observe(element);
+    const mutations = new MutationObserver(schedule);
+    mutations.observe(element, { childList: true, subtree: true, characterData: true });
+    return () => {
+      element.removeEventListener("scroll", schedule);
+      resize.disconnect();
+      mutations.disconnect();
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [container]);
   return (
     <div className="scroll-progress" role="presentation">
