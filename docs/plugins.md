@@ -102,3 +102,9 @@ HTTP 服务只绑定 loopback 不是完整鉴权。生产实现应增加随机�
 声明 `agent.preview` 权限的插件可以使用宿主提供的 `api.openSvgPreview({ svg, title, fileName, openPreview })`。桌面端会将 SVG 保存到当前工作区的 `exports/handdrawn-markdown/`；默认打开独立预览窗口，传入 `openPreview: false` 时只保存文件而不打开窗口。CLI 等没有 Electron 窗口的运行环境仍会保存文件，但返回 `previewOpened: false`。
 
 宿主会限制文件大小、拒绝带目录的文件名，并使用无 Node Integration 的隔离窗口加载 SVG。插件不得通过系统命令自行启动浏览器或窗口。
+
+## Overlay 浮窗能力
+
+声明 `agent.overlay` 权限的插件可以使用 `api.createOverlay({ url, width, height, transparent?, alwaysOnTop?, clickThrough? })` 创建桌面浮窗（如桌面宠物）。`url` 仅允许插件本地 loopback 服务（`http://127.0.0.1/*`）；宽高为 64~1600 的整数；三个开关默认全为 true。返回句柄 `{ show(), hide(), close(), setBounds() }`。
+
+安全模式对齐 SVG 预览：窗口使用无 Node Integration + 沙盒渲染进程 + `contextIsolation`，禁止弹窗与标题伪装，禁止导航到非 loopback 地址；点击穿透默认开启，渲染页通过预置的 `window.__secagentOverlay.setIgnoreMouseEvents(ignore)` / `move(dx, dy)` 桥接临时接管鼠标（桥接只作用于发送者自己的窗口）。插件停用/卸载时宿主自动关闭其 overlay。CLI 等无窗口环境调用会抛错，插件应自行降级（如用系统浏览器打开页面）。

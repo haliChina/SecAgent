@@ -88,6 +88,36 @@ export interface SvgPreviewRequest {
 
 export type SvgPreviewHandler = (request: SvgPreviewRequest) => Promise<boolean>;
 
+/** 插件 overlay 浮窗（如桌面宠物）的创建参数。 */
+export interface OverlayCreateOptions {
+  /** 仅允许 http://127.0.0.1/* 或 http://localhost/*（插件本地服务） */
+  url: string;
+  /** 逻辑宽度，64~1600 */
+  width: number;
+  /** 逻辑高度，64~1600 */
+  height: number;
+  /** 透明背景，默认 true */
+  transparent?: boolean;
+  /** 窗口置顶，默认 true */
+  alwaysOnTop?: boolean;
+  /** 鼠标点击穿透（仅内容主动接管时捕获），默认 true */
+  clickThrough?: boolean;
+}
+
+export interface PluginOverlayHandle {
+  show(): Promise<void>;
+  hide(): Promise<void>;
+  close(): Promise<void>;
+  setBounds(bounds: { x?: number; y?: number; width?: number; height?: number }): Promise<void>;
+}
+
+export interface OverlayRequest extends OverlayCreateOptions {
+  pluginId: string;
+}
+
+/** Electron 主进程实现：创建隔离的 overlay 窗口。CLI 等无窗口环境不提供。 */
+export type OverlayHandler = (request: OverlayRequest) => Promise<PluginOverlayHandle>;
+
 export interface PluginHostApi {
   registerTool(definition: Omit<PluginToolDefinition, "key"> & { name: string }, call: (args: Record<string, unknown>) => Promise<unknown>): void;
   unregisterTool(name: string): void;
@@ -108,6 +138,12 @@ export interface PluginHostApi {
   /** Persist plugin-scoped preferences. The host stores this outside the workspace business databases. */
   setConfig(config: Record<string, unknown>): void;
   openSvgPreview(input: { svg: string; title?: string; fileName?: string; openPreview?: boolean }): Promise<{ path: string; relativePath: string; bytes: number; previewOpened: boolean; previewError?: string }>;
+  /**
+   * 创建插件 overlay 浮窗（透明、置顶、可点击穿透）。
+   * 需要权限 `agent.overlay`；URL 仅允许插件本地 loopback 服务。
+   * 插件停用/卸载时宿主自动关闭其 overlay。
+   */
+  createOverlay(input: OverlayCreateOptions): Promise<PluginOverlayHandle>;
   setStatus(message: string, state?: "ready" | "error"): void;
   fetch(url: string, init?: RequestInit): Promise<Response>;
 }
@@ -123,6 +159,7 @@ export class PluginManager {
   private readonly dataRoot: string;
   private readonly statePath: string;
   private active = new Map<string, ActivePlugin>();
+  private overlays = new Map<string, Set<PluginOverlayHandle>>();
   private state: PluginStateFile = { plugins: [] };
   private listeners = new Set<() => void>();
 
@@ -130,7 +167,8 @@ export class PluginManager {
     getSession: () => Promise<{ accessToken: string; userId?: string; email?: string; name?: string } | null>;
     oauthLogin: () => Promise<{ accessToken: string; userId?: string; email?: string; name?: string }>;
   } = { getSession: async () => null, oauthLogin: async () => { throw new Error("SECTL OAuth login unavailable"); } },
-  private readonly previewHandler?: SvgPreviewHandler) {
+  private readonly previewHandler?: SvgPreviewHandler,
+  private readonly overlayHandler?: OverlayHandler) {
     this.installedRoot = path.join(workspace, "plugins", "installed");
     this.runtimeRoot = path.join(workspace, ".secagent-runtime", "plugins");
     this.configRoot = path.join(workspace, "plugins", "config");
@@ -346,6 +384,14 @@ export class PluginManager {
   private async deactivate(id: string): Promise<void> {
     const plugin = this.active.get(id);
     if (!plugin) return;
+    // 先关闭该插件的 overlay 浮窗，再执行插件自身的 dispose
+    const overlays = this.overlays.get(id);
+    if (overlays) {
+      this.overlays.delete(id);
+      for (const overlay of overlays) {
+        try { await overlay.close(); } catch { /* 关闭失败不阻断停用 */ }
+      }
+    }
     await plugin.dispose?.();
     this.active.delete(id);
     fs.rmSync(path.join(this.runtimeRoot, plugin.manifest.id, plugin.manifest.version), { recursive: true, force: true });
@@ -424,6 +470,10 @@ export class PluginManager {
         requirePermission("agent.preview");
         return this.saveSvgPreview(plugin, input);
       },
+      createOverlay: async (input) => {
+        requirePermission("agent.overlay");
+        return this.createPluginOverlay(plugin, input);
+      },
       setStatus: (message, state = "ready") => { plugin.message = message; plugin.state = state; this.changed(); },
       fetch: async (url, init) => { requirePermission("network.http"); const parsed = new URL(url); if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("插件 HTTP 仅允许 http/https"); return fetch(url, init); }
     };
@@ -453,6 +503,56 @@ export class PluginManager {
       return { path: filePath, relativePath, bytes, previewOpened: false, previewError: error instanceof Error ? error.message : String(error) };
     }
   }
+  /** 校验 overlay 创建参数：URL 仅允许插件本地 loopback 服务，尺寸钳制。 */
+  private validateOverlayInput(input: OverlayCreateOptions): Required<OverlayCreateOptions> {
+    if (!input || typeof input !== "object") throw new Error("overlay 参数无效");
+    let url: URL;
+    try {
+      url = new URL(String(input.url));
+    } catch {
+      throw new Error("overlay URL 无效");
+    }
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "http:" || (host !== "127.0.0.1" && host !== "localhost" && host !== "::1")) {
+      throw new Error("overlay 只允许加载插件本地服务（http://127.0.0.1/*）");
+    }
+    const width = Number(input.width);
+    const height = Number(input.height);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 64 || width > 1600 || height < 64 || height > 1600) {
+      throw new Error("overlay 尺寸必须为 64~1600 的整数");
+    }
+    const flag = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
+    return {
+      url: url.toString(),
+      width,
+      height,
+      transparent: flag(input.transparent, true),
+      alwaysOnTop: flag(input.alwaysOnTop, true),
+      clickThrough: flag(input.clickThrough, true)
+    };
+  }
+
+  private async createPluginOverlay(plugin: ActivePlugin, input: OverlayCreateOptions): Promise<PluginOverlayHandle> {
+    const options = this.validateOverlayInput(input);
+    if (!this.overlayHandler) throw new Error("当前运行环境不支持 overlay（需要 Electron 桌面端）");
+    const handle = await this.overlayHandler({ ...options, pluginId: plugin.manifest.id });
+    const set = this.overlays.get(plugin.manifest.id) ?? new Set<PluginOverlayHandle>();
+    set.add(handle);
+    this.overlays.set(plugin.manifest.id, set);
+    const rawClose = handle.close.bind(handle);
+    // 包装 close：从跟踪集合中移除，避免重复关闭
+    return {
+      ...handle,
+      close: async () => {
+        try {
+          await rawClose();
+        } finally {
+          set.delete(handle);
+        }
+      }
+    };
+  }
+
   private safeRelative(root: string, value: string): string { const candidate = path.resolve(root, value); if (!candidate.startsWith(`${root}${path.sep}`)) throw new Error("插件路径越界"); return candidate; }
   private assertSafeSkillTree(root: string): void {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {

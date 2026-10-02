@@ -22,7 +22,7 @@ import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices, configureTts } from "./tts.js";
-import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
+import { PluginManager, type SvgPreviewRequest, type OverlayRequest, type PluginOverlayHandle } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
 import { detectCompanionApps } from "../companion-apps.js";
 import { ClassIslandInstaller } from "../classisland.js";
@@ -669,6 +669,95 @@ async function openPluginSvgPreview(request: SvgPreviewRequest): Promise<boolean
     if (!previewWindow.isDestroyed()) previewWindow.close();
     return false;
   }
+}
+
+function isOverlayAllowedUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const host = url.hostname.toLowerCase();
+    return url.protocol === "http:" && (host === "127.0.0.1" || host === "localhost" || host === "::1");
+  } catch {
+    return false;
+  }
+}
+
+let overlayIpcRegistered = false;
+/** overlay 桥接通道：只作用于发送者自己的窗口，防止跨窗口操作。 */
+function registerOverlayIpcOnce(): void {
+  if (overlayIpcRegistered) return;
+  overlayIpcRegistered = true;
+  ipcMain.on("overlay:ignore-mouse", (event, ignore: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!!ignore, { forward: true });
+  });
+  ipcMain.on("overlay:move", (event, dx: unknown, dy: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (win && !win.isDestroyed()) {
+      const bounds = win.getBounds();
+      win.setBounds({ x: bounds.x + (Number(dx) || 0), y: bounds.y + (Number(dy) || 0) });
+    }
+  });
+}
+
+/**
+ * 插件 overlay 浮窗：透明、置顶、点击穿透的隔离窗口。
+ * 安全模式对齐 openSvgPreview：无 Node 集成、沙盒渲染进程、
+ * 禁止弹窗与标题伪装、只允许加载插件本地 loopback 服务。
+ */
+async function openPluginOverlay(request: OverlayRequest): Promise<PluginOverlayHandle> {
+  if (!isOverlayAllowedUrl(request.url)) throw new Error("overlay 只允许加载插件本地服务（http://127.0.0.1/*）");
+  const { workArea } = screen.getPrimaryDisplay();
+  const win = new BrowserWindow({
+    width: request.width,
+    height: request.height,
+    x: Math.round(workArea.x + workArea.width - request.width - 24),
+    y: Math.round(workArea.y + workArea.height - request.height - 24),
+    transparent: request.transparent,
+    frame: false,
+    alwaysOnTop: request.alwaysOnTop,
+    skipTaskbar: true,
+    resizable: false,
+    hasShadow: false,
+    focusable: false,
+    autoHideMenuBar: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/overlay-preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  win.on("page-title-updated", (event) => event.preventDefault());
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!isOverlayAllowedUrl(url)) event.preventDefault();
+  });
+  registerOverlayIpcOnce();
+  if (request.clickThrough) win.setIgnoreMouseEvents(true, { forward: true });
+  try {
+    await win.loadURL(request.url);
+  } catch (error) {
+    if (!win.isDestroyed()) win.close();
+    throw error;
+  }
+  logMain("plugin.overlay.opened", { pluginId: request.pluginId });
+  const alive = () => !win.isDestroyed();
+  return {
+    show: async () => { if (alive() && !win.isVisible()) win.show(); },
+    hide: async () => { if (alive() && win.isVisible()) win.hide(); },
+    close: async () => { if (alive()) win.close(); },
+    setBounds: async (bounds) => {
+      if (!alive()) return;
+      const current = win.getBounds();
+      win.setBounds({
+        x: bounds.x ?? current.x,
+        y: bounds.y ?? current.y,
+        width: bounds.width ?? current.width,
+        height: bounds.height ?? current.height
+      });
+    }
+  };
 }
 
 function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false, _window?: Electron.BaseWindow, _event?: Electron.KeyboardEvent): void {
@@ -1632,7 +1721,7 @@ async function startApplication(): Promise<void> {
       return accessToken ? { accessToken, userId: process.env.SECTL_OFFICIAL_USER_ID || undefined, email: process.env.SECTL_OFFICIAL_EMAIL || undefined } : null;
     },
     oauthLogin: runSectlOAuthLogin,
-  }, openPluginSvgPreview);
+  }, openPluginSvgPreview, openPluginOverlay);
   try { await pluginManager.initialize(); }
   catch (error) {
     recordTelemetryFailure({ type: "plugin.start.failed", error, context: { phase: "initialize" } });
