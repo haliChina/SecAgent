@@ -102,10 +102,12 @@ export function MatrixOrb({ size = 96 }: { size?: number }) {
 /* ------------------------------------------------------------------ */
 export function daySeparatorLabel(iso: string, now = new Date()): string {
   const date = new Date(iso);
-  // 用本地时区的日历字段（而非 UTC epoch 日）计算天数差：UTC 截断会把本地 23 点后
-  // 的消息算进「下一天」，且在偏移非整小时的时区（如 UTC+5:30）每天都漂移。
-  const dayKey = (value: Date): number => value.getFullYear() * 512 + value.getMonth() * 32 + value.getDate();
-  const days = dayKey(now) - dayKey(date);
+  // 用本地日历日零点的时间差计算天数（而非 UTC epoch 日或 month*32 数字键）：
+  // UTC 截断会把本地 23 点后的消息算进「下一天」，偏移非整小时的时区（如
+  // UTC+5:30）每天都漂移；数字键在月/年边界不按天递增（1/31→2/1 差 2、
+  // 12/31→1/1 差 130）。Math.round 兼容 DST 切换日的 23/25 小时日。
+  const localMidnight = (value: Date): number => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((localMidnight(now) - localMidnight(date)) / 86_400_000);
   if (days <= 0) return "今天";
   if (days === 1) return "昨天";
   return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
