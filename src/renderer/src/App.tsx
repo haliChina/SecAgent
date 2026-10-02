@@ -76,6 +76,8 @@ export function App() {
   const [finishing, setFinishing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [speechProcessing, setSpeechProcessing] = useState(false);
+  /** ASR 采集流的 React 侧句柄（audioRef 是 ref 不触发渲染；仅用于喂给状态球取电平）。 */
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [voicePendingSend, setVoicePendingSend] = useState(false);
   const [speechMode, setSpeechMode] = useState<VoiceInputMode | null>(null);
   const [voiceDropZone, setVoiceDropZone] = useState<VoiceDropAction>("send");
@@ -587,6 +589,7 @@ export function App() {
   const closeAudioCapture = async () => {
     const audio = audioRef.current;
     audioRef.current = undefined;
+    setMicStream(null);
     audio?.processor.disconnect();
     audio?.source.disconnect();
     audio?.stream.getTracks().forEach((track) => track.stop());
@@ -656,6 +659,7 @@ export function App() {
       source.connect(processor);
       processor.connect(context.destination);
       audioRef.current = { context, stream, source, processor };
+      setMicStream(stream);
       logSpeech("capture.ready", { mode, contextState: context.state, sampleRate: context.sampleRate, tracks: stream.getAudioTracks().length });
       if (speechSession.stopRequested) await closeAudioCapture();
       return true;
@@ -898,7 +902,7 @@ export function App() {
       <section className="conversation" aria-label="当前会话">
         <div className="messages" ref={messagesRef}>
           <ScrollProgress container={messagesRef} />
-          {session?.messages.length === 0 && <div className="empty-state"><MatrixOrb state={orbState} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session?.messages.length === 0 && <div className="empty-state"><MatrixOrb state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
           {session?.messages.map((message, index) => {
             const previous = index > 0 ? session.messages[index - 1] : undefined;
             const dayLabel = daySeparatorLabel(message.createdAt);
@@ -923,7 +927,7 @@ export function App() {
             </div>
           </div>
         </div>}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="status"><MatrixOrb size={28} state={orbState} accent={orbAccent} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{(recording || speechProcessing) && speechMode === "streaming" ? <VoicePill recording={recording} label={speechProcessing ? speechStatus || "正在识别…" : "正在聆听"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="status"><MatrixOrb size={28} state={orbState} accent={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{(recording || speechProcessing) && speechMode === "streaming" ? <VoicePill recording={recording} label={speechProcessing ? speechStatus || "正在识别…" : "正在聆听"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>

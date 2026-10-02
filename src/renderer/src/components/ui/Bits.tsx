@@ -60,66 +60,61 @@ export function ScrollProgress({ container }: { container: React.RefObject<HTMLE
 export type OrbState = "idle" | "listening" | "thinking";
 
 /**
- * 麦克风电平（0-1，EMA 平滑）。active=false 或 prefers-reduced-motion 时不采样
- * （reduced-motion 下电平恒 0，避免高频重绘）；授权失败静默退化为静态。
- * 仅在 listening 态调用，采样循环限定在组件内部，不影响外层重渲染。
+ * 从既有 MediaStream 取电平（0-1，EMA 平滑）。**绝不自己调 getUserMedia**
+ * （Codex R5：orb 自开默认设备流会采错设备——用户配置的 deviceId 在 ASR 侧
+ * `audioInputRef`——且单路采集驱动下会抢占设备、导致 ASR 失败）。只 attach
+ * 一个 AnalyserNode 做分析，采集流由 App 侧 ASR 持有并经 prop 传入。
+ * 流为 null / prefers-reduced-motion / 浏览器限制时电平恒 0（静态退化）。
  */
-export function useMicLevel(active: boolean): number {
+export function useStreamLevel(stream: MediaStream | null | undefined): number {
   const [level, setLevel] = useState(0);
   useEffect(() => {
-    if (!active) return;
+    if (!stream) return;
     if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-    let cancelled = false;
     let raf = 0;
-    let stream: MediaStream | null = null;
     let context: AudioContext | null = null;
     let smoothed = 0;
-    const start = async (): Promise<void> => {
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) return;
-        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
-        context = new AudioContext();
-        const analyser = context.createAnalyser();
-        analyser.fftSize = 512;
-        context.createMediaStreamSource(stream).connect(analyser);
-        const samples = new Uint8Array(analyser.fftSize);
-        const tick = (): void => {
-          analyser.getByteTimeDomainData(samples);
-          let sum = 0;
-          for (let i = 0; i < samples.length; i += 1) { const value = (samples[i] - 128) / 128; sum += value * value; }
-          const rms = Math.sqrt(sum / samples.length);
-          smoothed = smoothed * 0.82 + Math.min(1, rms * 3.4) * 0.18;
-          setLevel(smoothed);
-          raf = requestAnimationFrame(tick);
-        };
-        tick();
-      } catch {
-        /* 麦克风不可用/未授权：电平保持 0，listening 态退化为静态呈现 */
-      }
-    };
-    void start();
+    try {
+      context = new AudioContext();
+      if (context.state === "suspended") void context.resume().catch(() => undefined);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const samples = new Uint8Array(analyser.fftSize);
+      const tick = (): void => {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (let i = 0; i < samples.length; i += 1) { const value = (samples[i] - 128) / 128; sum += value * value; }
+        const rms = Math.sqrt(sum / samples.length);
+        smoothed = smoothed * 0.82 + Math.min(1, rms * 3.4) * 0.18;
+        setLevel(smoothed);
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    } catch {
+      /* 流已停止或浏览器限制：电平保持 0，listening 态退化为静态呈现 */
+    }
     return () => {
-      cancelled = true;
       if (raf) cancelAnimationFrame(raf);
-      stream?.getTracks().forEach((track) => track.stop());
       context?.close().catch(() => undefined);
       setLevel(0);
     };
-  }, [active]);
+  }, [stream]);
   return level;
 }
 
 /**
- * 契约说明（2026-10-02 升级）：三态组件 state: "idle" | "listening" | "thinking"。
- * idle = 极缓呼吸 + 26s 自转；listening = 自驱麦克风 RMS（level 可外部注入覆盖）；
- * thinking = 加速自转。accent 覆盖主题色（如工具面板配色）。尺寸由 font-size
- * 派生（1em = 球直径）：不传 size 走 CSS（空状态 min(200px, 30vw)），
- * 常驻位传 size=28。零新增依赖（getUserMedia + AnalyserNode 原生 API）。
+ * 契约说明（2026-10-02 R5 修订）：三态组件 state: "idle" | "listening" | "thinking"。
+ * idle = 极缓呼吸 + 26s 自转；listening = 从 App 传入的 ASR 采集流（stream prop）
+ * 挂 AnalyserNode 取电平，组件自身**不开采集流**（设备选择权在 App 的
+ * audioInputRef）；level prop 可外部注入覆盖（受控用法）。thinking = 加速自转。
+ * accent 覆盖主题色（如工具面板配色）。尺寸由 font-size 派生（1em = 球直径）：
+ * 不传 size 走 CSS（空状态 min(200px, 30vw)），常驻位传 size=28。
+ * 零新增依赖（AnalyserNode 原生 API）。
  */
-export function MatrixOrb({ size, state = "idle", level, accent }: { size?: number; state?: OrbState; level?: number; accent?: string }) {
-  const micLevel = useMicLevel(state === "listening");
-  const effectiveLevel = level ?? micLevel;
+export function MatrixOrb({ size, state = "idle", level, accent, stream }: { size?: number; state?: OrbState; level?: number; accent?: string; stream?: MediaStream | null }) {
+  const streamLevel = useStreamLevel(state === "listening" ? stream : null);
+  const effectiveLevel = level ?? streamLevel;
   const dots: Array<{ x: number; y: number; z: number }> = [];
   const rings = 7;
   const perRing = 14;
