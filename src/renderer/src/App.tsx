@@ -11,7 +11,7 @@ import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
 import { reasoningEffortLabels, traceLabel } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
-import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel } from "./utils.js";
+import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
 import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
 import { DaySeparator, DeleteButton, ErrorStateCard, GuardrailNotice, MatrixOrb, MessageActions, ScrollProgress, StoppedRunTag, ThoughtLine, VoicePill, daySeparatorLabel } from "./components/ui/Bits.js";
@@ -463,6 +463,12 @@ export function App() {
     return "tool";
   }, [activeTrace]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
+  // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
+  const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
+  // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
+  const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
+  const orbAccent = runningTool ? (runningTool.name === "bash" ? "#F59E0B" : "#2383E2") : undefined;
+  const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
   const changeSession = async (id: string) => {
     if (!bridge) return;
     const [next, runtimeEvents] = await Promise.all([bridge.getSession(id), bridge.getRuntimeEvents(id)]);
@@ -892,7 +898,7 @@ export function App() {
       <section className="conversation" aria-label="当前会话">
         <div className="messages" ref={messagesRef}>
           <ScrollProgress container={messagesRef} />
-          {session?.messages.length === 0 && <div className="empty-state"><MatrixOrb size={104} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session?.messages.length === 0 && <div className="empty-state"><MatrixOrb state={orbState} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
           {session?.messages.map((message, index) => {
             const previous = index > 0 ? session.messages[index - 1] : undefined;
             const dayLabel = daySeparatorLabel(message.createdAt);
@@ -917,7 +923,7 @@ export function App() {
             </div>
           </div>
         </div>}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{(recording || speechProcessing) && speechMode === "streaming" ? <VoicePill recording={recording} label={speechProcessing ? speechStatus || "正在识别…" : "正在聆听"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="status"><MatrixOrb size={28} state={orbState} accent={orbAccent} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{(recording || speechProcessing) && speechMode === "streaming" ? <VoicePill recording={recording} label={speechProcessing ? speechStatus || "正在识别…" : "正在聆听"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>

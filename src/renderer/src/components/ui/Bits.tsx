@@ -55,14 +55,71 @@ export function ScrollProgress({ container }: { container: React.RefObject<HTMLE
 }
 
 /* ------------------------------------------------------------------ */
-/* MatrixOrb (rareui) — 空状态装饰：CSS 球面点阵 + 缓慢自转               */
+/* MatrixOrb (rareui) — 三态状态球：空状态居中 / composer 上方常驻      */
 /* ------------------------------------------------------------------ */
+export type OrbState = "idle" | "listening" | "thinking";
+
 /**
- * 契约说明：当前为 size-only 的纯装饰实现（空状态常驻 idle），不含 state/level
- * 语义，也未接麦克风 RMS。若后续要复用到语音唤醒浮窗或生成态头像，需扩展
- * state: "idle" | "listening" | "thinking" 与电平输入，再行接线。
+ * 麦克风电平（0-1，EMA 平滑）。active=false 或 prefers-reduced-motion 时不采样
+ * （reduced-motion 下电平恒 0，避免高频重绘）；授权失败静默退化为静态。
+ * 仅在 listening 态调用，采样循环限定在组件内部，不影响外层重渲染。
  */
-export function MatrixOrb({ size = 96 }: { size?: number }) {
+export function useMicLevel(active: boolean): number {
+  const [level, setLevel] = useState(0);
+  useEffect(() => {
+    if (!active) return;
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    let cancelled = false;
+    let raf = 0;
+    let stream: MediaStream | null = null;
+    let context: AudioContext | null = null;
+    let smoothed = 0;
+    const start = async (): Promise<void> => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) return;
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        if (cancelled) { stream.getTracks().forEach((track) => track.stop()); return; }
+        context = new AudioContext();
+        const analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        context.createMediaStreamSource(stream).connect(analyser);
+        const samples = new Uint8Array(analyser.fftSize);
+        const tick = (): void => {
+          analyser.getByteTimeDomainData(samples);
+          let sum = 0;
+          for (let i = 0; i < samples.length; i += 1) { const value = (samples[i] - 128) / 128; sum += value * value; }
+          const rms = Math.sqrt(sum / samples.length);
+          smoothed = smoothed * 0.82 + Math.min(1, rms * 3.4) * 0.18;
+          setLevel(smoothed);
+          raf = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch {
+        /* 麦克风不可用/未授权：电平保持 0，listening 态退化为静态呈现 */
+      }
+    };
+    void start();
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      stream?.getTracks().forEach((track) => track.stop());
+      context?.close().catch(() => undefined);
+      setLevel(0);
+    };
+  }, [active]);
+  return level;
+}
+
+/**
+ * 契约说明（2026-10-02 升级）：三态组件 state: "idle" | "listening" | "thinking"。
+ * idle = 极缓呼吸 + 26s 自转；listening = 自驱麦克风 RMS（level 可外部注入覆盖）；
+ * thinking = 加速自转。accent 覆盖主题色（如工具面板配色）。尺寸由 font-size
+ * 派生（1em = 球直径）：不传 size 走 CSS（空状态 min(200px, 30vw)），
+ * 常驻位传 size=28。零新增依赖（getUserMedia + AnalyserNode 原生 API）。
+ */
+export function MatrixOrb({ size, state = "idle", level, accent }: { size?: number; state?: OrbState; level?: number; accent?: string }) {
+  const micLevel = useMicLevel(state === "listening");
+  const effectiveLevel = level ?? micLevel;
   const dots: Array<{ x: number; y: number; z: number }> = [];
   const rings = 7;
   const perRing = 14;
@@ -77,10 +134,11 @@ export function MatrixOrb({ size = 96 }: { size?: number }) {
       });
     }
   }
+  const style: CSSProperties = { ...(size !== undefined ? { fontSize: size } : {}), ...(accent ? ({ "--orb-accent": accent } as CSSProperties) : {}) };
   return (
-    <div className="matrix-orb" style={{ width: size, height: size }} aria-hidden="true">
-      <div className="matrix-orb-core" />
-      <div className="matrix-orb-dots">
+    <div className={`matrix-orb matrix-orb--${state}`} style={style} aria-hidden="true">
+      <div className="matrix-orb-core" style={{ transform: `scale(${1 + effectiveLevel * 0.2})` }} />
+      <div className="matrix-orb-dots" style={{ opacity: 0.72 + effectiveLevel * 0.28 }}>
         {dots.map((dot, index) => (
           <span
             key={index}
