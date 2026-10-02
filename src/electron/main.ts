@@ -1533,12 +1533,12 @@ ipcMain.handle("sessions:send", async (_event, id: string, text: string, modelId
       // Reuse the store's normal persistence path without adding a visible message.
       sessionStore.setAutoLoadedSkills(id, current.autoLoadedSkills);
     }
-    // Surface resilience + hallucination findings inline so they survive the
-    // session history and stay visible without extra UI plumbing.
+    // Surface resilience findings inline; hallucination reports are persisted
+    // as a structured field on the message so the renderer renders a proper
+    // notice strip (GuardrailNotice) instead of appending markdown text.
     let finalMessage = result.message;
     if ("usedFallbackModels" in result && result.usedFallbackModels?.length) finalMessage += `\n\n> ⚙️ 模型稳定性：已自动切换备用模型（${result.usedFallbackModels.join(" → ")}），原模型暂时不可用。`;
-    if ("hallucination" in result && result.hallucination?.signals.length) finalMessage += `\n\n> ⚠️ 幻觉检测提醒（仅提示，不代表一定有错）：\n${result.hallucination.signals.map((signal) => `> - ${signal.detail}`).join("\n")}\n> 建议人工核对以上要点。`;
-    sessionStore.appendMessage(id, "assistant", finalMessage, toolCalls, activities);
+    sessionStore.appendMessage(id, "assistant", finalMessage, toolCalls, activities, undefined, false, "hallucination" in result && result.hallucination?.signals.length ? result.hallucination : undefined);
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     trace({ stage: "assistant.response", data: { text: result.message } });

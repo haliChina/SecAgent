@@ -631,41 +631,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .stopped-run-tag { display: inline-flex; align-items: center; gap: 7px; margin: 4px 0; color: #838A95; font-size: 11.5px; }
 .stopped-run-square { width: 9px; height: 9px; border-radius: 2px; background: #AEB6C0; }
 
-/* ---- SpeakerTag (assistant-ui) ---- */
-.speaker-tag { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border: 1px solid #DCEEFC; border-radius: 999px; background: #F2F9FF; color: #1B5FA8; font-size: 11.5px; }
-.speaker-tag-dot { width: 6px; height: 6px; border-radius: 50%; background: #2383E2; }
-
-/* ---- VoiceNote (rareui) ---- */
-.voice-note { display: inline-flex; align-items: center; gap: 10px; padding: 7px 12px 7px 8px; border: 1px solid #EBEDF1; border-radius: 12px; background: #FFFFFF; }
-.voice-note-play { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #DCEEFC; border-radius: 50%; background: #E9F6FF; color: #1B5FA8; font-size: 10px; cursor: pointer; }
-.voice-note-play.playing { background: #2383E2; border-color: #2383E2; color: #FFFFFF; }
-.voice-note-wave { display: inline-flex; align-items: center; gap: 2px; height: 22px; }
-.voice-note-wave i { width: 3px; border-radius: 2px; background: #B9D6EF; }
-.voice-note-play.playing ~ .voice-note-wave i { background: #2383E2; animation: voice-pill-bar .8s ease-in-out infinite alternate; }
-.voice-note-duration { color: #838A95; font-size: 11.5px; min-width: 24px; text-align: right; }
-
 /* ---- AnimatedCounter ---- */
 .animated-counter { font-variant-numeric: tabular-nums; }
-
-/* ---- MessageQueue (assistant-ui) ---- */
-.message-queue { display: flex; align-items: center; gap: 8px; justify-content: center; margin: 4px 0; color: #838A95; font-size: 12px; }
-.message-queue-badge { display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: #E9F6FF; color: #1B5FA8; font-size: 11px; font-weight: 600; }
-
-/* ---- ComputerUseCard (assistant-ui) ---- */
-.computer-use-card { display: grid; grid-template-columns: 132px 1fr; gap: 12px; align-items: center; margin: 6px 0; padding: 10px; border: 1px solid #EBEDF1; border-radius: 10px; background: #FFFFFF; max-width: 420px; }
-.computer-use-viewport { position: relative; height: 78px; border-radius: 7px; background: linear-gradient(135deg, #F7FBFE, #E9F6FF); overflow: hidden; display: grid; place-items: center; gap: 6px; grid-auto-flow: row; }
-.computer-use-viewport span { width: 34%; height: 8px; border-radius: 4px; background: #D3E6F6; }
-.computer-use-viewport span:nth-child(2) { width: 56%; }
-.computer-use-copy strong { font-size: 12.5px; }
-.computer-use-copy p { margin: 3px 0 0; color: #838A95; font-size: 11.5px; line-height: 1.5; }
-
-/* ---- RegenerateMenu (assistant-ui) ---- */
-.regenerate-menu { position: relative; display: inline-block; }
-.regenerate-trigger { display: inline-flex; align-items: center; gap: 5px; min-height: 30px; padding: 3px 10px; border: 1px solid #EBEDF1; border-radius: 6px; background: transparent; color: #838A95; font-size: 12px; cursor: pointer; }
-.regenerate-trigger:hover, .regenerate-trigger.open { background: #F5F6F7; color: #171717; }
-.regenerate-options { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 130px; padding: 4px; border: 1px solid #EBEDF1; border-radius: 8px; background: #FFFFFF; box-shadow: 0 4px 14px rgba(15, 23, 42, .08); }
-.regenerate-options button { display: block; width: 100%; min-height: 32px; padding: 4px 10px; border: 0; border-radius: 6px; background: transparent; color: #5B6470; font-size: 12.5px; text-align: left; cursor: pointer; }
-.regenerate-options button:hover { background: #F5F6F7; color: #171717; }
 
 /* ---- HookSidebar (rareui) — 钩式选中：左侧小钩滑入 ---- */
 .hook-sidebar button { position: relative; }

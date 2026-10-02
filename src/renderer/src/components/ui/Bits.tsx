@@ -8,6 +8,8 @@
  *    computer-use / number-ticker
  *  - reactbits.dev: voice-pill / thought-line / branched-menu
  *
+ * 设计参考致谢：rareui.com / assistant-ui.com / reactbits.dev（详见 README 开源致谢）。
+ *
  * 约束：纯 React + 全局 styles.css，零新增 npm 依赖（Electron 打包友好）。
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
@@ -26,7 +28,7 @@ export function ScrollProgress({ container }: { container: React.RefObject<HTMLE
     let frame = 0;
     const update = (): void => {
       const max = element.scrollHeight - element.clientHeight;
-      setProgress(max > 4 ? Math.min(1, Math.max(0, element.scrollTop / max)) : 1);
+      setProgress(max > 4 ? Math.min(1, Math.max(0, element.scrollTop / max)) : 0);
     };
     const schedule = (): void => {
       if (frame) return;
@@ -55,6 +57,11 @@ export function ScrollProgress({ container }: { container: React.RefObject<HTMLE
 /* ------------------------------------------------------------------ */
 /* MatrixOrb (rareui) — 空状态装饰：CSS 球面点阵 + 缓慢自转               */
 /* ------------------------------------------------------------------ */
+/**
+ * 契约说明：当前为 size-only 的纯装饰实现（空状态常驻 idle），不含 state/level
+ * 语义，也未接麦克风 RMS。若后续要复用到语音唤醒浮窗或生成态头像，需扩展
+ * state: "idle" | "listening" | "thinking" 与电平输入，再行接线。
+ */
 export function MatrixOrb({ size = 96 }: { size?: number }) {
   const dots: Array<{ x: number; y: number; z: number }> = [];
   const rings = 7;
@@ -95,8 +102,10 @@ export function MatrixOrb({ size = 96 }: { size?: number }) {
 /* ------------------------------------------------------------------ */
 export function daySeparatorLabel(iso: string, now = new Date()): string {
   const date = new Date(iso);
-  const startOfDay = (value: Date): number => Math.floor(value.getTime() / 86_400_000);
-  const days = startOfDay(now) - startOfDay(date);
+  // 用本地时区的日历字段（而非 UTC epoch 日）计算天数差：UTC 截断会把本地 23 点后
+  // 的消息算进「下一天」，且在偏移非整小时的时区（如 UTC+5:30）每天都漂移。
+  const dayKey = (value: Date): number => value.getFullYear() * 512 + value.getMonth() * 32 + value.getDate();
+  const days = dayKey(now) - dayKey(date);
   if (days <= 0) return "今天";
   if (days === 1) return "昨天";
   return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
@@ -263,40 +272,6 @@ export function StoppedRunTag({ at }: { at?: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* SpeakerTag (assistant-ui speaker-identity) — 说话人标签                 */
-/* ------------------------------------------------------------------ */
-export function SpeakerTag({ name }: { name: string }) {
-  return <span className="speaker-tag"><span className="speaker-tag-dot" aria-hidden="true" />{name}</span>;
-}
-
-/* ------------------------------------------------------------------ */
-/* VoiceNote (rareui voicenote) — 语音便签回放条                          */
-/* ------------------------------------------------------------------ */
-export function VoiceNote({ durationSeconds }: { durationSeconds: number }) {
-  const [playing, setPlaying] = useState(false);
-  const bars = 26;
-  return (
-    <div className="voice-note" role="group" aria-label={`语音消息 ${durationSeconds} 秒`}>
-      <button
-        type="button"
-        className={`voice-note-play ${playing ? "playing" : ""}`}
-        aria-label={playing ? "暂停播放" : "播放语音"}
-        aria-pressed={playing}
-        onClick={() => setPlaying((current) => !current)}
-      >
-        <span aria-hidden="true">{playing ? "❙❙" : "▶"}</span>
-      </button>
-      <span className="voice-note-wave" aria-hidden="true">
-        {Array.from({ length: bars }, (_, index) => (
-          <i key={index} style={{ height: `${6 + ((index * 11) % 18)}px`, animationDelay: `${index * 40}ms` }} />
-        ))}
-      </span>
-      <span className="voice-note-duration">{durationSeconds}″</span>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /* AnimatedCounter (rareui animatedcounter / assistant-ui number-ticker)  */
 /* ------------------------------------------------------------------ */
 export function AnimatedCounter({
@@ -328,69 +303,6 @@ export function AnimatedCounter({
     return () => cancelAnimationFrame(frame);
   }, [value, durationMs]);
   return <span className="animated-counter" style={style}>{format ? format(display) : Math.round(display).toLocaleString()}</span>;
-}
-
-/* ------------------------------------------------------------------ */
-/* MessageQueue (assistant-ui) — 排队中的消息指示                         */
-/* ------------------------------------------------------------------ */
-export function MessageQueue({ count }: { count: number }) {
-  if (count <= 0) return null;
-  return (
-    <div className="message-queue" role="status">
-      <span className="message-queue-badge">{count}</span>
-      <span>{count === 1 ? "一条消息排队中" : `${count} 条消息排队中`}</span>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* ComputerUseCard (assistant-ui computer-use) — 截图/识图工具预览          */
-/* ------------------------------------------------------------------ */
-export function ComputerUseCard({ tool, summary }: { tool: string; summary: string }) {
-  return (
-    <div className="computer-use-card" role="figure" aria-label={`${tool} 结果`}>
-      <div className="computer-use-viewport" aria-hidden="true">
-        <span /><span /><span /><span />
-      </div>
-      <div className="computer-use-copy">
-        <strong>{tool}</strong>
-        <p>{summary}</p>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/* RegenerateMenu (assistant-ui) — 重新生成菜单                          */
-/* ------------------------------------------------------------------ */
-export function RegenerateMenu({ onRegenerate }: { onRegenerate: () => void }) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  return (
-    <div className="regenerate-menu">
-      <button
-        type="button"
-        className={`regenerate-trigger ${open ? "open" : ""}`}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        onClick={() => setOpen((current) => !current)}
-      >
-        <span aria-hidden="true">↻</span>
-        <span>{busy ? "生成中…" : "重新生成"}</span>
-      </button>
-      {open && (
-        <div className="regenerate-options" role="menu">
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => { setOpen(false); setBusy(true); onRegenerate(); window.setTimeout(() => setBusy(false), 800); }}
-          >
-            再试一次
-          </button>
-        </div>
-      )}
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------------ */

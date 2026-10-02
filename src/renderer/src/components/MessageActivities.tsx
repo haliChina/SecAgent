@@ -1,4 +1,5 @@
 import { AnimatedDetails } from "./AnimatedDetails.js";
+import { ToolErrorCard } from "./ui/Bits.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { toolTitle } from "../utils.js";
 
@@ -11,6 +12,12 @@ function resultText(activity: ToolActivity): string {
   if (!activity.result || typeof activity.result !== "object") return "";
   const result = activity.result as { stdout?: unknown; stderr?: unknown };
   return `${typeof result.stdout === "string" ? result.stdout : ""}\n${typeof result.stderr === "string" ? result.stderr : ""}`;
+}
+
+function toolErrorMessage(activity: ToolActivity): string | undefined {
+  if (!("result" in activity) || !activity.result || typeof activity.result !== "object") return undefined;
+  const error = (activity.result as { error?: unknown }).error;
+  return typeof error === "string" && error.trim() ? error : undefined;
 }
 
 function gitSummary(activities: ToolActivity): string[] {
@@ -71,8 +78,8 @@ export function MessageActivities({ activities, elapsedSeconds, isExecuting = fa
         ? <AnimatedDetails className="intermediate-output skill-auto-load" key={`${activity.kind}-${activity.name}-${index}`} summary={<><span className="activity-dot">·</span><span>自动加载 Skill：{activity.name}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}><div className="activity-content"><p>已匹配当前消息并注入完整 Skill 内容。</p><code>{activity.path}</code></div></AnimatedDetails>
         : activity.kind !== "tool"
         ? <AnimatedDetails className={`intermediate-output ${activity.kind}`} key={`${activity.kind}-${index}`} autoOpen={isExecuting && activeStepKind === "thinking" && index === activities.length - 1 && activity.kind === "thinking"} summary={<><span className="activity-dot">·</span><span>{activity.kind === "thinking" ? "推理" : activity.kind === "summary" ? "中间摘要" : "中间内容"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}><div className="activity-content"><MarkdownContent>{activity.content}</MarkdownContent></div></AnimatedDetails>
-        : <AnimatedDetails className="message-tool" key={`${activity.name}-${index}`} summary={<><span className="activity-dot">·</span><span className="tool-name">{toolTitle(activity.name)}</span><span className="tool-state">{"result" in activity ? "已完成" : "调用中"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}> 
-          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p><pre>{"result" in activity ? JSON.stringify(activity.result, null, 2) : "正在等待返回…"}</pre></div></div>
+        : <AnimatedDetails className="message-tool" key={`${activity.name}-${index}`} summary={<><span className="activity-dot">·</span><span className="tool-name">{toolTitle(activity.name)}</span><span className="tool-state">{"result" in activity ? (toolErrorMessage(activity) ? "已失败" : "已完成") : "调用中"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}> 
+          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p>{toolErrorMessage(activity) ? <ToolErrorCard tool={toolTitle(activity.name)} message={toolErrorMessage(activity) || ""} /> : <pre>{"result" in activity ? JSON.stringify(activity.result, null, 2) : "正在等待返回…"}</pre>}</div></div>
         </AnimatedDetails>) }
     </div>
   </AnimatedDetails>;
