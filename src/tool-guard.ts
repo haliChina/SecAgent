@@ -61,6 +61,37 @@ const WRITE_TOOL_ARGS = ["path", "file", "filename", "target", "dest", "destinat
 const COMMAND_TOOL_ARGS = ["command", "cmd", "script", "shell", "exec", "code"];
 
 /**
+ * GUI-driving tools (computer-use and friends): the action lands on a real
+ * desktop with no undo. Matches `<plugin>__type`, `computer-use__key`,
+ * `…__click`, `…__drag` — deliberately suffix-based so any plugin that drives
+ * the screen is covered without naming it.
+ */
+const GUI_TOOL_PATTERN = /(^|__)(type|key|keys|click|drag|double_click)$/;
+
+/** Typed text that commits something irreversible. */
+const RISKY_TEXT_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\brm\s+-[a-z]*[rf]/i, reason: "删除文件命令" },
+  { pattern: /\b(format|diskpart)\b/i, reason: "磁盘格式化/分区操作" },
+  { pattern: /\breg\s+(add|delete)\b/i, reason: "修改注册表" },
+  { pattern: /(删除|清空|格式化|卸载|永久删除|彻底删除)/, reason: "删除类不可逆操作" },
+  { pattern: /(支付|付款|转账|下单|充值|购买|结算|扣款)/, reason: "支付/资金操作" },
+  { pattern: /(发送|发表|发布|寄出|提交订单|确认发送)/, reason: "对外发送/提交" },
+  { pattern: /(密码|口令|私钥|助记词|密钥|token|api[\s_-]?key|验证码)/i, reason: "涉及凭据/验证码" }
+];
+
+/** Key chords that can end a session, lock the machine or wipe a dialog. */
+const RISKY_KEY_PATTERNS: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /^alt\s*\+\s*f4$/i, reason: "关闭当前窗口/退出应用" },
+  { pattern: /^ctrl\s*\+\s*alt\s*\+(delete|del)$/i, reason: "安全界面（重启/锁屏）" },
+  { pattern: /^(win|meta|super)\s*\+\s*l$/i, reason: "锁屏" },
+  { pattern: /^(win|meta|super)\s*\+\s*(x|q)$/i, reason: "关闭全部窗口" }
+];
+
+function guiSignature(tool: string, kind: string, value: string): string {
+  return `${tool}|${kind}:${value.trim().replace(/\s+/g, " ").slice(0, 60).toLowerCase()}`;
+}
+
+/**
  * Stable "command family" head used for always-allow signatures: the first two
  * tokens plus any flag tokens that follow (up to 4 total). Path/URL/value
  * arguments are dropped so `git push --force origin master` matches an
@@ -118,6 +149,27 @@ export function checkToolCall(request: GuardCheckRequest, settings: ToolGuardSet
       const reason = inspectPath(value.trim());
       if (reason) reasons.push(`${reason}：${value.trim().slice(0, 100)}`);
       break;
+    }
+  }
+  // GUI 动作：键入文本 / 组合键，命中高风险特征才拦截（普通打字不受打扰）。
+  if (!reasons.length && GUI_TOOL_PATTERN.test(request.tool)) {
+    const typed = request.arguments.text;
+    if (typeof typed === "string" && typed.trim()) {
+      const hit = RISKY_TEXT_PATTERNS.find((entry) => entry.pattern.test(typed));
+      if (hit) {
+        commandSignature = guiSignature(request.tool, "text", typed);
+        reasons.push(`${hit.reason}：${typed.trim().slice(0, 100)}`);
+      }
+    }
+    const keys = typeof request.arguments.keys === "string"
+      ? request.arguments.keys
+      : typeof request.arguments.key === "string" ? request.arguments.key : "";
+    if (!reasons.length && keys.trim()) {
+      const hit = RISKY_KEY_PATTERNS.find((entry) => entry.pattern.test(keys.trim()));
+      if (hit) {
+        commandSignature = guiSignature(request.tool, "keys", keys);
+        reasons.push(`${hit.reason}：${keys.trim().slice(0, 60)}`);
+      }
     }
   }
   if (!reasons.length) return { action: "allow" };

@@ -1,6 +1,7 @@
 import type { PluginPromptContribution } from "./plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort, SecAgentConfig } from "./types.js";
 import { toolResultParts, toolResultText } from "./tool-content.js";
+import { budgetStopMessage, normalizeModelBudgetSettings, pruneImageHistory, WRAP_UP_NOTICE, type ModelBudgetSettings } from "./model-budget.js";
 import { anthropicThinkingConfig, googleThinkingConfig, reasoningFieldsForChat, reasoningFieldsForResponses } from "./reasoning.js";
 
 const WORKSPACE_FILE_OUTPUT_PROMPT = `
@@ -159,11 +160,31 @@ function toGoogleSchema(input: unknown): Record<string, unknown> {
 
 export class ModelToolAgent {
   private agent: SecAgentConfig["agent"];
+  private budget: ModelBudgetSettings;
   constructor(config: SecAgentConfig, _skills: LoadedSkill[], private trace?: ModelTrace, private getExtraPrompts?: () => Promise<PluginPromptContribution[]>, includeRuntimePrompts = true, private allowEmptyTools = false) {
     const skillCatalog = includeRuntimePrompts && _skills.length
       ? `\n\n## 可用 Skills\n${_skills.map((skill) => `- ${skill.name}: ${skill.description}（入口文件：${skill.relativePath || skill.path}）`).join("\n")}`
       : "";
     this.agent = { ...config.agent, systemPrompt: includeRuntimePrompts ? `${config.agent.systemPrompt}${skillCatalog}${WORKSPACE_FILE_OUTPUT_PROMPT}` : config.agent.systemPrompt };
+    this.budget = normalizeModelBudgetSettings(config.budget);
+  }
+
+  /**
+   * Drop stale images from the newest-first conversation before each request.
+   * Mutates nothing: returns a new array only when something was pruned.
+   */
+  private prune<T>(messages: T[]): T[] {
+    const { messages: pruned, dropped } = pruneImageHistory(messages, this.budget.keepRecentImages);
+    if (dropped) this.trace?.("model.images.pruned", { dropped, keep: this.budget.keepRecentImages });
+    return pruned;
+  }
+
+  /** Whether this turn is the last one allowed; pushes the wrap-up notice once. */
+  private budgetNotice<T>(messages: T[], turn: number, userNotice: T): boolean {
+    if (!this.budget.maxToolTurns || turn < this.budget.maxToolTurns - 1) return false;
+    messages.push(userNotice);
+    this.trace?.("model.budget.wrap_up", { turn: turn + 1, maxToolTurns: this.budget.maxToolTurns });
+    return true;
   }
   async run(instruction: string, tools: AgentTool[], execute: ExecuteTool, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal): Promise<string> {
     if (!tools.length && !this.allowEmptyTools) throw new Error("没有已启用且可发现的 MCP 工具");
@@ -289,13 +310,15 @@ export class ModelToolAgent {
     const definitions = tools.map((tool) => ({ type: "function", function: { name: tool.key, description: tool.description || tool.key, parameters: tool.inputSchema || { type: "object", properties: {} } } }));
     let pendingToolError: string | undefined;
     let emptyResponseRetries = 0;
+    let wrapUpTurn = false;
     for (let turn = 0; ; turn++) {
       let content = "";
       const toolCalls = new Map<number, { id?: string; function: { name?: string; arguments: string } }>();
       signal?.throwIfAborted();
+      wrapUpTurn = this.budgetNotice(messages, turn, { role: "user", content: WRAP_UP_NOTICE });
       await this.streamRequest(`${this.agent.baseUrl}${this.agent.endpoint || "/chat/completions"}`, { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, {
         model: this.agent.model,
-        messages,
+        messages: this.prune(messages),
         tools: definitions,
         max_tokens: this.agent.maxTokens,
         ...reasoningFieldsForChat(this.agent, reasoningEffort)
@@ -356,6 +379,10 @@ export class ModelToolAgent {
         imageFollowups.push(...parts.images);
       }
       if (imageFollowups.length) messages.push({ role: "user", content: [{ type: "text", text: "工具返回了图片，请直接查看这些图片并继续完成任务。" }, ...imageFollowups.map((image) => ({ type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.data}` } }))] });
+      if (wrapUpTurn) {
+        this.trace?.("model.budget.stop", { maxToolTurns: this.budget.maxToolTurns, turn: turn + 1 });
+        return budgetStopMessage(this.budget.maxToolTurns, content);
+      }
       pendingToolError = turnToolError;
     }
     throw new Error("工具调用循环意外结束");
@@ -369,6 +396,7 @@ export class ModelToolAgent {
     const definitions = tools.map((tool) => ({ type: "function", name: tool.key, description: tool.description || tool.key, parameters: tool.inputSchema || { type: "object", properties: {} }, strict: false }));
     let pendingToolError: string | undefined;
     let emptyResponseRetries = 0;
+    let wrapUpTurn = false;
     for (let turn = 0; ; turn++) {
       let answer = "";
       let summaryDeltaSeen = false;
@@ -376,10 +404,11 @@ export class ModelToolAgent {
       let responseOutput: InputItem[] = [];
       const calls = new Map<string, FunctionCall>();
       signal?.throwIfAborted();
+      wrapUpTurn = this.budgetNotice(input, turn, { role: "user", content: [{ type: "input_text", text: WRAP_UP_NOTICE }] });
       await this.streamRequest(`${this.agent.baseUrl}${this.agent.endpoint || "/responses"}`, { "Content-Type": "application/json", Authorization: `Bearer ${key}` }, {
         model: this.agent.model,
         instructions: systemPrompt,
-        input,
+        input: this.prune(input),
         tools: definitions,
         max_output_tokens: this.agent.maxTokens,
         ...reasoningFieldsForResponses(this.agent, reasoningEffort)
@@ -486,6 +515,10 @@ export class ModelToolAgent {
         const parts = toolResultParts(result);
         input.push({ type: "function_call_output", call_id: call.callId, output: parts.images.length ? [{ type: "input_text", text: toolResultText(parts) }, ...parts.images.map((image) => ({ type: "input_image", image_url: `data:${image.mimeType};base64,${image.data}` }))] : toolResultText(parts) });
       }
+      if (wrapUpTurn) {
+        this.trace?.("model.budget.stop", { maxToolTurns: this.budget.maxToolTurns, turn: turn + 1 });
+        return budgetStopMessage(this.budget.maxToolTurns, answer);
+      }
       pendingToolError = turnToolError;
     }
     throw new Error("工具调用循环意外结束");
@@ -497,12 +530,14 @@ export class ModelToolAgent {
     const contents: Array<{ role: "user" | "model"; parts: Part[] }> = history.filter((message) => message.role !== "system").flatMap(googleHistory) as Array<{ role: "user" | "model"; parts: Part[] }>;
     const definitions = tools.map((tool) => ({ name: tool.key, description: tool.description || tool.key, parameters: toGoogleSchema(tool.inputSchema || { type: "object", properties: {} }) }));
     let pendingToolError: string | undefined;
+    let wrapUpTurn = false;
     for (let turn = 0; ; turn++) {
       let text = "";
       const calls = new Map<string, { name: string; args: Record<string, unknown>; thoughtSignature?: string; id?: string }>();
+      wrapUpTurn = this.budgetNotice(contents, turn, { role: "user", parts: [{ text: WRAP_UP_NOTICE }] });
       const body = {
         systemInstruction: { parts: [{ text: dynamicSystem ? `${systemPrompt}\n\n${dynamicSystem}` : systemPrompt }] },
-        contents,
+        contents: this.prune(contents),
         tools: [{ functionDeclarations: definitions }],
         generationConfig: { maxOutputTokens: this.agent.maxTokens, thinkingConfig: googleThinkingConfig(this.agent, reasoningEffort) }
       };
@@ -555,6 +590,10 @@ export class ModelToolAgent {
         }
       }
       if (imageFallback.length) contents.push({ role: "user", parts: [{ text: "工具返回了图片，请直接查看这些图片并继续完成任务。" }, ...imageFallback] });
+      if (wrapUpTurn) {
+        this.trace?.("model.budget.stop", { maxToolTurns: this.budget.maxToolTurns, turn: turn + 1 });
+        return budgetStopMessage(this.budget.maxToolTurns, text);
+      }
       pendingToolError = turnToolError;
     }
     throw new Error("工具调用循环意外结束");
@@ -601,16 +640,18 @@ export class ModelToolAgent {
       : [{ role: "user", content: instruction }];
     const definitions = tools.map((tool) => ({ name: tool.key, description: tool.description || tool.key, input_schema: tool.inputSchema || { type: "object", properties: {} } }));
     let pendingToolError: string | undefined;
+    let wrapUpTurn = false;
     for (let turn = 0; ; turn++) {
       const blocks = new Map<number, { type?: string; id?: string; name?: string; text?: string; inputJson?: string; input?: Record<string, unknown> }>();
       signal?.throwIfAborted();
+      wrapUpTurn = this.budgetNotice(messages, turn, { role: "user", content: [{ type: "text", text: WRAP_UP_NOTICE }] });
       await this.streamRequest(`${this.agent.baseUrl}${this.agent.endpoint || "/v1/messages"}`, {
         "Content-Type": "application/json", "x-api-key": key, "anthropic-version": this.agent.anthropicVersion || "2023-06-01"
       }, {
         model: this.agent.model,
         max_tokens: this.agent.maxTokens,
         system: dynamicSystem ? `${systemPrompt}\n\n${dynamicSystem}` : systemPrompt,
-        messages,
+        messages: this.prune(messages),
         tools: definitions,
         ...anthropicThinkingConfig(this.agent, reasoningEffort)
       }, (event) => {
@@ -678,6 +719,11 @@ export class ModelToolAgent {
         results.push({ type: "tool_result", tool_use_id: call.id, content: parts.images.length ? [{ type: "text", text: toolResultText(parts) }, ...parts.images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.data } }))] : toolResultText(parts) });
       }
       messages.push({ role: "user", content: results });
+      if (wrapUpTurn) {
+        this.trace?.("model.budget.stop", { maxToolTurns: this.budget.maxToolTurns, turn: turn + 1 });
+        const spoken = content.filter((item) => item.type === "text").map((item) => item.text).filter(Boolean).join("\n");
+        return budgetStopMessage(this.budget.maxToolTurns, spoken);
+      }
       pendingToolError = turnToolError;
     }
     throw new Error("工具调用循环意外结束");

@@ -135,6 +135,8 @@ export interface SecAgentConfig {
   resilience?: import("./resilience.js").ResilienceSettings;
   /** Sensitive tool-call confirmations — see tool-guard.ts. */
   guard?: import("./tool-guard.js").ToolGuardSettings;
+  /** Tool-loop ceiling + image history pruning — see model-budget.ts. */
+  budget?: import("./model-budget.js").ModelBudgetSettings;
   /** Hallucination warning strip for final answers. */
   hallucination?: { enabled?: boolean };
 }
