@@ -2,7 +2,7 @@ import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, LoaderCircle, Square, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
-import { SettingsErrorBoundary } from "./components/ErrorBoundary.js";
+import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
 import { VoiceWakeListener } from "./components/VoiceWakeListener.js";
 import { MessageActivities } from "./components/MessageActivities.js";
@@ -15,7 +15,7 @@ import type { TraceEvent } from "./constants.js";
 import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
 import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
-import { DaySeparator, DeleteButton, ErrorStateCard, GuardrailNotice, MatrixOrb, MessageActions, ScrollProgress, StoppedRunTag, ThoughtLine, VoicePill, daySeparatorLabel } from "./components/ui/Bits.js";
+import { AuroraBackdrop, DaySeparator, DeleteButton, ErrorStateCard, GuardrailNotice, MatrixOrb, MessageActions, ScrollProgress, StoppedRunTag, ThoughtLine, VoicePill, daySeparatorLabel } from "./components/ui/Bits.js";
 
 function selectionInElement(element: HTMLElement): string {
   const selection = window.getSelection();
@@ -54,7 +54,7 @@ type PendingVoiceSend = { messageId: string; sessionId: string };
 export function App() {
   const bridge = window.secagent;
   const route = new URLSearchParams(window.location.search);
-  if (route.has("settings")) return <SettingsErrorBoundary><SettingsApp /></SettingsErrorBoundary>;
+  if (route.has("settings")) return <WindowErrorBoundary crashTitle="设置页遇到错误" windowTitle="SecAgent设置"><SettingsApp /></WindowErrorBoundary>;
   if (route.has("wake")) return <WakeOverlay />;
   if (route.has("voice-wake")) return <VoiceWakeListener />;
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
@@ -903,7 +903,7 @@ export function App() {
       <section className="conversation" aria-label="当前会话">
         <div className="messages" ref={messagesRef}>
           <ScrollProgress container={messagesRef} />
-          {session?.messages.length === 0 && <div className="empty-state"><MatrixOrb state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
           {session?.messages.map((message, index) => {
             const previous = index > 0 ? session.messages[index - 1] : undefined;
             const dayLabel = daySeparatorLabel(message.createdAt);

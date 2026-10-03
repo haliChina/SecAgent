@@ -72,8 +72,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .r3f-error { overflow: auto; margin: 12px 0; padding: 10px 12px; border: 1px solid #f0caca; border-radius: 7px; background: #fff8f8; color: #a22; white-space: pre-wrap; }
 .user .bubble { color: #171717; background: #fff; border-color: #dedede; border-radius: 14px 4px 14px 14px; }
 .loading { color: #777; }
-.empty-state { margin: auto; text-align: center; color: #777; }.empty-state h2 { color: #222; margin-bottom: 6px; }
-.composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 14px 15px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid #d7d7d7; border-radius: 15px; background: #fff; }
+.empty-state { position: relative; margin: auto; text-align: center; color: #777; }.empty-state h2 { position: relative; color: #222; margin-bottom: 6px; }.empty-state p { position: relative; }
+.composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 14px 15px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid rgba(215, 227, 242, .9); border-radius: 15px; background: rgba(255, 255, 255, .72); backdrop-filter: blur(14px) saturate(160%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 10px 30px rgba(35, 131, 226, .12), inset 0 1px 0 rgba(255, 255, 255, .65); }
 .composer.dragging { border-color: #2389ec; background: #f5faff; }.composer-attachments { flex: 0 0 100%; min-width: 0; }.attachment-strip { display: flex; flex-wrap: wrap; gap: 8px; }.attachment-card { position: relative; width: 58px; height: 58px; overflow: hidden; border: 1px solid #ddd; border-radius: 9px; background: #f4f4f4; }.attachment-card img { display: block; width: 100%; height: 100%; object-fit: cover; }.attachment-preview-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }.attachment-preview-button:focus-visible { outline: 2px solid #2389ec; outline-offset: -2px; }.attachment-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.72); color: #fff; font-size: 15px; line-height: 16px; cursor: pointer; }.attachment-error { flex: 0 0 100%; color: #b44; font-size: 11px; }.message-attachment-strip { margin-bottom: 8px; }.message-attachment-strip .attachment-card { width: 96px; height: 96px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.composer textarea { flex: 1 1 120px; }
 .composer-actions { display: flex; gap: 12px; }
 .icon-button { width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: #181818; cursor: pointer; }
@@ -568,24 +568,16 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .scroll-progress { position: sticky; top: 0; z-index: 3; height: 3px; margin: -45px -45px 18px; padding: 0 45px; background: transparent; pointer-events: none; }
 .scroll-progress-bar { height: 3px; transform-origin: left center; transform: scaleX(0); border-radius: 999px; background: #2383E2; transition: transform .12s linear; }
 
-/* ---- MatrixOrb (rareui) ---- */
+/* ---- MatrixOrb (rareui · Canvas 2D 真版，动画在 JS 内逐点计算) ---- */
 .matrix-orb { position: relative; margin: 0 auto 18px; width: 1em; height: 1em; font-size: 96px; --orb-accent: #2383E2; }
-.matrix-orb-core { position: absolute; inset: 22%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #FFFFFF, #E3F0FC 55%, #C8E4F9); border: 1px solid #D6E9F8; transition: transform .12s linear, border-color .3s ease, box-shadow .3s ease; }
-.matrix-orb-dots { position: absolute; inset: 0; animation: matrix-orb-spin 26s linear infinite; transition: opacity .12s linear; }
-.matrix-orb-dots span { position: absolute; width: .052em; height: .052em; margin: -.026em; border-radius: 50%; background: var(--orb-accent, #2383E2); opacity: .5; animation: matrix-orb-pulse 2.6s ease-in-out infinite; }
-@keyframes matrix-orb-spin { to { transform: rotate(360deg); } }
-@keyframes matrix-orb-pulse { 50% { opacity: .9; } }
+.matrix-orb canvas { display: block; width: 100%; height: 100%; }
 .empty-state .matrix-orb + h2 { margin-top: 0; }
-/* 三态：idle 呼吸感；listening 提速 + RMS 电平；thinking 再提速 + 色调偏冷 */
 .empty-state .matrix-orb { font-size: min(200px, 30vw); margin-bottom: 22px; }
-.matrix-orb--idle .matrix-orb-core { animation: matrix-orb-breathe 5.6s ease-in-out infinite; }
-.matrix-orb--listening .matrix-orb-dots { animation-duration: 7s; }
-.matrix-orb--listening .matrix-orb-dots span { animation-duration: 1.1s; }
-.matrix-orb--thinking .matrix-orb-dots { animation-duration: 9s; }
-.matrix-orb--thinking .matrix-orb-dots span { animation-duration: .8s; }
-.matrix-orb--thinking .matrix-orb-core { border-color: #C9D8FB; }
-@keyframes matrix-orb-breathe { 50% { transform: scale(1.04); box-shadow: 0 0 18px rgba(35, 131, 226, .15); } }
-/* 常驻状态球（composer 上方，会话开始后出现）：尺寸/出现走过渡，不瞬移 */
+@media (max-height: 760px) { .empty-state .matrix-orb { font-size: min(150px, 26vw); } }
+/* ---- AuroraBackdrop (reactbits · lightMode 移植，画在 JS 内) ---- */
+.aurora-backdrop { position: absolute; inset: 0; overflow: hidden; border-radius: 28px; pointer-events: none; }
+.aurora-backdrop canvas { display: block; width: 100%; height: 100%; }
+/* 常驻状态球（composer 上方，会话开始后出现）：出现走过渡，不瞬移 */
 .composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border-radius: 999px; background: rgba(255, 255, 255, .92); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); }
 .composer-orb-dock .matrix-orb { margin: 0; }
 .composer-orb-label { font-size: 11px; color: #5B6472; white-space: nowrap; }
@@ -665,6 +657,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .model-row-chevron { color: #2383E2; font-weight: 700; margin-left: 6px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .scroll-progress-bar, .matrix-orb, .matrix-orb-core, .matrix-orb-dots, .matrix-orb-dots span, .thought-line-spinner,
+  .scroll-progress-bar, .thought-line-spinner,
   .voice-pill-dot, .voice-pill-wave i, .voice-note-wave i, .hook-tab, .composer-orb-dock { animation: none !important; transition: none !important; }
 }

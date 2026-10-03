@@ -104,50 +104,216 @@ export function useStreamLevel(stream: MediaStream | null | undefined): number {
 }
 
 /**
- * 契约说明（2026-10-02 R5 修订）：三态组件 state: "idle" | "listening" | "thinking"。
- * idle = 极缓呼吸 + 26s 自转；listening = 从 App 传入的 ASR 采集流（stream prop）
- * 挂 AnalyserNode 取电平，组件自身**不开采集流**（设备选择权在 App 的
- * audioInputRef）；level prop 可外部注入覆盖（受控用法）。thinking = 加速自转。
- * accent 覆盖主题色（如工具面板配色）。尺寸由 font-size 派生（1em = 球直径）：
- * 不传 size 走 CSS（空状态 min(200px, 30vw)），常驻位传 size=28。
- * 零新增依赖（AnalyserNode 原生 API）。
+ * 契约说明（2026-10-03 R7 升级为 Canvas 2D 真版）：三态 state: "idle" | "listening" | "thinking"。
+ * 逐点半径 = spacing * 0.6 * exp(-d²*1.7) * intensity（rareui 签名逻辑），d 为到中心的
+ * 归一化距离，d > 1.12 直接跳过保证圆形轮廓；半径×DPR < 0.5 半像素剔除防糊。
+ * 三态肉眼可辨：idle 极缓呼吸（全点同相，~11s 周期）/ listening 正弦涟漪由中心
+ * 向外传播 + RMS 电平驱动点大小与亮度 / thinking 外环热区沿轨道游走（~5.7s/圈）
+ * + 加速涟漪。listening 电平来自 App 传入的 ASR 采集流（组件绝不开流，Codex R5）。
+ * 尺寸由容器决定（em 派生）：空状态 min(200px,30vw)，dock 28px；密度自适应
+ * （<48px 用 9 点阵，否则 21，防止小球糊成一坨）。prefers-reduced-motion 静态
+ * 一帧、document.hidden 停 rAF。DPR 上限 2。零新增依赖（Canvas 2D 原生 API）。
  */
 export function MatrixOrb({ size, state = "idle", level, accent, stream }: { size?: number; state?: OrbState; level?: number; accent?: string; stream?: MediaStream | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamLevel = useStreamLevel(state === "listening" ? stream : null);
   const effectiveLevel = level ?? streamLevel;
-  const dots: Array<{ x: number; y: number; z: number }> = [];
-  const rings = 7;
-  const perRing = 14;
-  for (let ring = 0; ring < rings; ring += 1) {
-    const phi = (ring / (rings - 1)) * Math.PI;
-    for (let i = 0; i < perRing; i += 1) {
-      const theta = (i / perRing) * Math.PI * 2;
-      dots.push({
-        x: Math.sin(phi) * Math.cos(theta),
-        y: Math.cos(phi),
-        z: Math.sin(phi) * Math.sin(theta)
-      });
-    }
-  }
+  const liveRef = useRef({ state, effectiveLevel, accent });
+  useEffect(() => {
+    liveRef.current = { state, effectiveLevel, accent };
+  });
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    let raf = 0;
+    let cssWidth = 0;
+    let cssHeight = 0;
+    let dpr = 1;
+    const resize = (): void => {
+      const rect = container.getBoundingClientRect();
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cssWidth = rect.width;
+      cssHeight = rect.height;
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+
+    const draw = (time: number): void => {
+      const { state, effectiveLevel, accent } = liveRef.current;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      const cx = cssWidth / 2;
+      const cy = cssHeight / 2;
+      const orbRadius = (Math.min(cssWidth, cssHeight) / 2) * 0.94;
+      if (orbRadius <= 1) return;
+      // 极淡底光保持球体感（替代旧 .matrix-orb-core）
+      const glow = ctx.createRadialGradient(cx, cy, orbRadius * 0.1, cx, cy, orbRadius);
+      glow.addColorStop(0, "rgba(255,255,255,.92)");
+      glow.addColorStop(0.7, "rgba(227,240,252,.3)");
+      glow.addColorStop(1, "rgba(227,240,252,0)");
+      ctx.fillStyle = glow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, orbRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      const across = cssWidth < 48 ? 9 : 21;
+      const spacing = (orbRadius * 2) / across;
+      const hotspot = (time / 900) % (Math.PI * 2);
+      ctx.fillStyle = accent || "#2383E2";
+      for (let gy = -across; gy <= across; gy += 1) {
+        for (let gx = -across; gx <= across; gx += 1) {
+          const px = gx * spacing;
+          const py = gy * spacing;
+          const d = Math.hypot(px, py) / orbRadius;
+          if (d > 1.12) continue;
+          let intensity: number;
+          if (state === "listening") {
+            const ripple = Math.sin(time / 260 - d * 7);
+            intensity = 0.62 + 0.34 * ripple * (0.55 + 0.45 * effectiveLevel) + 0.5 * effectiveLevel * (1 - d * 0.55);
+          } else if (state === "thinking") {
+            const angle = Math.atan2(py, px);
+            const angular = Math.atan2(Math.sin(angle - hotspot), Math.cos(angle - hotspot));
+            const orbit = Math.exp(-((d - 0.82) ** 2) * 26);
+            intensity = 0.6 + 0.2 * Math.sin(time / 170 - d * 9) + 1.15 * orbit * Math.exp(-(angular ** 2) * 3.2);
+          } else {
+            intensity = 0.78 + 0.16 * Math.sin(time / 1800 + d * 2.4);
+          }
+          const dotRadius = spacing * 0.6 * Math.exp(-d * d * 1.7) * Math.min(1.9, Math.max(0.25, intensity));
+          if (dotRadius * dpr < 0.5) continue;
+          const alpha = Math.min(0.95, (0.3 + 0.55 * Math.exp(-d * d * 1.5)) * (0.55 + 0.45 * Math.min(1, intensity / 1.3))) * (state === "listening" ? 0.75 + 0.45 * effectiveLevel : 1);
+          ctx.globalAlpha = Math.min(1, Math.max(0.06, alpha));
+          ctx.beginPath();
+          ctx.arc(cx + px, cy + py, dotRadius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    const loop = (time: number): void => {
+      draw(time);
+      if (!document.hidden) raf = requestAnimationFrame(loop);
+    };
+    if (reducedMotion) draw(1200);
+    else raf = requestAnimationFrame(loop);
+
+    const onVisibility = (): void => {
+      cancelAnimationFrame(raf);
+      if (!document.hidden && !reducedMotion) raf = requestAnimationFrame(loop);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
   const style: CSSProperties = { ...(size !== undefined ? { fontSize: size } : {}), ...(accent ? ({ "--orb-accent": accent } as CSSProperties) : {}) };
   return (
-    <div className={`matrix-orb matrix-orb--${state}`} style={style} aria-hidden="true">
-      <div className="matrix-orb-core" style={{ transform: `scale(${1 + effectiveLevel * 0.2})` }} />
-      <div className="matrix-orb-dots" style={{ opacity: 0.72 + effectiveLevel * 0.28 }}>
-        {dots.map((dot, index) => (
-          <span
-            key={index}
-            style={{
-              left: `${50 + dot.x * 42}%`,
-              top: `${50 - dot.y * 42}%`,
-              opacity: 0.25 + dot.z * 0.35,
-              animationDelay: `${(index % perRing) * 90}ms`
-            }}
-          />
-        ))}
-      </div>
+    <div className={`matrix-orb matrix-orb--${state}`} style={style} aria-hidden="true" ref={containerRef}>
+      <canvas ref={canvasRef} />
     </div>
   );
+}
+
+/* ------------------------------------------------------------------ */
+/* AuroraBackdrop (reactbits Aurora · lightMode 移植) — 空状态极光衬底  */
+/* ------------------------------------------------------------------ */
+/**
+ * 白底极光（Canvas 2D 零依赖移植，配色从主蓝 #2383E2 派生）：四个漂移的低
+ * 透明度光斑 lighter 叠加，底部整幅渐隐到纯白——标题与输入区域始终近白。
+ * prefers-reduced-motion 静态一帧、document.hidden 停 rAF（不空烧 GPU）。
+ * 矮屏（max-height:760px）由 CSS 压缩球尺寸，光带随容器等比收缩。
+ */
+export function AuroraBackdrop() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    let raf = 0;
+    let cssWidth = 0;
+    let cssHeight = 0;
+    let dpr = 1;
+    const resize = (): void => {
+      const rect = container.getBoundingClientRect();
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      cssWidth = rect.width;
+      cssHeight = rect.height;
+      canvas.width = Math.max(1, Math.round(rect.width * dpr));
+      canvas.height = Math.max(1, Math.round(rect.height * dpr));
+    };
+    resize();
+    const observer = new ResizeObserver(resize);
+    observer.observe(container);
+
+    const blobs = [
+      { rgb: "35, 131, 226", scale: 0.55, speed: 1 / 26000, phase: 0, y: 0.4 },
+      { rgb: "120, 190, 255", scale: 0.42, speed: 1 / 19000, phase: 2.1, y: 0.28 },
+      { rgb: "180, 215, 250", scale: 0.36, speed: 1 / 33000, phase: 4.4, y: 0.5 },
+      { rgb: "80, 160, 235", scale: 0.3, speed: 1 / 22000, phase: 5.6, y: 0.34 }
+    ];
+    const draw = (time: number): void => {
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssWidth, cssHeight);
+      if (cssWidth < 2 || cssHeight < 2) return;
+      ctx.globalCompositeOperation = "lighter";
+      const base = Math.min(cssWidth, cssHeight * 1.7);
+      for (const blob of blobs) {
+        const x = cssWidth * (0.5 + 0.34 * Math.sin(time * blob.speed + blob.phase));
+        const y = cssHeight * (blob.y + 0.07 * Math.sin(time * blob.speed * 1.6 + blob.phase * 2));
+        const r = Math.max(8, base * blob.scale);
+        const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
+        gradient.addColorStop(0, `rgba(${blob.rgb},0.15)`);
+        gradient.addColorStop(0.6, `rgba(${blob.rgb},0.06)`);
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, cssWidth, cssHeight);
+      }
+      ctx.globalCompositeOperation = "source-over";
+      const fade = ctx.createLinearGradient(0, 0, 0, cssHeight);
+      fade.addColorStop(0, "rgba(255,255,255,0)");
+      fade.addColorStop(0.55, "rgba(255,255,255,.4)");
+      fade.addColorStop(1, "rgba(255,255,255,1)");
+      ctx.fillStyle = fade;
+      ctx.fillRect(0, 0, cssWidth, cssHeight);
+    };
+
+    const loop = (time: number): void => {
+      draw(time);
+      if (!document.hidden) raf = requestAnimationFrame(loop);
+    };
+    if (reducedMotion) draw(0);
+    else raf = requestAnimationFrame(loop);
+
+    const onVisibility = (): void => {
+      cancelAnimationFrame(raf);
+      if (!document.hidden && !reducedMotion) raf = requestAnimationFrame(loop);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  return <div className="aurora-backdrop" ref={containerRef} aria-hidden="true"><canvas ref={canvasRef} /></div>;
 }
 
 /* ------------------------------------------------------------------ */
