@@ -370,7 +370,10 @@ export function SettingsApp() {
       ...settingsNavItems,
       // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
       // 否则插件配置页（含 SecScore）只能靠手输 hash 才能到达。
-      ...plugins.flatMap((plugin, pluginIndex) => plugin.settingsPages.map((page, pageIndex) => ({
+      // settingsPages?. 兜底：类型层必填，但 IPC 运行时数据（旧版本安装/旧格式
+      // 插件清单）可能缺字段——渲染期裸 .map 一旦 undefined 整棵设置窗口 React
+      // 树崩溃（真机白屏只剩窗口标题，CI tsc/build 无法捕获，见 R6）。
+      ...plugins.flatMap((plugin, pluginIndex) => (plugin.settingsPages ?? []).map((page, pageIndex) => ({
         id: `plugin-${plugin.id}-${page.id}`,
         label: page.title,
         dividerBefore: pluginIndex === 0 && pageIndex === 0
@@ -452,7 +455,7 @@ export function SettingsApp() {
     <section id="settings-plugins" className={`settings-section ${isOobe || activePage === "settings-plugins" ? "settings-section-active" : ""}`}>
       <PluginSettingsPanel plugins={plugins} setPlugins={setPlugins} marketPlugins={marketPlugins} setMarketPlugins={setMarketPlugins} marketError={marketError} setMarketError={setMarketError} />
     </section>
-    {!isOobe && plugins.flatMap((plugin) => plugin.settingsPages.map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
+    {!isOobe && plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
       <div className="section-title"><h2>{page.title}</h2></div>
       {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : <article className={`settings-card plugin-service-status ${plugin.state}`}>
         <span>服务状态</span>

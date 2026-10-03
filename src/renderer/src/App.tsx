@@ -2,6 +2,7 @@ import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { ArrowUp, LoaderCircle, Square, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
+import { SettingsErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
 import { VoiceWakeListener } from "./components/VoiceWakeListener.js";
 import { MessageActivities } from "./components/MessageActivities.js";
@@ -53,7 +54,7 @@ type PendingVoiceSend = { messageId: string; sessionId: string };
 export function App() {
   const bridge = window.secagent;
   const route = new URLSearchParams(window.location.search);
-  if (route.has("settings")) return <SettingsApp />;
+  if (route.has("settings")) return <SettingsErrorBoundary><SettingsApp /></SettingsErrorBoundary>;
   if (route.has("wake")) return <WakeOverlay />;
   if (route.has("voice-wake")) return <VoiceWakeListener />;
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
