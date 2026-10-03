@@ -136,6 +136,8 @@ stop();
 
 `tool_finished` 回到 `thinking` 而不是停在 `running`：工具返回后模型还要继续推理。`turn_blocked` 覆盖用户中断等非失败终止，伴生 UI 应与 `turn_failed` 区别对待。
 
+**用户拒绝审批时同样会派发 `approval_resolved`**（语义上「已处理完」），随后 `callTool` 抛错、`run` 派发 `turn_failed`。所以拒绝的完整序列是 `approval_requested → approval_resolved → turn_failed`，伴生 UI 最终会落到失败态——如果需要区分同意/拒绝，得等事件契约增加字段，当前无法从事件本身判断。
+
 **无内容投影。** 事件只有 `kind` / `sessionId` / `at` / `label` / `reason` 五个字段：没有用户提示词、工具参数、工具结果、模型输出和审批内容，`label` 只放工具名或模型名。宿主在派发前会剔除其余字段、剥掉控制字符并截断 `label`。`reason` 是分类而非错误原文。
 
 **只读、不消费。** 派发不消耗事件，多个插件可以同时订阅同一份活动，互不抢事件。
@@ -150,4 +152,6 @@ export async function activate(api) {
 }
 ```
 
-插件停用/卸载时订阅自动解除，与 overlay 同一套生命周期。单个订阅者抛错不会影响其他订阅者，也不影响 Agent 主流程。
+插件停用/卸载时订阅自动解除，与 overlay 同一套生命周期。单个订阅者抛错不会影响其他订阅者，也不影响 Agent 主流程。事件对象是冻结的，插件改不动自己收到的事件。
+
+**快照是全局一份，不按会话分区**：多会话交错时 `getActivity()` 是 last-writer-wins，晚订阅的窗口可能拿到另一个会话的阶段。这是已知取舍——事件自带 `sessionId`，需要严格隔离时应订阅并按 `sessionId` 自行过滤，不要依赖快照。`onActivity` 与 `getActivity` 都要求 `agent.activity` 权限。

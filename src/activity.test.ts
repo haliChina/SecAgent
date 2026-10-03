@@ -73,6 +73,11 @@ test("sanitizeActivityEvent 只留白名单字段，label 剥控制字符并截�
   // reason 只在失败/中断类事件上生效
   assert.equal(sanitizeActivityEvent({ kind: "tool_started", sessionId: "", at: 0, reason: "error" }).reason, undefined);
   assert.equal(sanitizeActivityEvent({ kind: "turn_failed", sessionId: "", at: 0, reason: "error" }).reason, "error");
+  // R2：事件被冻结——写错的插件不能污染别人看到的事件与后续快照
+  const frozen = sanitizeActivityEvent({ kind: "tool_started", sessionId: "s", at: 1, label: "x" });
+  assert.equal(Object.isFrozen(frozen), true);
+  assert.throws(() => { (frozen as { label: string }).label = "hijacked"; }, TypeError);
+  assert.equal(frozen.label, "x");
 });
 
 test("onActivity 需要 agent.activity 权限", async () => {
@@ -88,6 +93,35 @@ export function activate(api) {
 `, []));
     const status = manager.list().find((item) => item.id === "no-perm");
     assert.match(status?.message || "", /未声明权限：agent\.activity/);
+    await manager.shutdown();
+  } finally { h.cleanup(); }
+});
+
+test("getActivity 同样需要 agent.activity 权限（快照与事件同一敏感级别）", async () => {
+  const h = harness("activity-snapshot-perm");
+  try {
+    const manager = new PluginManager(h.workspace);
+    await manager.initialize();
+    await manager.install(h.archive("snap-no-perm", `
+export function activate(api) {
+  try { const s = api.getActivity(); api.setStatus("意外成功 " + s.phase); }
+  catch (error) { api.setStatus(String(error.message)); }
+}
+`, []));
+    assert.match(manager.list().find((item) => item.id === "snap-no-perm")?.message || "", /未声明权限：agent\.activity/);
+    await manager.shutdown();
+  } finally { h.cleanup(); }
+});
+
+test("有权限时快照可直接读取", async () => {
+  const h = harness("activity-snapshot-ok");
+  try {
+    const manager = new PluginManager(h.workspace);
+    await manager.initialize();
+    await manager.install(h.archive("snap-perm", `
+export function activate(api) { const s = api.getActivity(); api.setStatus(s.phase); }
+`, ["agent.activity"]));
+    assert.equal(manager.list().find((item) => item.id === "snap-perm")?.message, "idle");
     await manager.shutdown();
   } finally { h.cleanup(); }
 });

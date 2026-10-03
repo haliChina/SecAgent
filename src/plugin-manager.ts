@@ -225,6 +225,11 @@ export class PluginManager {
     return event;
   }
 
+  /**
+   * 活动快照。**全局一份，不按会话分区**：多会话交错时是 last-writer-wins，
+   * 晚订阅的伴生窗口可能拿到另一个会话的阶段。这是已知取舍——事件自带 sessionId
+   * 可自行过滤，需要严格隔离时应订阅并按 sessionId 过滤，而不是依赖本快照。
+   */
   getActivity(): ActivitySnapshot {
     // 终态之后一段时间回落为 idle：伴生 UI 不该永远停在 done/failed 上。
     const stale = this.activityTerminalAt > 0 && Date.now() - this.activityTerminalAt > ACTIVITY_TERMINAL_TTL_MS;
@@ -527,7 +532,12 @@ export class PluginManager {
         plugin.activityHandlers.add(handler);
         return () => { plugin.activityHandlers.delete(handler); };
       },
-      getActivity: () => this.getActivity(),
+      getActivity: () => {
+        // 快照与事件同一敏感级别：一并收权限，否则「未声明 agent.activity 的插件
+        // 走不到新代码路径」这句不成立。
+        requirePermission("agent.activity");
+        return this.getActivity();
+      },
       setStatus: (message, state = "ready") => { plugin.message = message; plugin.state = state; this.changed(); },
       fetch: async (url, init) => { requirePermission("network.http"); const parsed = new URL(url); if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("插件 HTTP 仅允许 http/https"); return fetch(url, init); }
     };
