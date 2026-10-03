@@ -242,7 +242,7 @@ async function runSessionMessage(options: CliOptions, sessionId: string | undefi
       ? generateSessionTitle(handle.config, text).catch(() => "")
       : Promise.resolve("");
     const previousReadSkillNames = before.messages.flatMap((message) => message.toolCalls || []).filter((call) => call.name === "secagent__read_skill" || call.name === "read_skill").map((call) => typeof (call.arguments as { name?: unknown })?.name === "string" ? (call.arguments as { name: string }).name : "");
-    const result = await handle.runtime.run(historyInput(before, text), options.reasoningEffort, conversationInput(before, text), undefined, { previousAutoLoadedSkills: before.autoLoadedSkills, previousReadSkillNames, preRule });
+    const result = await handle.runtime.run(historyInput(before, text), options.reasoningEffort, conversationInput(before, text), undefined, { previousAutoLoadedSkills: before.autoLoadedSkills, previousReadSkillNames, preRule, sessionId: id });
     if (result.autoLoadedSkills?.length) sessions.setAutoLoadedSkills(id, [...new Set([...(before.autoLoadedSkills || []), ...result.autoLoadedSkills])]);
     sessions.appendMessage(id, "assistant", result.message, toolCalls, activities);
     const title = await titlePromise;
