@@ -111,7 +111,9 @@ export function useStreamLevel(stream: MediaStream | null | undefined): number {
  * 向外传播 + RMS 电平驱动点大小与亮度 / thinking 外环热区沿轨道游走（~5.7s/圈）
  * + 加速涟漪。listening 电平来自 App 传入的 ASR 采集流（组件绝不开流，Codex R5）。
  * 尺寸由容器决定（em 派生）：空状态 min(200px,30vw)，dock 28px；密度自适应
- * （<48px 用 9 点阵，否则 21，防止小球糊成一坨）。prefers-reduced-motion 静态
+ * （<48px 用 9 点阵，否则 11——R9 校回 rareui 原版密度：11 档点距/点径比留
+ * 出 ~2.2px 白缝，点阵透气独立成形；21 档白缝只剩 ~1.1px，中心行亮点连成
+ * 连续亮区，即「糊成一团/水波纹」的成因）。prefers-reduced-motion 静态
  * 一帧、document.hidden 停 rAF。DPR 上限 2。零新增依赖（Canvas 2D 原生 API）。
  */
 export function MatrixOrb({ size, state = "idle", level, accent, stream }: { size?: number; state?: OrbState; level?: number; accent?: string; stream?: MediaStream | null }) {
@@ -165,7 +167,7 @@ export function MatrixOrb({ size, state = "idle", level, accent, stream }: { siz
       ctx.arc(cx, cy, orbRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      const across = cssWidth < 48 ? 9 : 21;
+      const across = cssWidth < 48 ? 9 : 11;
       const spacing = (orbRadius * 2) / across;
       const hotspot = (time / 900) % (Math.PI * 2);
       ctx.fillStyle = accent || "#2383E2";
