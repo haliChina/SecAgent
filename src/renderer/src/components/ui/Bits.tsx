@@ -333,11 +333,13 @@ export function daySeparatorLabel(iso: string, now = new Date()): string {
 }
 
 export function DaySeparator({ label }: { label: string }) {
+  // role="separator" + aria-label：日期是消息流的时间地标，读屏用户切换
+  // 消息时需要这层上下文，不能从无障碍树里拿掉（R8 a11y）。
   return (
-    <div className="day-separator" role="presentation">
-      <span className="day-separator-line" />
+    <div className="day-separator" role="separator" aria-label={label}>
+      <span className="day-separator-line" aria-hidden="true" />
       <span className="day-separator-label">{label}</span>
-      <span className="day-separator-line" />
+      <span className="day-separator-line" aria-hidden="true" />
     </div>
   );
 }
@@ -502,12 +504,14 @@ export function AnimatedCounter({
   style
 }: { value: number; format?: (value: number) => string; durationMs?: number; style?: CSSProperties }) {
   const [display, setDisplay] = useState(value);
-  const fromRef = useRef(value);
+  // 取「当前显示值」而非上次动画起点作为新起点：动画中途 value 再变（如余额页
+  // 连点刷新）时从当前读数续播，不会先跳回旧起点再重来（R8）。
+  const displayRef = useRef(value);
   useEffect(() => {
-    const from = fromRef.current;
+    const from = displayRef.current;
     if (from === value) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      fromRef.current = value;
+      displayRef.current = value;
       setDisplay(value);
       return;
     }
@@ -516,9 +520,10 @@ export function AnimatedCounter({
     const tick = (now: number): void => {
       const t = Math.min(1, (now - startedAt) / durationMs);
       const eased = 1 - Math.pow(1 - t, 3);
-      setDisplay(from + (value - from) * eased);
+      const next = from + (value - from) * eased;
+      displayRef.current = next;
+      setDisplay(next);
       if (t < 1) frame = requestAnimationFrame(tick);
-      else fromRef.current = value;
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
@@ -535,7 +540,7 @@ export function HookSidebar({ activeId, items, onSelect }: {
   onSelect: (id: string) => void;
 }) {
   return (
-    <nav className="hook-sidebar settings-nav" aria-label="Settings navigation">
+    <nav className="hook-sidebar settings-nav" aria-label="设置导航">
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.dividerBefore && <div className="settings-nav-divider" role="separator" />}

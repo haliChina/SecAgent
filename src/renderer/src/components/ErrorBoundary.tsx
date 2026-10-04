@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface State {
   error: Error | null;
+  copied: boolean;
 }
 
 /**
@@ -12,19 +13,29 @@ interface State {
  * 「运行时数据契约断裂」（CI 全绿 + 真机白屏）。
  *
  * R7 起从设置窗口推广到主窗口/wake 窗口：三条 render 路径统一包住。
+ * R8 增加「复制错误信息」：桌面应用报障场景，用户一键把错误栈贴进 issue。
  * crashTitle 显示在错误卡片标题；windowTitle 可选地保留各窗口原生标题栏
  * （settings-shell 外壳复用，视觉不跳）。
  */
 export class WindowErrorBoundary extends Component<{ crashTitle: string; windowTitle?: string; children: ReactNode }, State> {
-  state: State = { error: null };
+  state: State = { error: null, copied: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error };
+    return { error, copied: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[renderer] 渲染崩溃:", error, info.componentStack);
   }
+
+  private copyDetails = (): void => {
+    const error = this.state.error;
+    if (!error) return;
+    void navigator.clipboard?.writeText(String(error.stack || error)).then(() => {
+      this.setState({ copied: true });
+      window.setTimeout(() => this.setState((current) => ({ copied: false })), 2000);
+    }).catch(() => undefined);
+  };
 
   render(): ReactNode {
     if (this.state.error) {
@@ -34,7 +45,10 @@ export class WindowErrorBoundary extends Component<{ crashTitle: string; windowT
           <h2>{this.props.crashTitle}</h2>
           <p>渲染过程中发生异常（此前这类错误表现为整窗白屏）。详细信息：</p>
           <pre>{String(this.state.error.stack || this.state.error)}</pre>
-          <button type="button" onClick={() => this.setState({ error: null })}>重试</button>
+          <div className="settings-crash-actions">
+            <button type="button" onClick={this.copyDetails}>{this.state.copied ? "已复制 ✓" : "复制错误信息"}</button>
+            <button type="button" className="settings-crash-retry" onClick={() => this.setState({ error: null, copied: false })}>重试</button>
+          </div>
         </div>
       </main>;
     }
