@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/electron/renderer";
 import { App } from "./App.js";
+import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import "./styles.css";
 
 const sentryDsn = window.secagent.telemetryConfig.sentryDsn;
@@ -50,4 +51,4 @@ window.secagent.onSettingsChanged((settings) => {
 // first socket's cleanup against the second start. Keep StrictMode for the main
 // app while giving the one-shot wake window a single initialization.
 const isWakeWindow = new URLSearchParams(window.location.search).has("wake") || new URLSearchParams(window.location.search).has("voice-wake");
-createRoot(document.getElementById("root")!).render(isWakeWindow ? <App /> : <StrictMode><App /></StrictMode>);
+createRoot(document.getElementById("root")!).render(isWakeWindow ? <WindowErrorBoundary crashTitle="界面遇到错误"><App /></WindowErrorBoundary> : <StrictMode><WindowErrorBoundary crashTitle="界面遇到错误"><App /></WindowErrorBoundary></StrictMode>);
