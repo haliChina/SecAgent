@@ -657,7 +657,9 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .hook-sidebar { position: relative; }
 .hook-sidebar button { position: relative; }
 .hook-line { position: absolute; z-index: 1; left: 12px; width: 0; border-left: 2px dotted var(--accent); opacity: .9; transition: top .18s ease, height .18s ease; }
-.hook-tab { position: absolute; left: -8px; top: 50%; width: 14px; height: 12px; margin-top: -12px; border: 2px solid var(--accent); border-top: 0; border-right: 0; border-bottom-left-radius: 10px; }
+/* 钩与线同为 nav 级绝对定位（钩不嵌按钮内），由 JS 量算统一驱动 top；
+   同款 top .18s ease 过渡保证动画期间每帧「线底=钩顶」，二者不脱节。 */
+.hook-tab { position: absolute; z-index: 1; left: 12px; top: 0; width: 14px; height: 12px; border: 2px solid var(--accent); border-top: 0; border-right: 0; border-bottom-left-radius: 10px; transition: top .18s ease; }
 .hook-sidebar button.active { background: transparent; color: var(--accent-text); font-weight: 600; }
 .hook-sidebar button:hover:not(.active) { background: var(--bg-3); }
 /* 窄屏导航改双列静态布局，纵向钩线失去坐标意义，只留文字态 */

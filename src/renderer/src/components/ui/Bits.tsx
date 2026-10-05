@@ -548,6 +548,9 @@ export function HookSidebar({ activeId, items, onSelect }: {
   // rareui 原版的激活指示器是「从第一个菜单项垂到选中项的 2px 虚线，末端右拐
   // 成钩」（对照用户提供的手绘风格参考图校形）。虚线长度依赖激活项在 nav 里
   // 的实际位置，只能 JS 量；ResizeObserver 兜底字体加载/窗口尺寸变化。
+  // 线与钩都是 nav 级绝对定位元素、由同一次量算驱动（to 既是线终点也是钩顶），
+  // 共用 top .18s ease 过渡——切换时两者每帧严格同步，不会出现「钩瞬移、线
+  // 还在追赶」的错位（此前钩嵌在按钮内、随 React 重渲染跳变）。
   const navRef = useRef<HTMLElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
   const [hook, setHook] = useState<{ from: number; to: number } | null>(null);
@@ -560,7 +563,7 @@ export function HookSidebar({ activeId, items, onSelect }: {
       if (!first || !activeRef.current) return;
       setHook({
         from: first.offsetTop + first.offsetHeight / 2,
-        // 虚线终点停在钩的实线竖笔起点，避免点线与实线叠出 4px 粗段
+        // 虚线终点停在钩的实线竖笔起点（= 钩顶），避免点线与实线叠出 4px 粗段
         to: activeRef.current.offsetTop + activeRef.current.offsetHeight / 2 - HOOK_TAB_H
       });
     };
@@ -573,6 +576,7 @@ export function HookSidebar({ activeId, items, onSelect }: {
   return (
     <nav className="hook-sidebar settings-nav" aria-label="设置导航">
       {hook && <span className="hook-line" aria-hidden="true" style={{ top: hook.from, height: Math.max(0, hook.to - hook.from) }} />}
+      {hook && <span className="hook-tab" aria-hidden="true" style={{ top: hook.to }} />}
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.dividerBefore && <div className="settings-nav-divider" role="separator" />}
@@ -583,7 +587,6 @@ export function HookSidebar({ activeId, items, onSelect }: {
             aria-current={activeId === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}
           >
-            {activeId === item.id && <span className="hook-tab" aria-hidden="true" />}
             {item.label}
           </button>
         </Fragment>
