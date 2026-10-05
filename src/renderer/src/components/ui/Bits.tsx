@@ -536,6 +536,9 @@ export function AnimatedCounter({
 /* ------------------------------------------------------------------ */
 /* HookSidebar (rareui hooksidebar) — 钩式侧导航（设置页）                 */
 /* ------------------------------------------------------------------ */
+/* 钩端竖笔高度（px），与 styles.css 的 .hook-tab height 保持一致 */
+const HOOK_TAB_H = 12;
+
 export function HookSidebar({ activeId, items, onSelect }: {
   activeId: string;
   items: Array<{ id: string; label: string; dividerBefore?: boolean }>;
@@ -556,7 +559,8 @@ export function HookSidebar({ activeId, items, onSelect }: {
       if (!first || !activeRef.current) return;
       setHook({
         from: first.offsetTop + first.offsetHeight / 2,
-        to: activeRef.current.offsetTop + activeRef.current.offsetHeight / 2
+        // 虚线终点停在钩的实线竖笔起点，避免点线与实线叠出 4px 粗段
+        to: activeRef.current.offsetTop + activeRef.current.offsetHeight / 2 - HOOK_TAB_H
       });
     };
     measure();
