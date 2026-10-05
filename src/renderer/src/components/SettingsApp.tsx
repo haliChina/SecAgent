@@ -82,6 +82,29 @@ export function SettingsApp() {
     return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-tts");
   });
 
+  // 音频设备枚举（麦克风/扬声器）；浏览器要求先授权麦克风才能看到 label。
+  // ⚠️ 这组 useState/useEffect 必须放在下方 isOobe / !settings 早退 return 之
+  // 前：首渲染 settings 必为 null 走早退，配置加载完成后的下一次渲染才会走到
+  // 这里——hook 出现在早退之后会让该次渲染比上次多一个 hook，React #310
+  // 「Rendered more hooks than during the previous render」整窗崩溃。
+  // 该顺序违规自 master 289adab 起即存在（真机设置窗口白屏/崩溃卡片真凶，
+  // 现象被 ErrorBoundary 兜住后才拿到完整堆栈定位）。
+  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
+  const refreshAudioDevices = async (): Promise<void> => {
+    try {
+      if (!navigator.mediaDevices?.enumerateDevices) { setAudioDevices([]); return; }
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      if (devices.some((device) => !device.label) && navigator.mediaDevices.getUserMedia) {
+        try {
+          const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
+          probe.getTracks().forEach((track) => track.stop());
+          devices = await navigator.mediaDevices.enumerateDevices();
+        } catch { /* 拒绝授权时仍显示无 label 的设备 ID */ }
+      }
+      setAudioDevices(devices);
+    } catch { setAudioDevices([]); }
+  };
+  useEffect(() => { void refreshAudioDevices(); }, []);
   useEffect(() => {
     let disposed = false;
     void bridge.getSettings().then((value) => {
@@ -328,23 +351,6 @@ export function SettingsApp() {
     { value: "local", label: "本地离线（随安装包）" }
   ];
   const updateAsrChain = (next: string[]): void => setSettings((current) => current && { ...current, speech: { ...current.speech, chain: next } });
-  // 音频设备枚举（麦克风/扬声器）；浏览器要求先授权麦克风才能看到 label。
-  const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
-  const refreshAudioDevices = async (): Promise<void> => {
-    try {
-      if (!navigator.mediaDevices?.enumerateDevices) { setAudioDevices([]); return; }
-      let devices = await navigator.mediaDevices.enumerateDevices();
-      if (devices.some((device) => !device.label) && navigator.mediaDevices.getUserMedia) {
-        try {
-          const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
-          probe.getTracks().forEach((track) => track.stop());
-          devices = await navigator.mediaDevices.enumerateDevices();
-        } catch { /* 拒绝授权时仍显示无 label 的设备 ID */ }
-      }
-      setAudioDevices(devices);
-    } catch { setAudioDevices([]); }
-  };
-  useEffect(() => { void refreshAudioDevices(); }, []);
   const audioInputOptions = [
     { value: "auto", label: "自动检测（推荐）" },
     { value: "default", label: "系统默认" },
