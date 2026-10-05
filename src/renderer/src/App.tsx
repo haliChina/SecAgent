@@ -470,7 +470,7 @@ export function App() {
   const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
   const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
-  const orbAccent = runningTool ? (runningTool.name === "bash" ? "#F59E0B" : "#2383E2") : undefined;
+  const orbAccent = runningTool ? (runningTool.name === "bash" ? "#FBBF24" : "#F97316") : undefined;
   const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
   const changeSession = async (id: string) => {
     if (!bridge) return;

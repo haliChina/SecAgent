@@ -377,7 +377,7 @@ async function ensureMacDockVisible(): Promise<void> {
   await app.dock?.show();
 }
 
-function windowChromeOptions(overlayColor = "#ffffff"): Electron.BrowserWindowConstructorOptions {
+function windowChromeOptions(overlayColor = "#1B1B1F"): Electron.BrowserWindowConstructorOptions {
   if (process.platform === "darwin") {
     return { titleBarStyle: "hidden", trafficLightPosition: { x: 16, y: 21 } };
   }
@@ -385,7 +385,7 @@ function windowChromeOptions(overlayColor = "#ffffff"): Electron.BrowserWindowCo
   // Linux would stack the system title bar on top of the in-app draggable topbar.
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: overlayColor, symbolColor: "#171717", height: 57 },
+    titleBarOverlay: { color: overlayColor, symbolColor: "#F4F4F5", height: 57 },
     autoHideMenuBar: true
   };
 }
@@ -623,6 +623,7 @@ function createWindow(visible = true): void {
     title: "SecAgent",
     show: visible,
     skipTaskbar: false,
+    backgroundColor: "#0A0A0B",
     ...windowChromeOptions(),
     icon: appIconPath(),
     webPreferences: { preload: path.join(__dirname, "../preload/preload.cjs"), contextIsolation: true, nodeIntegration: false }
@@ -687,7 +688,8 @@ function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false, _wind
     title: "SecAgent设置",
     parent: windowRef && !windowRef.isDestroyed() && windowRef.isVisible() ? windowRef : undefined,
     modal: false,
-    ...windowChromeOptions("#fafafa"),
+    backgroundColor: "#0A0A0B",
+    ...windowChromeOptions("#0A0A0B"),
     icon: appIconPath(),
     webPreferences: { preload: path.join(__dirname, "../preload/preload.cjs"), contextIsolation: true, nodeIntegration: false }
   });

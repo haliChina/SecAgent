@@ -157,11 +157,11 @@ export function MatrixOrb({ size, state = "idle", level, accent, stream }: { siz
       const cy = cssHeight / 2;
       const orbRadius = (Math.min(cssWidth, cssHeight) / 2) * 0.94;
       if (orbRadius <= 1) return;
-      // 极淡底光保持球体感（替代旧 .matrix-orb-core）
+      // 极淡底光保持球体感（深色主题：白色微体积光，替代浅色版的白色球心光晕）
       const glow = ctx.createRadialGradient(cx, cy, orbRadius * 0.1, cx, cy, orbRadius);
-      glow.addColorStop(0, "rgba(255,255,255,.92)");
-      glow.addColorStop(0.7, "rgba(227,240,252,.3)");
-      glow.addColorStop(1, "rgba(227,240,252,0)");
+      glow.addColorStop(0, "rgba(255,255,255,.05)");
+      glow.addColorStop(0.7, "rgba(255,255,255,.02)");
+      glow.addColorStop(1, "rgba(255,255,255,0)");
       ctx.fillStyle = glow;
       ctx.beginPath();
       ctx.arc(cx, cy, orbRadius, 0, Math.PI * 2);
@@ -170,7 +170,7 @@ export function MatrixOrb({ size, state = "idle", level, accent, stream }: { siz
       const across = cssWidth < 48 ? 9 : 11;
       const spacing = (orbRadius * 2) / across;
       const hotspot = (time / 900) % (Math.PI * 2);
-      ctx.fillStyle = accent || "#2383E2";
+      ctx.fillStyle = accent || "#F97316";
       for (let gy = -across; gy <= across; gy += 1) {
         for (let gx = -across; gx <= across; gx += 1) {
           const px = gx * spacing;
@@ -232,8 +232,8 @@ export function MatrixOrb({ size, state = "idle", level, accent, stream }: { siz
 /* AuroraBackdrop (reactbits Aurora · lightMode 移植) — 空状态极光衬底  */
 /* ------------------------------------------------------------------ */
 /**
- * 白底极光（Canvas 2D 零依赖移植，配色从主蓝 #2383E2 派生）：四个漂移的低
- * 透明度光斑 lighter 叠加，底部整幅渐隐到纯白——标题与输入区域始终近白。
+ * 深底极光（Canvas 2D 零依赖移植，配色从 accent 橙 #F97316 派生）：四个漂移的低
+ * 透明度光斑 lighter 叠加，底部整幅渐隐到页面底色 --bg-0——标题与输入区域始终近底色。
  * prefers-reduced-motion 静态一帧、document.hidden 停 rAF（不空烧 GPU）。
  * 矮屏（max-height:760px）由 CSS 压缩球尺寸，光带随容器等比收缩。
  */
@@ -265,10 +265,10 @@ export function AuroraBackdrop() {
     observer.observe(container);
 
     const blobs = [
-      { rgb: "35, 131, 226", scale: 0.55, speed: 1 / 26000, phase: 0, y: 0.4 },
-      { rgb: "120, 190, 255", scale: 0.42, speed: 1 / 19000, phase: 2.1, y: 0.28 },
-      { rgb: "180, 215, 250", scale: 0.36, speed: 1 / 33000, phase: 4.4, y: 0.5 },
-      { rgb: "80, 160, 235", scale: 0.3, speed: 1 / 22000, phase: 5.6, y: 0.34 }
+      { rgb: "249, 115, 22", scale: 0.55, speed: 1 / 26000, phase: 0, y: 0.4 },
+      { rgb: "139, 92, 246", scale: 0.42, speed: 1 / 19000, phase: 2.1, y: 0.28 },
+      { rgb: "59, 130, 246", scale: 0.36, speed: 1 / 33000, phase: 4.4, y: 0.5 },
+      { rgb: "234, 88, 12", scale: 0.3, speed: 1 / 22000, phase: 5.6, y: 0.34 }
     ];
     const draw = (time: number): void => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -281,17 +281,18 @@ export function AuroraBackdrop() {
         const y = cssHeight * (blob.y + 0.07 * Math.sin(time * blob.speed * 1.6 + blob.phase * 2));
         const r = Math.max(8, base * blob.scale);
         const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
-        gradient.addColorStop(0, `rgba(${blob.rgb},0.15)`);
-        gradient.addColorStop(0.6, `rgba(${blob.rgb},0.06)`);
-        gradient.addColorStop(1, "rgba(255,255,255,0)");
+        gradient.addColorStop(0, `rgba(${blob.rgb},0.11)`);
+        gradient.addColorStop(0.6, `rgba(${blob.rgb},0.04)`);
+        gradient.addColorStop(1, "rgba(10,10,11,0)");
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, cssWidth, cssHeight);
       }
       ctx.globalCompositeOperation = "source-over";
+      // 深色版：整幅渐隐到页面底色 --bg-0 (#0A0A0B)
       const fade = ctx.createLinearGradient(0, 0, 0, cssHeight);
-      fade.addColorStop(0, "rgba(255,255,255,0)");
-      fade.addColorStop(0.55, "rgba(255,255,255,.4)");
-      fade.addColorStop(1, "rgba(255,255,255,1)");
+      fade.addColorStop(0, "rgba(10,10,11,0)");
+      fade.addColorStop(0.55, "rgba(10,10,11,.45)");
+      fade.addColorStop(1, "rgba(10,10,11,1)");
       ctx.fillStyle = fade;
       ctx.fillRect(0, 0, cssWidth, cssHeight);
     };
