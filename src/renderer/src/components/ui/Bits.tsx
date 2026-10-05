@@ -13,7 +13,7 @@
  * 约束：纯 React + 全局 styles.css，零新增 npm 依赖（Electron 打包友好）。
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
-import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 /* ------------------------------------------------------------------ */
 /* ScrollProgressIndicator (rareui) — 消息流顶部细进度条                   */
@@ -541,18 +541,44 @@ export function HookSidebar({ activeId, items, onSelect }: {
   items: Array<{ id: string; label: string; dividerBefore?: boolean }>;
   onSelect: (id: string) => void;
 }) {
+  // rareui 原版的激活指示器是「从第一个菜单项垂到选中项的 2px 虚线，末端右拐
+  // 成钩」（对照用户提供的手绘风格参考图校形）。虚线长度依赖激活项在 nav 里
+  // 的实际位置，只能 JS 量；ResizeObserver 兜底字体加载/窗口尺寸变化。
+  const navRef = useRef<HTMLElement>(null);
+  const activeRef = useRef<HTMLButtonElement>(null);
+  const [hook, setHook] = useState<{ from: number; to: number } | null>(null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    const active = activeRef.current;
+    if (!nav || !active) { setHook(null); return; }
+    const measure = () => {
+      const first = nav.querySelector<HTMLButtonElement>("button");
+      if (!first || !activeRef.current) return;
+      setHook({
+        from: first.offsetTop + first.offsetHeight / 2,
+        to: activeRef.current.offsetTop + activeRef.current.offsetHeight / 2
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [activeId, items]);
+
   return (
     <nav className="hook-sidebar settings-nav" aria-label="设置导航">
+      {hook && <span className="hook-line" aria-hidden="true" style={{ top: hook.from, height: Math.max(0, hook.to - hook.from) }} />}
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.dividerBefore && <div className="settings-nav-divider" role="separator" />}
           <button
             type="button"
+            ref={activeId === item.id ? activeRef : undefined}
             className={activeId === item.id ? "active" : ""}
             aria-current={activeId === item.id ? "page" : undefined}
             onClick={() => onSelect(item.id)}
           >
-            <span className="hook-tab" aria-hidden="true" />
+            {activeId === item.id && <span className="hook-tab" aria-hidden="true" />}
             {item.label}
           </button>
         </Fragment>

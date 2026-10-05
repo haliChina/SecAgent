@@ -650,11 +650,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* ---- AnimatedCounter ---- */
 .animated-counter { font-variant-numeric: tabular-nums; }
 
-/* ---- HookSidebar (rareui) — 钩式选中：左侧小钩滑入 ---- */
+/* ---- HookSidebar (rareui) — 钩式选中：虚线从首项垂到选中项，末端右拐成钩 ---- */
+/* 对照 rareui 原版参考图校形：2px 虚线贯穿 + 钩住激活项；选中态纯文字强调
+   （深蓝粗体，无背景块），hover 仍留浅灰供指点。颜色保持本 PR 的蓝色 accent。 */
+.hook-sidebar { position: relative; }
 .hook-sidebar button { position: relative; }
-.hook-tab { position: absolute; left: -10px; top: 50%; width: 12px; height: 20px; margin-top: -10px; border: 2px solid #2383E2; border-left: 0; border-top-right-radius: 10px; border-bottom-right-radius: 10px; opacity: 0; transform: translateX(-4px); transition: opacity .16s ease, transform .16s ease; }
-.hook-sidebar button.active { background: #E9F6FF; color: #1B5FA8; font-weight: 600; }
-.hook-sidebar button.active .hook-tab { opacity: 1; transform: translateX(0); }
+.hook-line { position: absolute; z-index: 1; left: 10px; width: 0; border-left: 2px dashed #2383E2; opacity: .5; transition: top .18s ease, height .18s ease; }
+.hook-tab { position: absolute; left: -10px; top: 50%; width: 12px; height: 20px; margin-top: -10px; border: 2px solid #2383E2; border-left: 0; border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+.hook-sidebar button.active { background: transparent; color: #1B5FA8; font-weight: 600; }
 .hook-sidebar button:hover:not(.active) { background: #F5F6F7; }
 
 /* ---- BranchedMenu 增强（模型多级菜单，复用既有结构） ---- */
@@ -663,5 +666,5 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 @media (prefers-reduced-motion: reduce) {
   .scroll-progress-bar, .thought-line-spinner,
-  .voice-pill-dot, .voice-pill-wave i, .voice-note-wave i, .hook-tab, .composer-orb-dock { animation: none !important; transition: none !important; }
+  .voice-pill-dot, .voice-pill-wave i, .voice-note-wave i, .hook-tab, .hook-line, .composer-orb-dock { animation: none !important; transition: none !important; }
 }
