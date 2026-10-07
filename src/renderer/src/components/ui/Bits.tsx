@@ -1310,12 +1310,19 @@ function acToCells(chars: string, width: number): AcCell[] {
   return cells;
 }
 
+// 应用适配（非原版行为）：每位最短路径——上升距离 ≤5 面向上滚，否则向下滚
+function acNearestGoal(at: number, digit: number): number {
+  const up = acMod(digit - at, 10);
+  return up <= 5 ? at + up : at + up - 10;
+}
+
 function useAcWheel(
   from: number,
   digit: number,
   dir: number,
   duration: number,
   reduced: boolean,
+  odometer: boolean,
 ) {
   const pos = useMotionValue(from);
   const goal = useRef(from);
@@ -1336,14 +1343,15 @@ function useAcWheel(
     if (acMod(goal.current, 10) !== digit) {
       // aim from where the wheel is, so a moving value never queues up a backlog of turns
       const at = pos.get();
-      goal.current =
-        heading.current < 0
+      goal.current = !odometer
+        ? acNearestGoal(at, digit)
+        : heading.current < 0
           ? at - acMod(at - digit, 10)
           : at + acMod(digit - at, 10);
     }
     const roll = animate(pos, goal.current, acSpring(duration));
     return () => roll.stop();
-  }, [digit, duration, reduced, pos]);
+  }, [digit, duration, reduced, pos, odometer]);
 
   return useTransform(pos, (p) => `${(-acMod(p, 10) * 100) / AC_WHEEL.length}%`);
 }
@@ -1392,14 +1400,16 @@ const AcDigit = memo(function AcDigit({
   from,
   dir,
   duration,
+  odometer,
   ...slot
 }: AcSlotProps & {
   digit: number;
   from: number;
   dir: number;
   duration: number;
+  odometer: boolean;
 }) {
-  const y = useAcWheel(from, digit, dir, duration, slot.reduced);
+  const y = useAcWheel(from, digit, dir, duration, slot.reduced, odometer);
 
   return (
     <motion.span
@@ -1433,6 +1443,9 @@ export type AnimatedCounterProps = Omit<
   separator?: string;
   decimalSeparator?: string;
   grouping?: CounterGrouping;
+  /** 滚动方向语义：true（默认）= 原版里程表——值降时所有位统一向下滚（反向位绕远路）；
+   *  false = 每位最短路径（更符合直觉）。 */
+  odometer?: boolean;
   prefix?: ReactNode;
   suffix?: ReactNode;
 };
@@ -1445,6 +1458,7 @@ export function AnimatedCounter({
   separator = ",",
   decimalSeparator = ".",
   grouping = "western",
+  odometer = true,
   prefix,
   suffix,
   className,
@@ -1505,6 +1519,7 @@ export function AnimatedCounter({
                 from={seed[cell.key] ?? 0}
                 dir={dir}
                 duration={shape.pace}
+                odometer={odometer}
               />
             ) : (
               <AcMark key={cell.key} {...slot} char={cell.char} />
