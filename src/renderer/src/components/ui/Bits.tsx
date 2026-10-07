@@ -1869,7 +1869,7 @@ export type VoiceNoteProps = Omit<ComponentProps<"div">, "onEnded"> & {
   onSpeedChange?: (speed: number) => void;
 };
 
-function VoiceNote({
+export function VoiceNote({
   src,
   duration = 53,
   waveform,
