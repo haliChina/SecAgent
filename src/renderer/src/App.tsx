@@ -914,7 +914,7 @@ export function App() {
     </div>}
     <section className="workspace">
       <section className="conversation" aria-label="当前会话">
-        {scrollSections.length > 0 && <ScrollProgress container={messagesRef} sections={scrollSections} />}
+        {scrollSections.length > 0 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" />}
         <div className="messages" ref={messagesRef}>
           {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb size={200} state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
           {session?.messages.map((message, index) => {

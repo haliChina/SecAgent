@@ -1,11 +1,14 @@
 /**
- * UI Bits — 参考组件的自研复刻（A 清爽浅色 · Notion/Linear 系）。
+ * UI Bits — 参考组件移植（A 清爽浅色 · Notion/Linear 系）。
  *
- * 设计参考与实现来源（R13 起逐组件对照 GitHub 源码忠实移植，不再目测仿制）：
+ * R14 起放弃自研动效（弹簧物理/CSS 过渡替代方案与原版手感差距过大）：
+ * 直接引入 rare-ui 同款动画引擎 motion/react，组件按 GitHub 源码直译，
+ * 类名原样保留（Tailwind utilities），动效参数与原版逐项一致。
+ *
+ * 设计参考与实现来源：
  *  - rareui（github.com/swamimalode07/rare-ui，MIT）: matrixorb / deletebutton /
- *    scrollprogress / hooksidebar / voicenote / animatedcounter —— 本文件内各
- *    组件头注释标注了对应源文件与逐项参数；零依赖动效内核以同式 spring 物理
- *    替代 motion/react（visualDuration/bounce → k/c/m 反解）。
+ *    scrollprogress / hooksidebar / voicenote / animatedcounter —— 逐行直译自
+ *    components/ui/ 下源文件，仅做 Electron/无路由环境适配（见各组件注释）。
  *  - assistant-ui.com: tool-error / guardrail-notice / message-actions / error-state /
  *    message-queue / stopped-run / day-separator / speaker-identity / regenerate-menu /
  *    computer-use / number-ticker
@@ -13,302 +16,194 @@
  *
  * 设计参考致谢：rareui.com / assistant-ui.com / reactbits.dev（详见 README 开源致谢）。
  *
- * 约束：纯 React + 全局 styles.css，零新增 npm 依赖（Electron 打包友好）。
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
-import { Fragment, createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { Fragment, createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
+import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
+import { clsx } from "clsx";
+
+/** rare-ui 的 cn 为 twMerge(clsx(...))；本项目无 Tailwind 类冲突合并需求，clsx 等价 */
+const cn = clsx;
 
 /* ------------------------------------------------------------------ */
-/* 零依赖动效内核 —— 物理与 motion/react type:"spring" 同式               */
-/* ------------------------------------------------------------------ */
-type SpringConfig = { stiffness: number; damping: number; mass?: number };
-
-function prefersReducedMotion(): boolean {
-  return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-// motion/react 的 visualDuration + bounce 反解 (k, c, m)（m=1）：
-// ω=2π/duration；L=-ln(bounce)，阻尼比 ζ=L/√(π²+L²)；k=ω²，c=2ζω。
-// 与 motion 同族解法，保证弹跳节奏与原版一致。
-function visualSpring(duration: number, bounce: number): SpringConfig {
-  const omega = (Math.PI * 2) / Math.max(0.01, duration);
-  const L = -Math.log(Math.min(0.999, Math.max(1e-3, bounce)));
-  const zeta = L / Math.sqrt(Math.PI * Math.PI + L * L);
-  return { stiffness: omega * omega, damping: 2 * zeta * omega, mass: 1 };
-}
-
-// 全局单 rAF 逐帧推进（半隐式欧拉，dt 钳 50ms），活跃 spring 共帧、静止即休眠
-class SpringValue {
-  private value: number;
-  private target: number;
-  private velocity = 0;
-  private readonly cfg: SpringConfig;
-  private readonly listeners = new Set<(value: number) => void>();
-  private active = false;
-
-  constructor(initial: number, cfg: SpringConfig) {
-    this.value = initial;
-    this.target = initial;
-    this.cfg = cfg;
-  }
-  get(): number { return this.value; }
-  set(target: number): void {
-    if (!Number.isFinite(target)) return;
-    this.target = target;
-    this.wake();
-  }
-  jump(value: number): void {
-    if (!Number.isFinite(value)) return;
-    this.value = this.target = value;
-    this.velocity = 0;
-    this.listeners.forEach((fn) => fn(value)); // 立即落值（reduced-motion 路径）
-  }
-  subscribe(fn: (value: number) => void): () => void {
-    this.listeners.add(fn);
-    fn(this.value);
-    return () => { this.listeners.delete(fn); };
-  }
-  private wake(): void {
-    if (this.active) return;
-    this.active = true;
-    springTicker.add(this);
-  }
-  /** 由 ticker 调用；返回 false 表示已静止 */
-  step(dt: number): boolean {
-    const { stiffness, damping, mass = 1 } = this.cfg;
-    this.velocity += ((-stiffness * (this.value - this.target) - damping * this.velocity) / mass) * dt;
-    this.value += this.velocity * dt;
-    if (Math.abs(this.value - this.target) < 0.004 && Math.abs(this.velocity) < 0.02) {
-      this.value = this.target;
-      this.velocity = 0;
-      this.listeners.forEach((fn) => fn(this.value));
-      this.active = false;
-      return false;
-    }
-    this.listeners.forEach((fn) => fn(this.value));
-    return true;
-  }
-  destroy(): void {
-    this.listeners.clear();
-    springTicker.delete(this);
-    this.active = false;
-  }
-}
-
-const springTicker = (() => {
-  const springs = new Set<SpringValue>();
-  let raf = 0;
-  let last = 0;
-  const frame = (now: number): void => {
-    const dt = Math.min((now - last) / 1000, 0.05);
-    last = now;
-    springs.forEach((s) => { if (!s.step(dt)) springs.delete(s); });
-    raf = springs.size ? requestAnimationFrame(frame) : 0;
-  };
-  return {
-    add(s: SpringValue): void {
-      springs.add(s);
-      if (!raf) { last = performance.now(); raf = requestAnimationFrame(frame); }
-    },
-    delete(s: SpringValue): void { springs.delete(s); },
-  };
-})();
-
-function useSpringValue(initial: number, cfg: SpringConfig): SpringValue {
-  const ref = useRef<SpringValue | null>(null);
-  if (ref.current === null) ref.current = new SpringValue(initial, cfg);
-  useEffect(() => () => ref.current?.destroy(), []);
-  return ref.current;
-}
-
-/* ------------------------------------------------------------------ */
-/* ScrollProgress (rareui scrollprogress) — 底部悬浮进度 pill + 节列表     */
-/* 忠实移植自 swamimalode07/rare-ui components/ui/scroll-progress.tsx：   */
-/* 环形进度（spring 120/30/0.3）+ 当前节名（模糊交叉淡入 .22s）+ 点击     */
-/* 展开节列表（SIZE_SPRING = bounce .16 / duration .5，条目错峰 blur-in， */
-/* 选中高亮弹簧跟随）+ 选中滚动定位（700ms 滚动锁）。                     */
+/* ScrollProgress (rareui scrollprogress) — 底部进度 pill + 节列表       */
+/* 逐行直译自 swamimalode07/rare-ui components/ui/scroll-progress.tsx。  */
+/* 环境适配仅两处：NodeNext/ES2022 无 Array.findLast（倒序循环等价）；   */
+/* 底部偏移由 App 侧 className 以 Tailwind important 后缀覆盖。          */
 /* ------------------------------------------------------------------ */
 export type ScrollProgressSection = { id: string; label: string };
 
-const SP_SIZE_SPRING = visualSpring(0.5, 0.16);
+const SP_EASE_IN_OUT = [0.65, 0, 0.35, 1] as const;
+const SP_EASE_OUT = [0.22, 1, 0.36, 1] as const;
+const SP_SIZE_SPRING = { type: "spring", bounce: 0.16, duration: 0.5 } as const;
+const SP_LABEL_CROSSFADE = { duration: 0.22, ease: SP_EASE_OUT } as const;
+const SP_LAYER_FADE = { duration: 0.24, ease: SP_EASE_IN_OUT } as const;
 
-export function ScrollProgress({ container, sections = [], offset = 120, className }: {
-  container: React.RefObject<HTMLElement | null>;
+const useIsoLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+type SpSize = { width: number; height: number };
+
+export type ScrollProgressProps = ComponentProps<"div"> & {
   sections?: ScrollProgressSection[];
+  containerRef?: RefObject<HTMLElement | null>;
   offset?: number;
-  className?: string;
-}) {
-  const reduced = useRef(prefersReducedMotion()).current;
+};
 
-  const [activeId, setActiveId] = useState(sections[0]?.id);
-  const [open, setOpen] = useState(false);
+export function ScrollProgress({ className, sections = [], containerRef, offset = 120, ...props }: ScrollProgressProps) {
+  const layoutId = useId();
+  const reduceMotion = useReducedMotion();
 
-  const scrollLock = useRef(false);
-  const scrollLockTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const { scrollYProgress } = useScroll(
+    containerRef ? { container: containerRef } : undefined
+  );
+  const progress = useSpring(scrollYProgress, {
+    stiffness: 120,
+    damping: 30,
+    mass: 0.3,
+  });
 
-  // 环形进度：监听容器 scrollTop，spring(120, 30, 0.3) 平滑（与原版一致）
-  const progress = useSpringValue(0, { stiffness: 120, damping: 30, mass: 0.3 });
-  const ringRef = useRef<SVGCircleElement>(null);
-  const RING_C = 2 * Math.PI * 10;
+  const [activeId, setActiveId] = useState(sections[0]?.id)
+  const [open, setOpen] = useState(false)
+
+  const scrollLock = useRef(false)
+  const scrollLockTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
-    const scroller = container.current ?? window;
-    const update = (): void => {
-      if (scrollLock.current) return;
-      const element = container.current;
-      if (!element) return;
-      const max = element.scrollHeight - element.clientHeight;
-      progress.set(max > 4 ? Math.min(1, Math.max(0, element.scrollTop / max)) : 0);
-      const anchor = element.getBoundingClientRect().top + offset;
-      let active: ScrollProgressSection | undefined;
+    const scroller = containerRef?.current ?? window
+
+    const update = () => {
+      if (scrollLock.current) return
+      const anchor =
+        (containerRef?.current?.getBoundingClientRect().top ?? 0) + offset
+      // ES2022 目标无 Array.prototype.findLast：倒序循环等价（取最后一个满足项）
+      let active: ScrollProgressSection | undefined
       for (let i = sections.length - 1; i >= 0; i -= 1) {
-        const top = document.getElementById(sections[i].id)?.getBoundingClientRect().top;
-        if (top !== undefined && top <= anchor) { active = sections[i]; break; }
+        const top = document.getElementById(sections[i]!.id)?.getBoundingClientRect().top
+        if (top !== undefined && top <= anchor) {
+          active = sections[i]
+          break
+        }
       }
-      setActiveId(active?.id ?? sections[0]?.id);
-    };
-    update();
-    scroller.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
+      setActiveId(active?.id ?? sections[0]?.id)
+    }
+
+    update()
+    scroller.addEventListener("scroll", update, { passive: true })
+    window.addEventListener("resize", update)
     return () => {
-      scroller.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, [container, sections, offset, progress]);
+      scroller.removeEventListener("scroll", update)
+      window.removeEventListener("resize", update)
+    }
+  }, [sections, containerRef, offset])
 
-  useEffect(() => progress.subscribe((p) => {
-    if (ringRef.current) ringRef.current.style.strokeDasharray = `${p * RING_C} ${RING_C}`;
-  }), [progress]);
+  const label = sections.find((s) => s.id === activeId)?.label
 
-  const label = sections.find((s) => s.id === activeId)?.label;
-
-  const labelVersion = useRef(0);
-  const prevLabel = useRef(label);
+  const labelVersion = useRef(0)
+  const prevLabel = useRef(label)
   if (label !== prevLabel.current) {
-    prevLabel.current = label;
-    labelVersion.current += 1;
+    prevLabel.current = label
+    labelVersion.current += 1
   }
 
-  const collapsedRef = useRef<HTMLDivElement>(null);
-  const openRef = useRef<HTMLDivElement>(null);
-  const labelRef = useRef<HTMLSpanElement>(null);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const collapsedRef = useRef<HTMLDivElement>(null)
+  const openRef = useRef<HTMLDivElement>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
 
-  const [collapsedSize, setCollapsedSize] = useState<{ width: number; height: number }>();
-  const [openSize, setOpenSize] = useState<{ width: number; height: number }>();
-  const [labelWidth, setLabelWidth] = useState<number>();
+  const [collapsedSize, setCollapsedSize] = useState<SpSize>()
+  const [openSize, setOpenSize] = useState<SpSize>()
+  const [labelWidth, setLabelWidth] = useState<number>()
 
-  // 离屏 sizer 实测两种形态尺寸（与原版同法），fonts.ready + RO 兜底
-  useLayoutEffect(() => {
-    const measure = (): void => {
-      if (labelRef.current) setLabelWidth(labelRef.current.offsetWidth);
-      if (collapsedRef.current) setCollapsedSize({ width: collapsedRef.current.offsetWidth, height: collapsedRef.current.offsetHeight });
-      if (openRef.current) setOpenSize({ width: openRef.current.offsetWidth, height: openRef.current.offsetHeight });
-    };
-    measure();
-    const ro = new ResizeObserver(measure);
-    if (labelRef.current) ro.observe(labelRef.current);
-    if (collapsedRef.current) ro.observe(collapsedRef.current);
-    if (openRef.current) ro.observe(openRef.current);
-    void document.fonts?.ready.then(measure).catch(() => undefined);
-    return () => ro.disconnect();
-  }, [sections]);
+  useIsoLayoutEffect(() => {
+    const measure = () => {
+      if (labelRef.current) setLabelWidth(labelRef.current.offsetWidth)
+      if (collapsedRef.current) {
+        setCollapsedSize({
+          width: collapsedRef.current.offsetWidth,
+          height: collapsedRef.current.offsetHeight,
+        })
+      }
+      if (openRef.current) {
+        setOpenSize({
+          width: openRef.current.offsetWidth,
+          height: openRef.current.offsetHeight,
+        })
+      }
+    }
+
+    measure()
+    const ro = new ResizeObserver(measure)
+    if (labelRef.current) ro.observe(labelRef.current)
+    if (collapsedRef.current) ro.observe(collapsedRef.current)
+    if (openRef.current) ro.observe(openRef.current)
+    void document.fonts?.ready.then(measure).catch(() => undefined)
+    return () => ro.disconnect()
+  }, [sections])
 
   useEffect(() => {
-    if (!open) return;
-    const onPointer = (e: PointerEvent): void => { if (!rootRef.current?.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent): void => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("pointerdown", onPointer);
-    document.addEventListener("keydown", onKey);
+    if (!open) return
+    const onPointer = (event: PointerEvent): void => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") setOpen(false)
+    }
+    document.addEventListener("pointerdown", onPointer)
+    document.addEventListener("keydown", onKey)
     return () => {
-      document.removeEventListener("pointerdown", onPointer);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+      document.removeEventListener("pointerdown", onPointer)
+      document.removeEventListener("keydown", onKey)
+    }
+  }, [open])
 
-  useEffect(() => () => clearTimeout(scrollLockTimer.current), []);
+  useEffect(() => () => clearTimeout(scrollLockTimer.current), [])
 
   const selectSection = (id: string): void => {
-    scrollLock.current = true;
-    clearTimeout(scrollLockTimer.current);
-    scrollLockTimer.current = setTimeout(() => { scrollLock.current = false; }, reduced ? 0 : 700);
-    setActiveId(id);
-    setOpen(false);
-    document.getElementById(id)?.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
-  };
+    scrollLock.current = true
+    clearTimeout(scrollLockTimer.current)
+    scrollLockTimer.current = setTimeout(() => {
+      scrollLock.current = false
+    }, reduceMotion ? 0 : 700)
+    setActiveId(id)
+    setOpen(false)
+    document.getElementById(id)?.scrollIntoView({
+      behavior: reduceMotion ? "auto" : "smooth",
+      block: "start",
+    })
+  }
 
-  // 容器宽高/圆角：与原版同一 spring（bounce .16 / duration .5）逐帧写样式
-  const width = useSpringValue(0, SP_SIZE_SPRING);
-  const height = useSpringValue(0, SP_SIZE_SPRING);
-  const radius = useSpringValue(16, SP_SIZE_SPRING);
-  const surfaceRef = useRef<HTMLDivElement>(null);
-  const size = open ? openSize : collapsedSize;
-  const sizeInitRef = useRef(false);
-  useLayoutEffect(() => {
-    if (!size) return;
-    if (!sizeInitRef.current) {
-      // 首次测量直接落位（对应原版 initial={false}），不播「从 0 长出」
-      sizeInitRef.current = true;
-      width.jump(size.width);
-      height.jump(size.height);
-      radius.jump(open ? 26 : size.height / 2);
-      return;
-    }
-    if (reduced) { width.jump(size.width); height.jump(size.height); radius.jump(open ? 26 : size.height / 2); return; }
-    width.set(size.width);
-    height.set(size.height);
-    radius.set(open ? 26 : size.height / 2);
-  }, [size, open, reduced, width, height, radius]);
-  useEffect(() => {
-    const apply = (): void => {
-      const el = surfaceRef.current;
-      if (!el) return;
-      el.style.width = `${width.get()}px`;
-      el.style.height = `${height.get()}px`;
-      el.style.borderRadius = `${radius.get()}px`;
-    };
-    const unsubs = [width.subscribe(apply), height.subscribe(apply), radius.subscribe(apply)];
-    return () => unsubs.forEach((u) => u());
-  }, [width, height, radius]);
-
-  // 列表内选中高亮：测量选中项位置，弹簧跟随（对应原版 layoutId shared element）
-  const hlTop = useSpringValue(0, SP_SIZE_SPRING);
-  const hlHeight = useSpringValue(0, SP_SIZE_SPRING);
-  const highlightRef = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    if (!open || !listRef.current) return;
-    const active = listRef.current.querySelector<HTMLElement>(`[data-section-id="${activeId}"]`);
-    if (!active) return;
-    const top = active.offsetTop;
-    const h = active.offsetHeight;
-    if (reduced) { hlTop.jump(top); hlHeight.jump(h); return; }
-    hlTop.set(top);
-    hlHeight.set(h);
-  }, [open, activeId, sections, reduced, hlTop, hlHeight]);
-  useEffect(() => {
-    const apply = (): void => {
-      const el = highlightRef.current;
-      if (!el) return;
-      el.style.top = `${hlTop.get()}px`;
-      el.style.height = `${hlHeight.get()}px`;
-    };
-    const unsubs = [hlTop.subscribe(apply), hlHeight.subscribe(apply)];
-    return () => unsubs.forEach((u) => u());
-  }, [hlTop, hlHeight]);
+  const size = open ? openSize : collapsedSize
+  const radius = open ? 26 : (collapsedSize?.height ?? 32) / 2
+  const squircle = "[corner-shape:squircle]"
 
   return (
-    <div ref={rootRef} className={`scroll-progress ${className ?? ""}`} data-open={open || undefined}>
-      {/* 离屏 sizer：实测收起 / 展开两种形态的自然尺寸 */}
-      <div className="scroll-progress-sizers" aria-hidden="true">
-        <div ref={collapsedRef} className="scroll-progress-pill-sizer">
-          <span className="scroll-progress-ring-sizer" />
-          <span ref={labelRef} className="scroll-progress-label-sizer">{label}</span>
+    <div
+      ref={rootRef}
+      data-slot="scroll-progress"
+      className={cn("fixed bottom-6 left-1/2 z-50 -translate-x-1/2", className)}
+      {...props}
+    >
+      <div className="pointer-events-none invisible absolute" aria-hidden={true}>
+        <div
+          ref={collapsedRef}
+          className="inline-flex items-center gap-2.5 py-1.5 pl-2 pr-4"
+        >
+          <span className="h-5 w-5" />
+          <span
+            ref={labelRef}
+            className="whitespace-nowrap text-sm font-medium leading-none"
+          >
+            {label}
+          </span>
         </div>
-        <div ref={openRef} className="scroll-progress-list-sizer">
+        <div ref={openRef} className="w-max p-1.5">
           {sections.map((s) => (
-            <div key={s.id} className="scroll-progress-item-sizer">
-              <span className="scroll-progress-dot-sizer" />
+            <div
+              key={s.id}
+              className="flex items-center gap-3 px-3 py-2 text-sm font-medium leading-none"
+            >
+              <span className="h-1.5 w-1.5" />
               <span className="whitespace-nowrap">{s.label}</span>
             </div>
           ))}
@@ -316,47 +211,177 @@ export function ScrollProgress({ container, sections = [], offset = 120, classNa
       </div>
 
       {size && (
-        <div ref={surfaceRef} className="scroll-progress-surface">
-          {!open && (
-            <button type="button" className="scroll-progress-pill" onClick={() => setOpen(true)} aria-label="显示章节列表" aria-expanded={false}>
-              <span className="shrink-0">
-                <svg viewBox="0 0 24 24" className="scroll-progress-ring" aria-hidden="true">
-                  <circle cx="12" cy="12" r="10" fill="none" strokeWidth="2.5" className="scroll-progress-ring-track" />
-                  <circle ref={ringRef} cx="12" cy="12" r="10" fill="none" strokeWidth="2.5" className="scroll-progress-ring-arc" />
-                </svg>
-              </span>
-              <span className="scroll-progress-label-box" style={{ width: labelWidth }}>
-                {label && <span key={labelVersion.current} className="scroll-progress-label">{label}</span>}
-              </span>
-            </button>
+        <motion.div
+          data-slot="scroll-progress-surface"
+          className={cn(
+            "absolute bottom-0 left-1/2 -translate-x-1/2 overflow-hidden border border-border/60 bg-background/70 shadow-lg backdrop-blur-md",
+            squircle,
           )}
-          {open && (
-            <div ref={listRef} className="scroll-progress-list" role="list">
-              {activeId && <span ref={highlightRef} className="scroll-progress-highlight" aria-hidden="true" />}
-              {sections.map((s, i) => {
-                const isActive = s.id === activeId;
-                return (
-                  <button
-                    type="button"
-                    key={s.id}
-                    data-section-id={s.id}
-                    className={`scroll-progress-item ${isActive ? "active" : ""}`}
-                    style={{ animationDelay: `${0.04 + i * 0.03}s` }}
-                    onClick={() => selectSection(s.id)}
-                    role="listitem"
-                  >
-                    <span className={`scroll-progress-item-dot ${isActive ? "active" : ""}`} />
-                    <span className="whitespace-nowrap">{s.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
+          initial={false}
+          animate={{
+            width: size.width,
+            height: size.height,
+            borderRadius: radius,
+          }}
+          transition={reduceMotion ? { duration: 0 } : SP_SIZE_SPRING}
+        >
+          <AnimatePresence initial={false} mode="popLayout">
+            {open ? (
+              <motion.ul
+                key="list"
+                className="absolute inset-0 flex flex-col p-1.5"
+                initial={{
+                  opacity: 0,
+                  filter: reduceMotion ? undefined : "blur(4px)",
+                }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={{
+                  opacity: 0,
+                  filter: reduceMotion ? undefined : "blur(4px)",
+                }}
+                transition={SP_LAYER_FADE}
+              >
+                {sections.map((s, i) => {
+                  const isActive = s.id === activeId
+                  return (
+                    <li key={s.id}>
+                      <button
+                        type="button"
+                        onClick={() => selectSection(s.id)}
+                        className={cn(
+                          "relative flex w-full items-center gap-3 rounded-[14px] px-3 py-2 text-left text-sm font-medium leading-none transition-colors",
+                          squircle,
+                          isActive
+                            ? "text-foreground"
+                            : "text-foreground/55 hover:text-foreground/80"
+                        )}
+                      >
+                        {isActive && (
+                          <motion.span
+                            layoutId={`${layoutId}-active`}
+                            className={cn(
+                              "absolute inset-0 rounded-[14px] bg-foreground/10",
+                              squircle
+                            )}
+                            transition={
+                              reduceMotion ? { duration: 0 } : SP_SIZE_SPRING
+                            }
+                          />
+                        )}
+                        <motion.span
+                          className={cn(
+                            "relative h-1.5 w-1.5 shrink-0 rounded-full",
+                            isActive ? "bg-foreground" : "bg-foreground/30"
+                          )}
+                          initial={
+                            reduceMotion
+                              ? undefined
+                              : { opacity: 0, y: 4, filter: "blur(3px)" }
+                          }
+                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                          transition={{
+                            duration: 0.3,
+                            ease: SP_EASE_IN_OUT,
+                            delay: reduceMotion ? 0 : 0.04 + i * 0.03,
+                          }}
+                        />
+                        <motion.span
+                          className="relative whitespace-nowrap"
+                          initial={
+                            reduceMotion
+                              ? undefined
+                              : { opacity: 0, y: 4, filter: "blur(3px)" }
+                          }
+                          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                          transition={{
+                            duration: 0.3,
+                            ease: SP_EASE_IN_OUT,
+                            delay: reduceMotion ? 0 : 0.04 + i * 0.03,
+                          }}
+                        >
+                          {s.label}
+                        </motion.span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </motion.ul>
+            ) : (
+              <motion.button
+                key="pill"
+                type="button"
+                onClick={() => setOpen(true)}
+                aria-label="显示章节列表"
+                className="absolute inset-0 flex items-center gap-2.5 py-1.5 pl-2 pr-4"
+                initial={{
+                  opacity: 0,
+                  filter: reduceMotion ? undefined : "blur(4px)",
+                }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={{
+                  opacity: 0,
+                  filter: reduceMotion ? undefined : "blur(4px)",
+                }}
+                transition={SP_LAYER_FADE}
+              >
+                <span className="shrink-0">
+                  <svg viewBox="0 0 24 24" className="h-5 w-5 -rotate-90" aria-hidden={true}>
+                    <circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      fill="none"
+                      strokeWidth="2.5"
+                      className="stroke-foreground/15"
+                    />
+                    <motion.circle
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      fill="none"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      className="stroke-foreground"
+                      style={{ pathLength: progress }}
+                    />
+                  </svg>
+                </span>
+
+                <span
+                  className="relative h-5 shrink-0"
+                  style={{ width: labelWidth }}
+                >
+                  <AnimatePresence initial={false}>
+                    {label && (
+                      <motion.span
+                        key={labelVersion.current}
+                        data-slot="scroll-progress-label"
+                        className="absolute inset-y-0 left-0 flex items-center whitespace-nowrap text-sm font-medium leading-none text-foreground"
+                        initial={{
+                          opacity: 0,
+                          filter: reduceMotion ? undefined : "blur(1.5px)",
+                        }}
+                        animate={{ opacity: 1, filter: "blur(0px)" }}
+                        exit={{
+                          opacity: 0,
+                          filter: reduceMotion ? undefined : "blur(1.5px)",
+                        }}
+                        transition={SP_LABEL_CROSSFADE}
+                      >
+                        {label}
+                      </motion.span>
+                    )}
+                  </AnimatePresence>
+                </span>
+              </motion.button>
+            )}
+          </AnimatePresence>
+        </motion.div>
       )}
     </div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /* MatrixOrb (rareui) — 三态状态球：空状态居中 / composer 上方常驻      */
@@ -787,144 +812,277 @@ export function VoicePill({ recording, label }: { recording: boolean; label: str
 }
 
 /* ------------------------------------------------------------------ */
-/* DeleteButton (rareui deletebutton) — 展开式两钮确认删除                 */
-/* 忠实移植自 swamimalode07/rare-ui components/ui/delete-button.tsx：     */
-/* 48px 方块（垃圾桶，开盖 -35°/桶壁塌落）点击向右展开 84px 凹槽面板，     */
-/* 内嵌 ✓/× 双圆钮；确认后触发键换成打勾（描画动画），取消则垃圾桶回弹。  */
-/* HOLD: deleted 1400ms / kept 600ms；Esc = 保留；sr-only 状态播报。      */
+/* DeleteButton (rareui deletebutton) — 展开式两钮确认删除               */
+/* 逐行直译自 swamimalode07/rare-ui components/ui/delete-button.tsx：    */
+/* 48px 垃圾桶（桶壁 motion 模板插值、盖 -35° spring LID）展开 84px 凹槽 */
+/* 面板；✓ 描画 pathLength / × 圆钮 whileTap PRESS 弹簧；kept 回弹 nudge。 */
+/* 适配：sr-only/aria-label 中文化；ariaLabel prop 供会话列表命名。       */
 /* ------------------------------------------------------------------ */
-const DB_TILE = 48;
-const DB_PANEL = 84;
 const DB_HINGE = "3px 6px";
 const DB_LID_OPEN = -35;
 const DB_WALL_TOP = 6;
 const DB_WALL_TOP_OPEN = 13.5;
 const DB_WALL_BASE = 20;
-const DB_HOLD = { deleted: 1400, kept: 600 } as const;
-const DB_EASE = "cubic-bezier(0.32, 0.72, 0, 1)";
-const DB_LID_EASE = "cubic-bezier(0.34, 1.1, 0.64, 1)";
 
-const dbBezier = (x1: number, y1: number, x2: number, y2: number) => (t: number): number => {
-  let u = t;
-  for (let i = 0; i < 8; i += 1) {
-    const x = 3 * u * (1 - u) ** 2 * x1 + 3 * u * u * (1 - u) * x2 + u ** 3 - t;
-    if (Math.abs(x) < 1e-5) break;
-    const dx = 3 * (1 - u) ** 2 * x1 + 6 * u * (1 - u) * (x2 - x1) + 3 * u * u * (1 - x2);
-    if (Math.abs(dx) < 1e-6) break;
-    u -= x / dx;
-  }
-  return 3 * u * (1 - u) ** 2 * y1 + 3 * u * u * (1 - u) * y2 + u ** 3;
+const DB_TILE = 48;
+const DB_PANEL = 84;
+const DB_HOLD = { deleted: 1400, kept: 600 } as const;
+
+const DB_EASE = [0.32, 0.72, 0, 1] as const;
+const DB_EASE_LID = [0.34, 1.1, 0.64, 1] as const;
+
+const DB_WIDTH = { duration: 0.62, ease: DB_EASE } as const;
+const DB_LID = { duration: 0.6, ease: DB_EASE_LID } as const;
+const DB_WALL = { duration: 0.56, ease: DB_EASE } as const;
+const DB_IN = { duration: 0.44, ease: DB_EASE, delay: 0.14 } as const;
+const DB_OUT = { duration: 0.3, ease: DB_EASE } as const;
+const DB_TAP = { duration: 0.2, ease: DB_EASE } as const;
+const DB_SWAP = { duration: 0.22, ease: DB_EASE } as const;
+const DB_SETTLE = { duration: 0.45, ease: DB_EASE } as const;
+const DB_PRESS = {
+  type: "spring",
+  stiffness: 520,
+  damping: 18,
+  mass: 0.5,
+} as const;
+const DB_INSTANT = { duration: 0 } as const;
+
+const DB_SURFACE = "bg-[#F4F4F9] dark:bg-[#262626]";
+const DB_RECESS = "bg-[#E7E7EF] dark:bg-[#1B1B1B]";
+const DB_GLYPH = "text-[#868593] dark:text-[#9B9AA7]";
+const DB_FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-[#868593]";
+const DB_ACCENT = "#FF5F2E";
+
+const DB_LIFT =
+  "shadow-[0_0.5px_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08),inset_0_0.5px_0_rgba(255,255,255,0.9)] dark:shadow-[0_0.5px_1px_rgba(0,0,0,0.35),0_1.5px_4px_rgba(0,0,0,0.3),inset_0_0.5px_0_rgba(255,255,255,0.05)]";
+
+const DB_CIRCLE = `grid h-7 w-7 place-items-center rounded-full transition-colors duration-200 hover:bg-[#FAFAFD] dark:hover:bg-[#2C2C2C] ${DB_FOCUS} ${DB_SURFACE} ${DB_LIFT}`;
+
+const DB_ICON = {
+  viewBox: "0 0 24 24",
+  fill: "none",
+  strokeLinecap: "round",
+  strokeLinejoin: "round",
+  "aria-hidden": true,
+} as const;
+
+const dbPanelMotion = {
+  hidden: { opacity: 0, x: -6, transition: DB_OUT },
+  shown: { opacity: 1, x: 0, transition: { ...DB_IN, staggerChildren: 0.07 } },
 };
 
-function dbWallsPath(top: number): string {
-  return `M19 ${top}v${DB_WALL_BASE - top}a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V${top}`;
-}
+const dbCircleMotion = {
+  hidden: { opacity: 0, scale: 0.9, transition: DB_OUT },
+  shown: { opacity: 1, scale: 1, transition: DB_IN },
+};
 
-export function DeleteButton({ onConfirm, onCancel, ariaLabel }: { onConfirm?: () => void; onCancel?: () => void; ariaLabel?: string }) {
-  const reduced = useRef(prefersReducedMotion()).current;
-  const [open, setOpen] = useState(false);
-  // 面板卸载延迟一个 OUT 周期，让退场渐隐与宽度收缩同帧收尾
-  const [panelShown, setPanelShown] = useState(false);
-  const [status, setStatus] = useState<"idle" | "deleted" | "kept">("idle");
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const wallsRef = useRef<SVGPathElement>(null);
-  const tweenRef = useRef(0);
-
-  useEffect(() => {
-    if (open) { setPanelShown(true); return; }
-    const timer = window.setTimeout(() => setPanelShown(false), reduced ? 0 : 320);
-    return () => window.clearTimeout(timer);
-  }, [open, reduced]);
-
-  // 桶壁 d 插值（.56s EASE，与原版 WALL 过渡一致）
-  useEffect(() => {
-    const path = wallsRef.current;
-    if (!path) return;
-    const from = open ? DB_WALL_TOP : DB_WALL_TOP_OPEN;
-    const to = open ? DB_WALL_TOP_OPEN : DB_WALL_TOP;
-    cancelAnimationFrame(tweenRef.current);
-    if (reduced) { path.setAttribute("d", dbWallsPath(to)); return; }
-    const ease = dbBezier(0.32, 0.72, 0, 1);
-    const startedAt = performance.now();
-    const tick = (now: number): void => {
-      const t = Math.min(1, (now - startedAt) / 560);
-      path.setAttribute("d", dbWallsPath(from + (to - from) * ease(t)));
-      if (t < 1) tweenRef.current = requestAnimationFrame(tick);
-    };
-    tweenRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(tweenRef.current);
-  }, [open, reduced]);
-
-  useEffect(() => () => cancelAnimationFrame(tweenRef.current), []);
-
-  const settle = useCallback((next: "deleted" | "kept"): void => {
-    setStatus(next);
-    setOpen(false);
-    window.setTimeout(() => {
-      setStatus("idle");
-      triggerRef.current?.focus({ preventScroll: true });
-    }, DB_HOLD[next]);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        settle("kept");
-        onCancel?.();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, settle, onCancel]);
+function DbCircle({
+  label,
+  onClick,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  const reduced = useReducedMotion() ?? false;
 
   return (
-    <div className={`delete-button ${open ? "open" : ""} ${status} ${reduced ? "reduced" : ""}`} data-status={status}>
-      <button
-        ref={triggerRef}
+    <motion.div className="flex" variants={reduced ? undefined : dbCircleMotion}>
+      <motion.button
         type="button"
-        className="delete-trigger"
-        style={{ width: open ? DB_TILE + DB_PANEL : DB_TILE }}
-        aria-label={ariaLabel}
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        aria-label={label}
+        onClick={onClick}
+        whileHover={reduced ? undefined : { scale: 1.03 }}
+        whileTap={reduced ? undefined : { scale: 0.84 }}
+        transition={DB_PRESS}
+        className={DB_CIRCLE}
       >
-        {status === "deleted" ? (
-          <svg key="check" className="delete-check" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path className="delete-check-path" d="M4 12.5 9.5 18 20 7" />
-          </svg>
-        ) : (
-          <svg key={`bin-${status}`} className={`delete-bin ${status === "kept" ? "settle" : ""}`} viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path ref={wallsRef} d={dbWallsPath(DB_WALL_TOP)} />
-            <g className="delete-lid">
-              <path d="M3 6h18" />
-              <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </g>
-          </svg>
+        <svg
+          {...DB_ICON}
+          width="14"
+          height="14"
+          stroke="currentColor"
+          strokeWidth="3.5"
+        >
+          {children}
+        </svg>
+      </motion.button>
+    </motion.div>
+  );
+}
+
+type DbStatus = "idle" | "deleted" | "kept";
+
+export type DeleteButtonProps = Omit<
+  ComponentProps<"div">,
+  "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd"
+> & {
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  /** 应用适配：覆盖默认 aria-label（会话列表传入「删除会话 xxx」） */
+  ariaLabel?: string;
+};
+
+export function DeleteButton({ onConfirm, onCancel, ariaLabel, className, ...props }: DeleteButtonProps) {
+  const reduced = useReducedMotion() ?? false;
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState<DbStatus>("idle");
+  const trigger = useRef<HTMLButtonElement>(null);
+  const timing = (transition: Transition) => (reduced ? DB_INSTANT : transition);
+
+  const top = useMotionValue(DB_WALL_TOP);
+  const wall = useTransform(top, (y) => DB_WALL_BASE - y);
+  const bin = useMotionTemplate`M19 ${top}v${wall}a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V${top}`;
+  const settle = useMotionValue(1);
+
+  useEffect(() => {
+    const walls = animate(
+      top,
+      open ? DB_WALL_TOP_OPEN : DB_WALL_TOP,
+      reduced ? DB_INSTANT : DB_WALL,
+    );
+    return () => walls.stop();
+  }, [open, reduced, top]);
+
+  useEffect(() => {
+    if (status === "idle") return;
+    const nudge =
+      status === "kept" && !reduced
+        ? animate(settle, [1, 0.86, 1], DB_SETTLE)
+        : null;
+    const done = setTimeout(() => setStatus("idle"), DB_HOLD[status]);
+    return () => {
+      nudge?.stop();
+      clearTimeout(done);
+    };
+  }, [status, reduced, settle]);
+
+  const resolve = (next: Exclude<DbStatus, "idle">) => {
+    setOpen(false);
+    setStatus(next);
+    trigger.current?.focus();
+    (next === "deleted" ? onConfirm : onCancel)?.();
+  };
+
+  return (
+    <motion.div
+      data-slot="delete-button"
+      data-state={open ? "open" : "closed"}
+      data-status={status}
+      className={cn("relative h-12 rounded-2xl", DB_SURFACE, DB_GLYPH, className)}
+      animate={{ width: open ? DB_TILE + DB_PANEL : DB_TILE }}
+      transition={timing(DB_WIDTH)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && open) resolve("kept");
+      }}
+      {...props}
+    >
+      <motion.button
+        ref={trigger}
+        type="button"
+        aria-label={ariaLabel ?? "删除"}
+        aria-expanded={open}
+        onClick={() => {
+          if (open) return resolve("kept");
+          setStatus("idle");
+          setOpen(true);
+        }}
+        whileTap={reduced ? undefined : { scale: 0.94 }}
+        transition={DB_TAP}
+        className={cn(
+          "relative z-10 grid h-12 w-12 place-items-center rounded-2xl",
+          DB_FOCUS,
         )}
-      </button>
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          {status === "deleted" ? (
+            <motion.svg
+              key="done"
+              {...DB_ICON}
+              width="20"
+              height="20"
+              stroke={DB_ACCENT}
+              strokeWidth="2.5"
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.6 }}
+              transition={timing(DB_SWAP)}
+            >
+              <motion.path
+                d="M4 12.5 9.5 18 20 7"
+                initial={reduced ? undefined : { pathLength: 0 }}
+                animate={reduced ? undefined : { pathLength: 1 }}
+                transition={DB_SETTLE}
+              />
+            </motion.svg>
+          ) : (
+            <motion.svg
+              key="bin"
+              {...DB_ICON}
+              width="20"
+              height="20"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="overflow-visible"
+              style={{ scale: settle }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={timing(DB_SWAP)}
+            >
+              <motion.path d={bin} />
+              <motion.g
+                style={{ transformBox: "view-box", transformOrigin: DB_HINGE }}
+                animate={{ rotate: open ? DB_LID_OPEN : 0 }}
+                transition={timing(DB_LID)}
+              >
+                <path d="M3 6h18" />
+                <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </motion.g>
+            </motion.svg>
+          )}
+        </AnimatePresence>
+      </motion.button>
+
       <span role="status" aria-live="polite" className="sr-only">
         {status === "deleted" ? "已删除" : status === "kept" ? "已保留" : ""}
       </span>
-      {panelShown && (
-        <div className={`delete-panel ${open ? "shown" : "closing"}`} style={{ width: DB_PANEL }} aria-hidden={!open}>
-          <span className="delete-panel-recess" aria-hidden="true" />
-          <button type="button" className="delete-circle" aria-label="确认删除" onClick={() => { onConfirm?.(); settle("deleted"); }}>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M4 12.5 9.5 18 20 7" stroke="var(--accent)" />
-            </svg>
-          </button>
-          <button type="button" className="delete-circle" aria-label="取消" onClick={() => { onCancel?.(); settle("kept"); }}>
-            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            key="panel"
+            style={{ width: DB_PANEL }}
+            className={cn(
+              "absolute inset-y-0 right-0 flex items-center justify-center gap-2 rounded-2xl",
+              DB_RECESS,
+            )}
+            variants={reduced ? undefined : dbPanelMotion}
+            initial="hidden"
+            animate="shown"
+            exit="hidden"
+          >
+            <span
+              aria-hidden
+              className={cn(
+                "absolute -left-1.25 top-1/2 z-20 h-2.5 w-1.5 -translate-y-1/2 [clip-path:polygon(100%_0,0_50%,100%_100%)]",
+                DB_RECESS,
+              )}
+            />
+            <DbCircle label="确认删除" onClick={() => resolve("deleted")}>
+              <path d="M4 12.5 9.5 18 20 7" stroke={DB_ACCENT} />
+            </DbCircle>
+            <DbCircle label="取消" onClick={() => resolve("kept")}>
               <path d="M6 6 18 18M18 6 6 18" />
-            </svg>
-          </button>
-        </div>
-      )}
-    </div>
+            </DbCircle>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
+
 
 /* ------------------------------------------------------------------ */
 /* MessageActions (assistant-ui) — 消息操作行：复制/重试，就地确认          */
@@ -1014,16 +1172,18 @@ export function StoppedRunTag({ at }: { at?: string }) {
 }
 
 /* ------------------------------------------------------------------ */
-/* AnimatedCounter (rareui animatedcounter) — 逐位滚轮数字动画            */
-/* 忠实移植自 swamimalode07/rare-ui components/ui/animated-counter.tsx：  */
-/* 每位数字是 0-9 纵向滚轮（尾部补 0 使 9→0 环绕落在同面）；滚轮方向感知  */
-/* （值增上滚、值减下滚）；1.5em 行高 + 上下渐隐遮罩；列按键（从右数第几位）
-/* 定位，进位/退位时整组横移（FLIP 弹簧，pace 与滚轮同速）；分位符/小数点  */
-/* 作为 mark 淡入。sr-only 输出完整数值供读屏。                           */
+/* AnimatedCounter (rareui animatedcounter) — 逐位滚轮数字动画           */
+/* 逐行直译自 swamimalode07/rare-ui components/ui/animated-counter.tsx。 */
+/* 每位 0-9 纵向滚轮（尾 0 环绕）、方向感知、1.5em 渐隐遮罩、popLayout  */
+/* 进位整组横移（motion layout 动画，shifts/layoutDependency）。         */
 /* ------------------------------------------------------------------ */
 const AC_FACES = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+// the trailing 0 makes the wrap from 9 back to 0 land on an identical face
 const AC_WHEEL = [...AC_FACES, 0];
+
+// the air around each face is what the mask fades through, so a resting digit stays solid
 const AC_LINE = 1.5;
+// eased rather than a straight ramp; a linear fade of the same width reads as a hard edge
 const AC_FADE = `linear-gradient(to bottom,
   rgba(0,0,0,0) 0%,
   rgba(0,0,0,0.06) 5.5%,
@@ -1035,22 +1195,43 @@ const AC_FADE = `linear-gradient(to bottom,
   rgba(0,0,0,0.5) 89%,
   rgba(0,0,0,0.06) 94.5%,
   rgba(0,0,0,0) 100%)`;
+
+const AC_EASE = [0.22, 1, 0.36, 1] as const;
+const AC_BOUNCE = 0.18;
+const AC_LEAVE = { duration: 0.18, ease: AC_EASE } as const;
+const AC_INSTANT = { duration: 0 } as const;
+
+const acSpring = (duration: number): Transition => ({
+  type: "spring",
+  visualDuration: duration,
+  bounce: AC_BOUNCE,
+});
+
 const AC_MAX_DECIMALS = 15;
 const AC_MAX_PAD = 24;
 const AC_MIN_DURATION = 0.01;
 const AC_MAX_DURATION = 60;
 
-const acMod = (n: number, m: number): number => ((n % m) + m) % m;
-const acClamp = (n: number, low: number, high: number): number =>
+const acMod = (n: number, m: number) => ((n % m) + m) % m;
+const acClamp = (n: number, low: number, high: number) =>
   Math.min(high, Math.max(low, Number.isFinite(n) ? n : low));
-const acIsDigit = (char: string): boolean => char >= "0" && char <= "9";
+const acIsDigit = (char: string) => char >= "0" && char <= "9";
 
-// 一次性构建，React 不必每次变更都 reconcile 每位 21 个 span（原版注释）
+// built once so React skips reconciling 21 spans per digit on every change
 const AC_SIZER = AC_FACES.map((face) => (
-  <span key={face} aria-hidden="true" className="ac-sizer-face">{face}</span>
+  <span key={face} aria-hidden className="invisible [grid-area:1/1]">
+    {face}
+  </span>
 ));
+
 const AC_STACK = AC_WHEEL.map((face, index) => (
-  <span key={index} className="ac-wheel-face" style={{ height: `${AC_LINE}em` }}>{face}</span>
+  <span
+    key={index}
+    className="flex items-center justify-center"
+    style={{ height: `${AC_LINE}em` }}
+  >
+    {face}
+  </span>
 ));
 
 export type CounterGrouping = "western" | "indian";
@@ -1058,7 +1239,7 @@ export type CounterGrouping = "western" | "indian";
 const AC_EVERY_THREE = /\B(?=(\d{3})+(?!\d))/g;
 const AC_EVERY_TWO = /\B(?=(\d{2})+(?!\d))/g;
 
-function acGroup(whole: string, separator: string, grouping: CounterGrouping): string {
+function acGroup(whole: string, separator: string, grouping: CounterGrouping) {
   if (!separator) return whole;
   if (grouping !== "indian") return whole.replace(AC_EVERY_THREE, separator);
   const head = whole.slice(0, -3);
@@ -1066,15 +1247,30 @@ function acGroup(whole: string, separator: string, grouping: CounterGrouping): s
   return `${head.replace(AC_EVERY_TWO, separator)}${separator}${whole.slice(-3)}`;
 }
 
-type AcShape = { amount: number; scaled: number; places: number; pace: number; width: number };
+type AcShape = {
+  amount: number;
+  scaled: number;
+  places: number;
+  pace: number;
+  width: number;
+};
 
-function acMeasure(value: number, decimals: number, padStart: number, duration: number): AcShape {
-  // NaN 会让「与上次值相等」的判断永远为真（原版注释）
+function acMeasure(
+  value: number,
+  decimals: number,
+  padStart: number,
+  duration: number,
+): AcShape {
+  // NaN would make the previous-value comparison true forever
   const amount = Number.isFinite(value) ? value : 0;
   const places = acClamp(Math.trunc(decimals), 0, AC_MAX_DECIMALS);
   const pad = acClamp(Math.trunc(padStart), 1, AC_MAX_PAD);
-  // 超过 MAX_SAFE_INTEGER 数位是噪声，超过 1e21 String() 会转科学计数（原版注释）
-  const scaled = Math.min(Number.MAX_SAFE_INTEGER, Math.round(Math.abs(amount) * 10 ** places));
+  // past MAX_SAFE_INTEGER the digits are noise, and past 1e21 String() turns exponential
+  const scaled = Math.min(
+    Number.MAX_SAFE_INTEGER,
+    Math.round(Math.abs(amount) * 10 ** places),
+  );
+
   return {
     amount,
     scaled,
@@ -1084,13 +1280,15 @@ function acMeasure(value: number, decimals: number, padStart: number, duration: 
   };
 }
 
-function acFormat({ scaled, places, width }: AcShape, separator: string, decimalSeparator: string, grouping: CounterGrouping): string {
+function acFormat({ scaled, places, width }: AcShape, separator: string, decimalSeparator: string, grouping: CounterGrouping) {
   const raw = String(scaled).padStart(width, "0");
   const whole = acGroup(raw.slice(0, raw.length - places) || "0", separator, grouping);
-  return places ? `${whole}${decimalSeparator}${raw.slice(raw.length - places)}` : whole;
+  return places
+    ? `${whole}${decimalSeparator}${raw.slice(raw.length - places)}`
+    : whole;
 }
 
-// 按从右数的距离作 key：进位时整组列横移，而不是整列重挂（原版注释）
+// keyed by distance from the right, so gaining a place moves columns rather than remounting them
 type AcCell =
   | { kind: "digit"; key: number; digit: number }
   | { kind: "mark"; key: string; char: string };
@@ -1098,8 +1296,9 @@ type AcCell =
 function acToCells(chars: string, width: number): AcCell[] {
   const cells: AcCell[] = [];
   let seen = 0;
-  // 只有数字推进位次，多字符分隔符才不会撞 key（原版注释）
+  // only digits advance the place, so a multi-character separator would repeat a key
   let run = 0;
+
   for (const char of chars) {
     if (acIsDigit(char)) {
       run = 0;
@@ -1111,50 +1310,132 @@ function acToCells(chars: string, width: number): AcCell[] {
   return cells;
 }
 
-const AcDigit = memo(function AcDigit({ digit, from, dir, duration, reduced, cellKey }: {
-  digit: number;
-  from: number;
-  dir: number;
-  duration: number;
-  reduced: boolean;
-  cellKey: string;
-}) {
-  const cfg = useMemo(() => visualSpring(duration, 0.18), [duration]);
-  const pos = useSpringValue(from, cfg);
+function useAcWheel(
+  from: number,
+  digit: number,
+  dir: number,
+  duration: number,
+  reduced: boolean,
+) {
+  const pos = useMotionValue(from);
   const goal = useRef(from);
-  // 只读不依赖：单独一次方向反转不应重启每一列（原版注释）
-  const heading = useRef(dir);
-  useEffect(() => { heading.current = dir; }, [dir]);
 
-  const innerRef = useRef<HTMLSpanElement>(null);
+  // read rather than depended on: a reversal alone must not restart every column
+  const heading = useRef(dir);
+  useEffect(() => {
+    heading.current = dir;
+  }, [dir]);
 
   useEffect(() => {
     if (reduced) {
       goal.current = digit;
-      pos.jump(digit);
+      pos.set(digit);
       return;
     }
-    // 只有目标面变化、或反向需要绕远路时才重新瞄准（原版注释）
+    // re-aim only when the face changed, or a reversal sends the wheel the long way round
     if (acMod(goal.current, 10) !== digit) {
-      // 从滚轮当前位置瞄准：连续变化的值不会积压整圈待转（原版注释）
+      // aim from where the wheel is, so a moving value never queues up a backlog of turns
       const at = pos.get();
-      goal.current = heading.current < 0 ? at - acMod(at - digit, 10) : at + acMod(digit - at, 10);
+      goal.current =
+        heading.current < 0
+          ? at - acMod(at - digit, 10)
+          : at + acMod(digit - at, 10);
     }
-    pos.set(goal.current);
-  }, [digit, reduced, pos]);
+    const roll = animate(pos, goal.current, acSpring(duration));
+    return () => roll.stop();
+  }, [digit, duration, reduced, pos]);
 
-  useEffect(() => pos.subscribe((p) => {
-    if (innerRef.current) innerRef.current.style.transform = `translateY(${(-acMod(p, 10) * 100) / AC_WHEEL.length}%)`;
-  }), [pos]);
+  return useTransform(pos, (p) => `${(-acMod(p, 10) * 100) / AC_WHEEL.length}%`);
+}
+
+type AcSlotProps = {
+  reduced: boolean;
+  dep: number;
+  shift: Transition;
+};
+
+const acShifts = ({ reduced, dep, shift }: AcSlotProps) => ({
+  layout: !reduced,
+  layoutDependency: dep,
+  transition: shift,
+});
+
+const acFades = (reduced: boolean) => ({
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: { opacity: 0, transition: reduced ? AC_INSTANT : AC_LEAVE },
+});
+
+function AcFixed({ children, ...slot }: AcSlotProps & { children: ReactNode }) {
+  return (
+    <motion.span {...acShifts(slot)} className="inline-block">
+      {children}
+    </motion.span>
+  );
+}
+
+function AcMark({ char, ...slot }: AcSlotProps & { char: string }) {
+  return (
+    <motion.span
+      data-slot="animated-counter-mark"
+      {...acShifts(slot)}
+      {...acFades(slot.reduced)}
+      className="inline-block"
+    >
+      {char}
+    </motion.span>
+  );
+}
+
+const AcDigit = memo(function AcDigit({
+  digit,
+  from,
+  dir,
+  duration,
+  ...slot
+}: AcSlotProps & {
+  digit: number;
+  from: number;
+  dir: number;
+  duration: number;
+}) {
+  const y = useAcWheel(from, digit, dir, duration, slot.reduced);
 
   return (
-    <span data-cell={cellKey} className="animated-counter-digit" style={{ height: `${AC_LINE}em`, lineHeight: AC_LINE, maskImage: AC_FADE, WebkitMaskImage: AC_FADE }}>
-      {/* 取最宽字面作列宽，兜底非表格数字字体（原版注释） */}
+    <motion.span
+      data-slot="animated-counter-digit"
+      {...acShifts(slot)}
+      className="relative inline-grid overflow-hidden"
+      style={{
+        height: `${AC_LINE}em`,
+        lineHeight: AC_LINE,
+        maskImage: AC_FADE,
+        WebkitMaskImage: AC_FADE,
+      }}
+    >
+      {/* widest-face width, for fonts with no tabular figures */}
       {AC_SIZER}
-      <span ref={innerRef} className="animated-counter-wheel">{AC_STACK}</span>
-    </span>
+      <motion.span style={{ y }} className="absolute inset-x-0 top-0">
+        {AC_STACK}
+      </motion.span>
+    </motion.span>
   );
 });
+
+export type AnimatedCounterProps = Omit<
+  ComponentProps<"span">,
+  "children" | "prefix" | "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd"
+> & {
+  value: number;
+  decimals?: number;
+  duration?: number;
+  padStart?: number;
+  separator?: string;
+  decimalSeparator?: string;
+  grouping?: CounterGrouping;
+  prefix?: ReactNode;
+  suffix?: ReactNode;
+};
 
 export function AnimatedCounter({
   value,
@@ -1168,20 +1449,9 @@ export function AnimatedCounter({
   suffix,
   className,
   style,
-}: {
-  value: number;
-  decimals?: number;
-  duration?: number;
-  padStart?: number;
-  separator?: string;
-  decimalSeparator?: string;
-  grouping?: CounterGrouping;
-  prefix?: ReactNode;
-  suffix?: ReactNode;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const reduced = useRef(prefersReducedMotion()).current;
+  ...props
+}: AnimatedCounterProps) {
+  const reduced = useReducedMotion() ?? false;
 
   const shape = acMeasure(value, decimals, padStart, duration);
   const chars = acFormat(shape, separator, decimalSeparator, grouping);
@@ -1195,70 +1465,71 @@ export function AnimatedCounter({
     setPrevious(shape.amount);
   }
 
-  // 挂载时的初始面；后来出现的位置从 0 起滚入（原版注释）
+  // faces at mount; a place that appears later starts from 0 and rolls in
   const [seed] = useState(() => {
     const faces: Record<number, number> = {};
-    for (const cell of cells) if (cell.kind === "digit") faces[cell.key] = cell.digit;
+    for (const cell of cells) {
+      if (cell.kind === "digit") faces[cell.key] = cell.digit;
+    }
     return faces;
   });
 
-  // FLIP：列数变化时整组横移用弹簧过渡（对应原版 popLayout 的 layout 动画）
-  const flip = useSpringValue(1, useMemo(() => visualSpring(shape.pace, 0.18), [shape.pace]));
-  const cellX = useRef(new Map<string, number>());
-  const pending = useRef<Array<[HTMLElement, number]>>([]);
-  const gridRef = useRef<HTMLSpanElement>(null);
-  useLayoutEffect(() => {
-    const grid = gridRef.current;
-    if (!grid) return;
-    const before = cellX.current;
-    const after = new Map<string, number>();
-    grid.querySelectorAll<HTMLElement>("[data-cell]").forEach((el) => {
-      if (el.dataset.cell) after.set(el.dataset.cell, el.getBoundingClientRect().left);
-    });
-    const moves: Array<[HTMLElement, number]> = [];
-    after.forEach((x, key) => {
-      const prev = before.get(key);
-      if (prev === undefined || Math.abs(x - prev) < 0.5) return;
-      const el = grid.querySelector<HTMLElement>(`[data-cell="${CSS.escape(key)}"]`);
-      if (el) moves.push([el, prev - x]);
-    });
-    cellX.current = after;
-    if (!moves.length || reduced) { pending.current = []; return; }
-    pending.current = moves;
-    flip.jump(0);
-    flip.set(1);
-  }, [chars, reduced, flip]);
-  useEffect(() => flip.subscribe((p) => {
-    for (const [el, dx] of pending.current) el.style.transform = `translateX(${(dx * (1 - p)).toFixed(3)}px)`;
-  }), [flip]);
+  const shift = useMemo<Transition>(
+    () => (reduced ? AC_INSTANT : acSpring(shape.pace)),
+    [reduced, shape.pace],
+  );
+
+  const slot: AcSlotProps = { reduced, dep: chars.length, shift };
 
   return (
-    <span data-slot="animated-counter" className={`animated-counter ${className ?? ""}`} style={style}>
+    <span
+      data-slot="animated-counter"
+      className={cn("inline-flex items-center tabular-nums", className)}
+      aria-live="off"
+      {...props}
+      style={style}
+    >
+      {/* the whole number stays available to screen readers and find-in-page */}
       <span className="sr-only">{chars}</span>
-      {prefix != null && <span className="animated-counter-fixed" data-cell="prefix">{prefix}</span>}
-      <span className="animated-counter-grid" ref={gridRef} aria-hidden="true">
-        {negative && <span className="animated-counter-fixed" data-cell="sign">-</span>}
-        {cells.map((cell) => cell.kind === "digit"
-          ? <AcDigit key={cell.key} cellKey={String(cell.key)} digit={cell.digit} from={seed[cell.key] ?? 0} dir={dir} duration={shape.pace} reduced={reduced} />
-          : <span key={cell.key} data-cell={cell.key} className="animated-counter-mark">{cell.char}</span>)}
+
+      {prefix != null && <AcFixed {...slot}>{prefix}</AcFixed>}
+      <span aria-hidden className="inline-flex select-none items-center">
+        {negative && <AcFixed {...slot}>-</AcFixed>}
+        <AnimatePresence mode="popLayout" initial={false}>
+          {cells.map((cell) =>
+            cell.kind === "digit" ? (
+              <AcDigit
+                key={cell.key}
+                {...slot}
+                digit={cell.digit}
+                from={seed[cell.key] ?? 0}
+                dir={dir}
+                duration={shape.pace}
+              />
+            ) : (
+              <AcMark key={cell.key} {...slot} char={cell.char} />
+            ),
+          )}
+        </AnimatePresence>
       </span>
-      {suffix != null && <span className="animated-counter-fixed" data-cell="suffix">{suffix}</span>}
+
+      {suffix != null && <AcFixed {...slot}>{suffix}</AcFixed>}
     </span>
   );
 }
 
+
 /* ------------------------------------------------------------------ */
-/* HookSidebar (rareui hooksidebar) — 钩式侧导航（设置页）                 */
-/* 忠实移植自 swamimalode07/rare-ui components/ui/hook-sidebar.tsx：      */
-/* 1px 虚线（repeating-gradient 2px 实/2px 空）自列表顶垂下，末端接 12×7   */
-/* SVG 圆弧钩（M0.5 0a6 6 0 0 0 6 6H12，dashed 时 strokeDasharray 2 2）。  */
-/* 双轨：灰 hover 轨（预览落点）+ 彩色 active 轨，均为 spring 420/34/0.7  */
-/* 驱动 top——线高与钩顶同源同弹簧，逐帧严格同步（不脱节）。               */
-/* hover 在 active 上方时 hover 轨只画拐角段。                            */
+/* HookSidebar (rareui hooksidebar) — 钩式侧导航                          */
+/* 逐行直译自 swamimalode07/rare-ui components/ui/hook-sidebar.tsx：    */
+/* 1px 虚线（repeating-gradient）+ 12×7 SVG 圆弧钩，双轨（灰 hover /     */
+/* 彩 active）均 spring 420/34/0.7 驱动 top/height。                    */
+/* 适配：无 next 路由（去掉 usePathname/Link 分支，仅受控 value 模式）； */
+/* 保留应用侧 items[{id,label,dividerBefore}] 签名 + 设置页分隔线注入。   */
 /* ------------------------------------------------------------------ */
 const HK_CORNER = 6;
-const HK_DASH = "repeating-linear-gradient(to top, transparent 0 2px, currentColor 2px 4px)";
-const HK_SPRING: SpringConfig = { stiffness: 420, damping: 34, mass: 0.7 };
+const HK_DASH =
+  "repeating-linear-gradient(to top, transparent 0 2px, currentColor 2px 4px)";
 
 function HookRail({ from = 0, y, visible, color, dashed, className }: {
   from?: number;
@@ -1268,41 +1539,49 @@ function HookRail({ from = 0, y, visible, color, dashed, className }: {
   dashed: boolean;
   className?: string;
 }) {
-  const reduced = useRef(prefersReducedMotion()).current;
-  const sy = useSpringValue(y ?? 0, HK_SPRING);
-  const sf = useSpringValue(from, HK_SPRING);
-  const lineRef = useRef<HTMLSpanElement>(null);
-  const hookRef = useRef<SVGSVGElement>(null);
-  const rootRef = useRef<HTMLSpanElement>(null);
-
-  useLayoutEffect(() => {
-    if (y === null) return;
-    if (reduced) { sy.jump(y); sf.jump(from); return; }
-    sy.set(y);
-    sf.set(from);
-  }, [y, from, reduced, sy, sf]);
-
-  useEffect(() => {
-    const apply = (): void => {
-      const cy = sy.get();
-      const cf = sf.get();
-      if (lineRef.current) {
-        lineRef.current.style.top = `${cf}px`;
-        lineRef.current.style.height = `${Math.max(0, cy - HK_CORNER - cf)}px`;
-      }
-      if (hookRef.current) hookRef.current.style.top = `${cy - HK_CORNER}px`;
-    };
-    const unsubs = [sy.subscribe(apply), sf.subscribe(apply)];
-    return () => unsubs.forEach((u) => u());
-  }, [sy, sf]);
+  const reduced = useReducedMotion();
+  const travel = reduced
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 420, damping: 34, mass: 0.7 };
 
   return (
-    <span ref={rootRef} aria-hidden="true" className={`hook-rail ${className ?? ""}`} style={{ color, opacity: visible && y !== null ? 1 : 0 }}>
-      <span ref={lineRef} className="hook-line" style={{ backgroundImage: dashed ? HK_DASH : undefined }} />
-      <svg ref={hookRef} className="hook-tab" viewBox="0 0 12 7" width="12" height="7" fill="none">
-        <path d="M0.5 0a6 6 0 0 0 6 6H12" stroke="currentColor" strokeWidth="1" strokeDasharray={dashed ? "2 2" : undefined} />
-      </svg>
-    </span>
+    <motion.span
+      aria-hidden
+      initial={false}
+      style={{ color }}
+      animate={{ opacity: visible && y !== null ? 1 : 0 }}
+      transition={reduced ? { duration: 0 } : { duration: 0.2 }}
+      className={cn("pointer-events-none absolute inset-0", className)}
+    >
+      <motion.span
+        initial={false}
+        animate={{ top: from, height: Math.max(0, (y ?? 0) - HK_CORNER - from) }}
+        transition={travel}
+        style={
+          dashed
+            ? { backgroundImage: HK_DASH }
+            : { backgroundColor: "currentColor" }
+        }
+        className="absolute left-0.5 w-px"
+      />
+      <motion.svg
+        initial={false}
+        animate={{ top: (y ?? 0) - HK_CORNER }}
+        transition={travel}
+        width="12"
+        height="7"
+        viewBox="0 0 12 7"
+        fill="none"
+        className="absolute left-0.5"
+      >
+        <path
+          d="M0.5 0a6 6 0 0 0 6 6H12"
+          stroke="currentColor"
+          strokeWidth="1"
+          strokeDasharray={dashed ? "2 2" : undefined}
+        />
+      </motion.svg>
+    </motion.span>
   );
 }
 
@@ -1311,38 +1590,69 @@ export function HookSidebar({ activeId, items, onSelect }: {
   items: Array<{ id: string; label: string; dividerBefore?: boolean }>;
   onSelect: (id: string) => void;
 }) {
-  const activeIndex = items.findIndex((item) => item.id === activeId);
+  // 应用适配：active 轨颜色取主题 accent（原版默认 #FC4C01，rareui 站点橙）
+  const color = "#F97316";
+  const dashed = true;
+  const listRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLElement | null)[]>([]);
+  const [centers, setCenters] = useState<number[]>([]);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
-  const itemRefs = useRef<Array<HTMLElement | null>>([]);
 
-  const rowAt = (index: number): { top: number; height: number } | null => {
-    const el = itemRefs.current[index];
-    return el ? { top: el.offsetTop, height: el.offsetHeight } : null;
-  };
+  const activeIndex = Math.max(0, items.findIndex((item) => item.id === activeId));
 
-  const activeRow = activeIndex >= 0 ? rowAt(activeIndex) : null;
-  const activeY = activeRow ? activeRow.top + activeRow.height / 2 : null;
-  const hoverRow = hoverIndex !== null ? rowAt(hoverIndex) : null;
-  const hoverY = hoverRow ? hoverRow.top + hoverRow.height / 2 : null;
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const measure = () => {
+      setCenters(
+        itemRefs.current
+          .map((el) => (el ? el.offsetTop + el.offsetHeight / 2 : null))
+          .filter((c): c is number => c !== null),
+      );
+    };
 
-  const showHover = (pointerInside || focusInside) && hoverIndex !== null && hoverIndex !== activeIndex;
-  // 悬停在 active 上方：hover 轨只画拐角；在下方：从 active 垂到 hover 项（原版 `activeY ?? 0`）
-  const hoverFrom = hoverIndex !== null && activeIndex >= 0 && hoverIndex < activeIndex
-    ? Math.max(0, (hoverY ?? 0) - HK_CORNER)
-    : (activeY ?? 0);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [items.length]);
 
-  const select = (index: number): void => {
-    if (index === activeIndex) return;
-    onSelect(items[index].id);
+  const activeY = activeIndex < 0 ? null : (centers[activeIndex] ?? null);
+  const hoverY = hoverIndex === null ? null : (centers[hoverIndex] ?? null);
+
+  // above the active row the accent line already covers the span, so draw only the corner
+  const hoverFrom =
+    activeY !== null && hoverY !== null && hoverY <= activeY
+      ? Math.max(0, hoverY - HK_CORNER)
+      : (activeY ?? 0);
+
+  const select = (index: number) => {
+    onSelect(items[index]!.id);
   };
 
   return (
-    <nav className="hook-sidebar settings-nav" aria-label="设置导航">
-      <div className="hook-sidebar-list" onPointerLeave={() => setPointerInside(false)} onMouseLeave={() => setPointerInside(false)}>
-        <HookRail y={activeY} visible dashed className="hook-rail-active" />
-        <HookRail from={hoverFrom} y={hoverY} visible={showHover} dashed className="hook-rail-hover" />
+    <nav data-slot="hook-sidebar" aria-label="设置导航" className="settings-nav flex flex-col">
+      <div
+        ref={listRef}
+        onMouseLeave={() => setPointerInside(false)}
+        className="relative flex flex-col gap-0.5"
+      >
+        <HookRail
+          from={hoverFrom}
+          y={hoverY}
+          visible={(pointerInside || focusInside) && hoverIndex !== activeIndex}
+          dashed={dashed}
+          className="text-foreground/30"
+        />
+        <HookRail
+          y={activeY}
+          visible={activeY !== null}
+          color={color}
+          dashed={dashed}
+        />
+
         {items.map((item, index) => {
           const isActive = index === activeIndex;
           const setRef = (el: HTMLElement | null): void => {
@@ -1353,14 +1663,25 @@ export function HookSidebar({ activeId, items, onSelect }: {
               {item.dividerBefore && <div className="settings-nav-divider" role="separator" />}
               <button
                 type="button"
-                ref={setRef}
+                data-slot="hook-sidebar-item"
                 data-active={isActive}
-                className={isActive ? "active" : ""}
-                aria-current={isActive ? "true" : undefined}
-                onMouseEnter={() => { setHoverIndex(index); setPointerInside(true); }}
-                onFocus={() => { setHoverIndex(index); setFocusInside(true); }}
+                ref={setRef}
+                onMouseEnter={() => {
+                  setHoverIndex(index);
+                  setPointerInside(true);
+                }}
+                onFocus={() => {
+                  setHoverIndex(index);
+                  setFocusInside(true);
+                }}
                 onBlur={() => setFocusInside(false)}
                 onClick={() => select(index)}
+                className={cn(
+                  "rounded-lg py-1.5 pl-5 pr-2 text-left text-sm transition-colors duration-200 motion-reduce:transition-none",
+                  isActive
+                    ? "text-foreground"
+                    : "text-foreground/50 hover:text-foreground/80",
+                )}
               >
                 {item.label}
               </button>
@@ -1372,29 +1693,38 @@ export function HookSidebar({ activeId, items, onSelect }: {
   );
 }
 
+
 /* ------------------------------------------------------------------ */
-/* VoiceNote / VoiceNoteGroup (rareui voicenote) — 语音消息播放器         */
-/* 忠实移植自 swamimalode07/rare-ui components/ui/voice-note.tsx：       */
-/* 胶囊 = 播放/暂停键（SVG 形变 morph，spring .34/.2）+ 波形条（进度     */
-/* clip-inset 揭示，seeded LCG 生成）+ 剩余时间（点按切换 1/1.5/2 倍速）  */
-/* + 极光滑轨（四颗光点绕 pill 周长巡航，播放时转速 SPIN_UP .45s 升降）。 */
-/* 无 src 时走 performance.now 计时；src 时 <audio> 驱动；组内互斥播放。   */
-/* 拖拽/键盘（←→ ±5s、Home/End）可寻址。                                  */
+/* VoiceNote / VoiceNoteGroup (rareui voicenote) — 语音消息播放器        */
+/* 逐行直译自 swamimalode07/rare-ui components/ui/voice-note.tsx：       */
+/* 胶囊播放器（播放/暂停 SVG 形变 morph、LCG 波形、进度 clip-inset、     */
+/* 倍速切换、四颗光点绕 pill 巡航 mix-blend、组内互斥、拖拽/键盘寻址）。 */
+/* 适配：aria-label 中文化；accent 默认取应用主题橙。                     */
 /* ------------------------------------------------------------------ */
+const VN_GLOW: Transition = { duration: 0.5, ease: [0.22, 1, 0.36, 1] };
+const VN_ICON: Transition = { type: "spring", duration: 0.34, bounce: 0.2 };
+const VN_TAP: Transition = { type: "spring", duration: 0.25, bounce: 0.3 };
+const VN_INSTANT: Transition = { duration: 0 };
+
+const VN_PLAYING_GLOW = 0.62;
+
+const VN_SPEEDS = [1, 1.5, 2];
+
+// all proportional to the bar height, so every size keeps the same look
 const VN_CONTROL_RATIO = 0.76;
 const VN_ICON_RATIO = 0.72;
 const VN_BLUR_RATIO = 0.32;
 const VN_PEAK_RATIO = 0.68;
+
 const VN_PULSE_SPEED = 0.6;
+
+// seconds for the orbit to reach full speed, and to coast back down
 const VN_SPIN_UP = 0.45;
-const VN_MIN_AMPLITUDE = 0.14;
-const VN_PLAYING_GLOW = 0.62;
-const VN_SPEEDS = [1, 1.5, 2];
-const VN_SEEK_STEP = 5;
 
-const VN_MIDDLE_MASK = "linear-gradient(to bottom, #000 0%, rgba(0,0,0,0.3) 46%, rgba(0,0,0,0.3) 54%, #000 100%)";
+const VN_MIDDLE_MASK =
+  "linear-gradient(to bottom, #000 0%, rgba(0,0,0,0.3) 46%, rgba(0,0,0,0.3) 54%, #000 100%)";
 
-// 每颗光点都贴在 pill 轮廓线上，clip 只留内半（原版注释）
+// each light is centred on the outline, so the clip keeps only its inner half
 const VN_BLOBS = [
   { size: 2, alpha: 0.5, lap: 11, offset: 0.04, pulse: 0.12 },
   { size: 1.5, alpha: 0.4, lap: 17, offset: 0.19, pulse: 0.14 },
@@ -1402,11 +1732,11 @@ const VN_BLOBS = [
   { size: 1.2, alpha: 0.35, lap: 13, offset: 0.71, pulse: 0.16 },
 ] as const;
 
-// 巡航时钟不从 0 起步，光点不会排成一条线（原版注释）
+// the laps only pull the lights apart over time, so the clock starts mid flow rather than lined up
 const VN_START_AT = 6.2;
 
-// 沿 pill 外轮廓走：上边 → 右圆角 → 下边 → 左圆角（原版注释）
-function vnPointOnPill(distance: number, width: number, height: number): [number, number] {
+// walks the outline of a pill: top edge, right cap, bottom edge, left cap
+const vnPointOnPill = (distance: number, width: number, height: number): [number, number] => {
   const radius = height / 2;
   const straight = Math.max(0, width - height);
   const arc = Math.PI * radius;
@@ -1419,20 +1749,31 @@ function vnPointOnPill(distance: number, width: number, height: number): [number
   d -= straight;
   if (d < arc) {
     const a = -Math.PI / 2 + d / radius;
-    return [width - radius + radius * Math.cos(a), radius + radius * Math.sin(a)];
+    return [
+      width - radius + radius * Math.cos(a),
+      radius + radius * Math.sin(a),
+    ];
   }
   d -= arc;
   if (d < straight) return [width - radius - d, height];
   d -= straight;
   const a = Math.PI / 2 + d / radius;
-  return [radius + radius * Math.cos(a), radius + radius * Math.sin(a)];
-}
+  return [
+    radius + radius * Math.cos(a),
+    radius + radius * Math.sin(a),
+  ];
+};
 
-// 三角沿中线剖开，得到和暂停条相同的两个四点四边形（原版注释）
-const VN_PLAY_SHAPE = [7.7, 5.8, 13, 8.9, 13, 15.1, 7.7, 18.2, 13, 8.9, 18.3, 12, 18.3, 12, 13, 15.1];
-const VN_PAUSE_SHAPE = [8.2, 6.8, 10.9, 6.8, 10.9, 17.2, 8.2, 17.2, 13.1, 6.8, 15.8, 6.8, 15.8, 17.2, 13.1, 17.2];
+// the triangle is split down the middle, giving it the same two four-point quads as the bars
+const VN_PLAY_SHAPE = [
+  7.7, 5.8, 13, 8.9, 13, 15.1, 7.7, 18.2, 13, 8.9, 18.3, 12, 18.3, 12, 13, 15.1,
+];
+const VN_PAUSE_SHAPE = [
+  8.2, 6.8, 10.9, 6.8, 10.9, 17.2, 8.2, 17.2, 13.1, 6.8, 15.8, 6.8, 15.8, 17.2,
+  13.1, 17.2,
+];
 
-function vnToPath(shape: number[]): string {
+const vnToPath = (shape: number[]): string => {
   let d = "";
   for (let quad = 0; quad < shape.length; quad += 8) {
     d += `M${shape[quad]} ${shape[quad + 1]}`;
@@ -1442,7 +1783,7 @@ function vnToPath(shape: number[]): string {
     d += " Z";
   }
   return d;
-}
+};
 
 const vnMorph = (from: number[], to: number[], t: number): string =>
   vnToPath(from.map((value, i) => value + (to[i] - value) * t));
@@ -1450,7 +1791,7 @@ const vnMorph = (from: number[], to: number[], t: number): string =>
 const VN_PLAY_PATH = vnToPath(VN_PLAY_SHAPE);
 const VN_PAUSE_PATH = vnToPath(VN_PAUSE_SHAPE);
 
-// stroke 把路径的尖角抹圆（原版注释）
+// stroke rounds the corners the path leaves sharp
 const VN_ICON_PAINT = {
   fill: "currentColor",
   stroke: "currentColor",
@@ -1460,19 +1801,23 @@ const VN_ICON_PAINT = {
 };
 
 const VN_SIZES = {
-  sm: { height: 40, gap: 8, bar: 2, barGap: 2, pad: 12, font: 11 },
-  md: { height: 52, gap: 10, bar: 3, barGap: 3, pad: 14, font: 12 },
-  lg: { height: 64, gap: 12, bar: 3, barGap: 4, pad: 16, font: 14 },
+  sm: { height: 40, gap: 8, bar: 2, barGap: 2, pad: 12, text: "text-[11px]" },
+  md: { height: 52, gap: 10, bar: 3, barGap: 3, pad: 14, text: "text-xs" },
+  lg: { height: 64, gap: 12, bar: 3, barGap: 4, pad: 16, text: "text-sm" },
 } as const;
 
-const vnClamp = (value: number, min = 0, max = 1): number => Math.min(max, Math.max(min, value));
+const VN_SEEK_STEP = 5;
+const VN_MIN_AMPLITUDE = 0.14;
+
+const vnClamp = (value: number, min = 0, max = 1): number =>
+  Math.min(max, Math.max(min, value));
 
 const vnFormatTime = (seconds: number): string => {
   const whole = Math.max(0, Math.round(seconds));
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
 };
 
-// sin 与 ** 跨引擎不保证位级一致，结果取三位小数稳定渲染（原版注释）
+// sin and ** are not bit identical across engines, so the result is rounded to survive hydration
 function vnBuildWaveform(count: number, seed: number): number[] {
   let state = (seed >>> 0) + 0x9e3779b9;
   return Array.from({ length: count }, (_, i) => {
@@ -1489,18 +1834,42 @@ type VnGroupContext = { claim: (id: string, pause: () => void) => void };
 
 const VnGroupContext = createContext<VnGroupContext | null>(null);
 
-// map 放 ref 里，抢占播放不会重渲染组内其它 note（原版注释）
+// keeps the map out of state, so claiming a turn never re-renders the other notes
 export function VoiceNoteGroup({ children }: { children: ReactNode }) {
   const notes = useRef(new Map<string, () => void>());
+
   const claim = useCallback((id: string, pause: () => void) => {
     notes.current.set(id, pause);
-    notes.current.forEach((stop, other) => { if (other !== id) stop(); });
+    notes.current.forEach((stop, other) => other !== id && stop());
   }, []);
+
   const value = useMemo(() => ({ claim }), [claim]);
-  return <VnGroupContext.Provider value={value}>{children}</VnGroupContext.Provider>;
+
+  return (
+    <VnGroupContext.Provider value={value}>
+      {children}
+    </VnGroupContext.Provider>
+  );
 }
 
-export function VoiceNote({
+export type VoiceNoteProps = Omit<ComponentProps<"div">, "onEnded"> & {
+  src?: string;
+  duration?: number;
+  waveform?: number[];
+  bars?: number;
+  seed?: number;
+  playing?: boolean;
+  defaultPlaying?: boolean;
+  onPlayingChange?: (playing: boolean) => void;
+  onEnded?: () => void;
+  accent?: string;
+  size?: keyof typeof VN_SIZES;
+  seekable?: boolean;
+  speeds?: number[];
+  onSpeedChange?: (speed: number) => void;
+};
+
+function VoiceNote({
   src,
   duration = 53,
   waveform,
@@ -1516,37 +1885,24 @@ export function VoiceNote({
   speeds = VN_SPEEDS,
   onSpeedChange,
   className,
-}: {
-  src?: string;
-  duration?: number;
-  waveform?: number[];
-  bars?: number;
-  seed?: number;
-  playing?: boolean;
-  defaultPlaying?: boolean;
-  onPlayingChange?: (playing: boolean) => void;
-  onEnded?: () => void;
-  accent?: string;
-  size?: keyof typeof VN_SIZES;
-  seekable?: boolean;
-  speeds?: number[];
-  onSpeedChange?: (speed: number) => void;
-  className?: string;
-}) {
+  style,
+  ...props
+}: VoiceNoteProps) {
   const metrics = VN_SIZES[size];
   const control = Math.round(metrics.height * VN_CONTROL_RATIO);
-  // 播放键与上下边的距离 = 与左边的距离（原版注释）
+  // the control sits as far from the left edge as it does from the top and bottom
   const inset = Math.round((metrics.height - control) / 2);
-  const reduced = useRef(prefersReducedMotion()).current;
+  const shouldReduceMotion = useReducedMotion();
 
-  const amplitudes = useMemo(() => waveform ?? vnBuildWaveform(Math.max(1, bars), seed), [waveform, bars, seed]);
+  const amplitudes = useMemo(
+    () => waveform ?? vnBuildWaveform(Math.max(1, bars), seed),
+    [waveform, bars, seed],
+  );
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  const clipRef = useRef<HTMLDivElement>(null);
-  const progress = useRef(0);
   const scrubbing = useRef(false);
-  // 无音频文件时进度条的性能基线（原版注释）
+  // performance.now() baseline for the clip that has no audio file behind it
   const startedAt = useRef(0);
 
   const [metaDuration, setMetaDuration] = useState<number | null>(null);
@@ -1558,7 +1914,7 @@ export function VoiceNote({
   const id = useId();
   const group = useContext(VnGroupContext);
 
-  // 文件必须先报告长度，条才可信；否则禁用（原版注释）
+  // a file has to report its length before the bar can be trusted, or pressed
   const loading = !!src && metaDuration === null && !failed;
   const blocked = loading || failed;
 
@@ -1566,55 +1922,65 @@ export function VoiceNote({
   const isControlled = playing !== undefined;
   const isPlaying = isControlled ? playing : playingState;
 
-  // 新回调身份不该打断在播的条（原版注释）
+  const progress = useMotionValue(0);
+  const clipPath = useTransform(
+    progress,
+    (p) => `inset(0 ${(1 - p) * 100}% 0 0)`,
+  );
+
+  // a new callback identity would otherwise restart the running clip
   const callbacks = useRef({ onEnded, onPlayingChange });
   useEffect(() => {
     callbacks.current = { onEnded, onPlayingChange };
   }, [onEnded, onPlayingChange]);
 
-  const commitPlaying = useCallback((next: boolean) => {
-    if (!isControlled) setPlayingState(next);
-    callbacks.current.onPlayingChange?.(next);
-  }, [isControlled]);
+  const commitPlaying = useCallback(
+    (next: boolean) => {
+      if (!isControlled) setPlayingState(next);
+      callbacks.current.onPlayingChange?.(next);
+    },
+    [isControlled],
+  );
 
-  const applyProgress = useCallback((ratio: number) => {
-    progress.current = ratio;
-    if (clipRef.current) clipRef.current.style.clipPath = `inset(0 ${(1 - ratio) * 100}% 0 0)`;
-  }, []);
-
-  const seekTo = useCallback((ratio: number) => {
-    const next = vnClamp(ratio);
-    applyProgress(next);
-    setElapsed(Math.floor(next * total));
-    startedAt.current = performance.now() - (next * total * 1000) / speed;
-    const audio = audioRef.current;
-    if (audio && Number.isFinite(total)) audio.currentTime = next * total;
-  }, [total, speed, applyProgress]);
+  const seekTo = useCallback(
+    (ratio: number) => {
+      const next = vnClamp(ratio);
+      progress.set(next);
+      setElapsed(Math.floor(next * total));
+      startedAt.current = performance.now() - (next * total * 1000) / speed;
+      const audio = audioRef.current;
+      if (audio && Number.isFinite(total)) audio.currentTime = next * total;
+    },
+    [progress, total, speed],
+  );
 
   const reset = useCallback(() => {
-    // 帧循环和 audio 元素都可能报告同一个结束（原版注释）
-    if (progress.current === 0) return;
-    applyProgress(0);
+    // the frame loop and the audio element can both report the end of the same clip
+    if (progress.get() === 0) return;
+    progress.set(0);
     setElapsed(0);
     const audio = audioRef.current;
     if (audio) audio.currentTime = 0;
     commitPlaying(false);
     callbacks.current.onEnded?.();
-  }, [commitPlaying, applyProgress]);
+  }, [progress, commitPlaying]);
 
   useEffect(() => {
     if (!isPlaying || total <= 0) return;
     const audio = audioRef.current;
     if (audio) audio.playbackRate = speed;
     audio?.play().catch(() => commitPlaying(false));
-    startedAt.current = performance.now() - (progress.current * total * 1000) / speed;
+    startedAt.current =
+      performance.now() - (progress.get() * total * 1000) / speed;
 
     let frame = 0;
-    const tick = (now: number): void => {
-      const seconds = audio ? audio.currentTime : ((now - startedAt.current) / 1000) * speed;
+    const tick = (now: number) => {
+      const seconds = audio
+        ? audio.currentTime
+        : ((now - startedAt.current) / 1000) * speed;
       const ratio = vnClamp(seconds / total);
-      applyProgress(ratio);
-      // 只取整秒，标签是唯一重渲染的东西（原版注释）
+      progress.set(ratio);
+      // whole seconds only, so the label is the one thing that re-renders
       setElapsed(Math.floor(seconds));
       if (ratio < 1) {
         frame = requestAnimationFrame(tick);
@@ -1622,28 +1988,29 @@ export function VoiceNote({
       }
       reset();
     };
+
     frame = requestAnimationFrame(tick);
     return () => {
       cancelAnimationFrame(frame);
       audio?.pause();
     };
-  }, [isPlaying, total, speed, applyProgress, commitPlaying, reset]);
+  }, [isPlaying, total, speed, progress, commitPlaying, reset]);
 
-  const scrub = (event: ReactPointerEvent<HTMLDivElement>): void => {
+  const scrub = (event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (rect?.width) seekTo((event.clientX - rect.left) / rect.width);
   };
 
-  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>): void => {
+  const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!seekable || blocked) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     scrubbing.current = true;
     scrub(event);
   };
 
-  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!seekable || blocked || total <= 0) return;
-    const at = progress.current * total;
+    const at = progress.get() * total;
     const to = {
       ArrowLeft: at - VN_SEEK_STEP,
       ArrowRight: at + VN_SEEK_STEP,
@@ -1656,19 +2023,31 @@ export function VoiceNote({
   };
 
   const remaining = total - elapsed;
+  const slider = seekable
+    ? {
+        role: "slider" as const,
+        tabIndex: 0,
+        "aria-label": "寻址",
+        "aria-valuemin": 0,
+        "aria-valuemax": Math.round(total),
+        "aria-valuenow": elapsed,
+        "aria-valuetext": `${vnFormatTime(elapsed)} / ${vnFormatTime(total)}`,
+      }
+    : undefined;
+  const glow = isPlaying ? VN_PLAYING_GLOW : 0;
 
-  const handleControl = (): void => {
+  const handleControl = () => {
     if (isPlaying) {
       commitPlaying(false);
       return;
     }
     commitPlaying(true);
-    // 抢到播放权时停掉同组其它条（原版注释）
+    // taking a turn stops whatever else is playing in the same group
     group?.claim(id, () => commitPlaying(false));
   };
 
-  const cycleSpeed = (): void => {
-    const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length];
+  const cycleSpeed = () => {
+    const next = speeds[(speeds.indexOf(speed) + 1) % speeds.length]!;
     setSpeed(next);
     onSpeedChange?.(next);
     const audio = audioRef.current;
@@ -1681,56 +2060,91 @@ export function VoiceNote({
       data-playing={isPlaying || undefined}
       data-loading={loading || undefined}
       data-error={failed || undefined}
-      className={`voice-note ${className ?? ""}`}
-      style={{ height: metrics.height, gap: metrics.gap, paddingLeft: inset, paddingRight: metrics.pad }}
+      className={cn(
+        "relative isolate inline-flex select-none items-center",
+        className,
+      )}
+      style={{
+        height: metrics.height,
+        gap: metrics.gap,
+        paddingLeft: inset,
+        paddingRight: metrics.pad,
+        ...style,
+      }}
+      {...props}
     >
-      <div className="voice-note-shell" aria-hidden="true" />
-      <VnAurora accent={accent} height={metrics.height} playing={isPlaying} reduced={reduced} />
+      <div className="absolute inset-0 -z-10 rounded-full bg-[#F4F4F9] dark:bg-[#1C1C1C]" />
+      <VnAurora
+        accent={accent}
+        height={metrics.height}
+        glow={glow}
+        playing={isPlaying}
+        reduced={!!shouldReduceMotion}
+      />
 
-      <button
+      <motion.button
+        data-slot="voice-note-control"
         type="button"
-        className="voice-note-control"
         onClick={handleControl}
         disabled={blocked}
         aria-label={isPlaying ? "暂停语音消息" : "播放语音消息"}
+        whileTap={shouldReduceMotion || blocked ? undefined : { scale: 0.9 }}
+        transition={shouldReduceMotion ? VN_INSTANT : VN_TAP}
         style={{ width: control, height: control }}
+        className="z-10 flex shrink-0 cursor-pointer touch-manipulation items-center justify-center rounded-full bg-white text-black outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#868593]"
       >
-        <VnTransportIcon playing={isPlaying} size={Math.round(control * VN_ICON_RATIO)} reduced={reduced} />
-      </button>
+        <VnTransportIcon
+          playing={isPlaying}
+          size={Math.round(control * VN_ICON_RATIO)}
+          reduced={!!shouldReduceMotion}
+        />
+      </motion.button>
 
       <div
         ref={trackRef}
-        className={`voice-note-track ${seekable && !blocked ? "seekable" : ""} ${blocked ? "blocked" : ""}`}
-        {...(seekable ? {
-          role: "slider",
-          tabIndex: 0,
-          "aria-label": "寻址",
-          "aria-valuemin": 0,
-          "aria-valuemax": Math.round(total),
-          "aria-valuenow": elapsed,
-          "aria-valuetext": `${vnFormatTime(elapsed)} / ${vnFormatTime(total)}`,
-        } : {})}
+        data-slot="voice-note-track"
+        {...slider}
         onPointerDown={handlePointerDown}
-        onPointerMove={(event) => { if (scrubbing.current) scrub(event); }}
-        onPointerUp={() => { scrubbing.current = false; }}
-        onPointerCancel={() => { scrubbing.current = false; }}
+        onPointerMove={(event) => scrubbing.current && scrub(event)}
+        onPointerUp={() => (scrubbing.current = false)}
+        onPointerCancel={() => (scrubbing.current = false)}
         onKeyDown={handleKeyDown}
+        className={cn(
+          "relative h-full flex-1 touch-none rounded-sm outline-none transition-opacity focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#868593]",
+          seekable && !blocked && "cursor-pointer",
+          blocked && "opacity-40",
+        )}
       >
-        <VnBars amplitudes={amplitudes} metrics={metrics} variant="base" />
-        <div ref={clipRef} className="voice-note-clip" aria-hidden="true">
-          <VnBars amplitudes={amplitudes} metrics={metrics} variant="full" />
-        </div>
+        <VnBars
+          amplitudes={amplitudes}
+          metrics={metrics}
+          className="bg-black/30 dark:bg-white/40"
+        />
+        <motion.div
+          aria-hidden
+          className="absolute inset-0"
+          style={{ clipPath }}
+        >
+          <VnBars
+            amplitudes={amplitudes}
+            metrics={metrics}
+            className="bg-black dark:bg-white"
+          />
+        </motion.div>
       </div>
 
-      <button type="button" className={`voice-note-time ${speeds.length > 1 ? "clickable" : ""}`} style={{ fontSize: metrics.font }} onClick={speeds.length > 1 ? cycleSpeed : undefined} aria-label={speeds.length > 1 ? `播放速度 ${speed} 倍，点按切换` : undefined} disabled={speeds.length <= 1}>
+      <VnTimeLabel
+        speed={speed}
+        text={metrics.text}
+        onCycle={speeds.length > 1 ? cycleSpeed : undefined}
+      >
         {vnFormatTime(remaining)}
-        {speeds.length > 1 && <span className="voice-note-speed-chip">{speed}×</span>}
-      </button>
+      </VnTimeLabel>
 
       {src && (
         <audio
           ref={audioRef}
-          className="sr-only"
+          className="hidden"
           src={src}
           preload="metadata"
           onLoadedMetadata={(event) => {
@@ -1738,7 +2152,7 @@ export function VoiceNote({
             setMetaDuration(Number.isFinite(value) ? value : duration);
           }}
           onError={() => setFailed(true)}
-          // 文件可能在自报时长前停住，帧循环走不到终点（原版注释）
+          // a file can stop just short of its own duration, so the frame loop may never reach the end
           onEnded={reset}
         />
       )}
@@ -1746,44 +2160,49 @@ export function VoiceNote({
   );
 }
 
-function VnBars({ amplitudes, metrics, variant }: { amplitudes: number[]; metrics: (typeof VN_SIZES)[keyof typeof VN_SIZES]; variant: "base" | "full" }) {
-  return (
-    <div className={`voice-note-bars ${variant}`} style={{ gap: metrics.barGap }}>
-      {amplitudes.map((amplitude, i) => (
-        <span key={i} className="voice-note-bar" style={{ minWidth: metrics.bar, height: `${(amplitude * VN_PEAK_RATIO * 100).toFixed(2)}%` }} />
-      ))}
-    </div>
-  );
-}
-
-function VnAurora({ accent, height, playing, reduced }: { accent: string; height: number; playing: boolean; reduced: boolean }) {
-  // 巡航时钟只在播放时推进，暂停时光点原地不动（原版注释）
+function VnAurora({ accent, height, glow, playing, reduced }: {
+  accent: string;
+  height: number;
+  glow: number;
+  playing: boolean;
+  reduced: boolean;
+}) {
+  // lap time, advanced only while the clip runs, so pausing leaves every light where it is
   const clock = useRef(VN_START_AT);
   const rate = useRef(0);
   const fieldRef = useRef<HTMLDivElement>(null);
-  const nodes = useRef<Array<HTMLSpanElement | null>>([]);
+  const nodes = useRef<(HTMLSpanElement | null)[]>([]);
   const width = useRef(0);
 
-  const place = useCallback((t: number) => {
-    if (width.current === 0) return;
-    const perimeter = 2 * Math.max(0, width.current - height) + Math.PI * height;
-    VN_BLOBS.forEach((blob, i) => {
-      const node = nodes.current[i];
-      if (!node) return;
-      const travelled = blob.offset + t / blob.lap;
-      const [x, y] = vnPointOnPill(travelled * perimeter, width.current, height);
-      const phase = blob.offset * Math.PI * 2;
-      const scale = 1 + Math.sin(t * VN_PULSE_SPEED + phase) * blob.pulse;
-      node.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    });
-  }, [height]);
+  const place = useCallback(
+    (t: number) => {
+      if (width.current === 0) return;
+      const perimeter =
+        2 * Math.max(0, width.current - height) + Math.PI * height;
+
+      VN_BLOBS.forEach((blob, i) => {
+        const node = nodes.current[i];
+        if (!node) return;
+        const travelled = blob.offset + t / blob.lap;
+        const [x, y] = vnPointOnPill(
+          travelled * perimeter,
+          width.current,
+          height,
+        );
+        const phase = blob.offset * Math.PI * 2;
+        const scale = 1 + Math.sin(t * VN_PULSE_SPEED + phase) * blob.pulse;
+        node.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      });
+    },
+    [height],
+  );
 
   useEffect(() => {
     const node = fieldRef.current;
     if (!node) return;
     const observer = new ResizeObserver(([entry]) => {
       width.current = entry.contentRect.width;
-      // 立即摆位：resize 或 reduced-motion 观众都不该看到光点叠成一坨（原版注释）
+      // place them at once, so a resize or a reduced motion viewer never sees them stacked
       place(clock.current);
     });
     observer.observe(node);
@@ -1792,42 +2211,63 @@ function VnAurora({ accent, height, playing, reduced }: { accent: string; height
 
   useEffect(() => {
     if (reduced) return;
+
     let frame = 0;
     let last = performance.now();
-    const loop = (now: number): void => {
-      // 后台标签页的长帧间隔不该把光点甩飞（原版注释）
+    const loop = (now: number) => {
+      // a long frame gap, from a background tab, must not throw the lights across the bar
       const delta = Math.min(0.05, (now - last) / 1000);
       last = now;
+
       const target = playing ? 1 : 0;
-      rate.current += (target - rate.current) * (1 - Math.exp(-delta / VN_SPIN_UP));
+      rate.current +=
+        (target - rate.current) * (1 - Math.exp(-delta / VN_SPIN_UP));
       clock.current += delta * rate.current;
       place(clock.current);
+
       if (playing || rate.current > 0.002) {
         frame = requestAnimationFrame(loop);
         return;
       }
       rate.current = 0;
     };
+
     frame = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(frame);
   }, [playing, reduced, place]);
 
   return (
-    <div className="voice-note-glow" aria-hidden="true">
-      <div
+    <div
+      data-slot="voice-note-glow"
+      className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-full mix-blend-multiply dark:mix-blend-screen"
+    >
+      <motion.div
         ref={fieldRef}
-        className={`voice-note-glow-field ${playing ? "lit" : ""}`}
-        style={{ filter: `blur(${height * VN_BLUR_RATIO}px)`, maskImage: VN_MIDDLE_MASK, WebkitMaskImage: VN_MIDDLE_MASK }}
+        aria-hidden
+        className="absolute inset-0"
+        style={{
+          filter: `blur(${height * VN_BLUR_RATIO}px)`,
+          maskImage: VN_MIDDLE_MASK,
+          WebkitMaskImage: VN_MIDDLE_MASK,
+        }}
+        // without this the field paints at full strength for a frame before the first animation
+        initial={false}
+        animate={{ opacity: glow }}
+        transition={reduced ? VN_INSTANT : VN_GLOW}
       >
         <span
-          className="voice-note-glow-static"
-          style={{ background: `radial-gradient(70% 170% at 8% 115%, ${accent} 0%, transparent 62%), radial-gradient(55% 150% at 40% 130%, ${accent} 0%, transparent 58%)` }}
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(70% 170% at 8% 115%, ${accent} 0%, transparent 62%), radial-gradient(55% 150% at 40% 130%, ${accent} 0%, transparent 58%)`,
+          }}
         />
         {VN_BLOBS.map((blob, i) => (
           <span
             key={i}
-            ref={(node) => { nodes.current[i] = node; }}
-            className="voice-note-glow-blob"
+            ref={(node) => {
+              nodes.current[i] = node;
+            }}
+            className="absolute left-0 top-0 rounded-full"
             style={{
               width: blob.size * height,
               height: blob.size * height,
@@ -1838,36 +2278,114 @@ function VnAurora({ accent, height, playing, reduced }: { accent: string; height
             }}
           />
         ))}
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-function VnTransportIcon({ playing, size, reduced }: { playing: boolean; size: number; reduced: boolean }) {
-  const pathRef = useRef<SVGPathElement>(null);
-  const morph = useSpringValue(playing ? 1 : 0, useMemo(() => visualSpring(0.34, 0.2), []));
+function VnTransportIcon({ playing, size, reduced }: {
+  playing: boolean;
+  size: number;
+  reduced: boolean;
+}) {
+  const shape = useMotionValue(playing ? VN_PAUSE_PATH : VN_PLAY_PATH);
   const previous = useRef(playing);
 
   useEffect(() => {
     if (previous.current === playing) return;
     previous.current = playing;
-    if (reduced) {
-      morph.jump(playing ? 1 : 0);
-      if (pathRef.current) pathRef.current.setAttribute("d", playing ? VN_PAUSE_PATH : VN_PLAY_PATH);
-      return;
-    }
-    morph.set(playing ? 1 : 0);
-  }, [playing, reduced, morph]);
+    shape.set(playing ? VN_PAUSE_PATH : VN_PLAY_PATH);
+    if (reduced) return;
 
-  useEffect(() => morph.subscribe((t) => {
-    // 弹簧可能过冲，落定在精确路径上（原版注释）
-    if (!pathRef.current) return;
-    pathRef.current.setAttribute("d", t >= 1 ? VN_PAUSE_PATH : t <= 0 ? VN_PLAY_PATH : vnMorph(VN_PLAY_SHAPE, VN_PAUSE_SHAPE, vnClamp(t)));
-  }), [morph]);
+    const from = playing ? VN_PLAY_SHAPE : VN_PAUSE_SHAPE;
+    const to = playing ? VN_PAUSE_SHAPE : VN_PLAY_SHAPE;
+    const controls = animate(0, 1, {
+      ...VN_ICON,
+      onUpdate: (t) => shape.set(vnMorph(from, to, vnClamp(t))),
+      // the spring can overshoot, so land on the exact path
+      onComplete: () => shape.set(playing ? VN_PAUSE_PATH : VN_PLAY_PATH),
+    });
+    return () => controls.stop();
+  }, [playing, reduced, shape]);
 
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
-      <path ref={pathRef} d={playing ? VN_PAUSE_PATH : VN_PLAY_PATH} {...VN_ICON_PAINT} />
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      aria-hidden
+    >
+      <motion.path d={shape} {...VN_ICON_PAINT} />
     </svg>
   );
 }
+
+function VnTimeLabel({ speed, text, onCycle, children }: {
+  speed: number;
+  text: string;
+  onCycle?: () => void;
+  children: ReactNode;
+}) {
+  const className = cn(
+    "flex shrink-0 items-center gap-1 font-semibold tabular-nums text-[#868593]",
+    text,
+  );
+
+  if (!onCycle) {
+    return (
+      <span data-slot="voice-note-time" className={className}>
+        {children}
+      </span>
+    );
+  }
+
+  return (
+    <button
+      data-slot="voice-note-time"
+      type="button"
+      onClick={onCycle}
+      aria-label={`播放速度 ${speed} 倍，点按切换`}
+      className={cn(
+        className,
+        "cursor-pointer rounded-full outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#868593]",
+      )}
+    >
+      {children}
+      {speed !== 1 && (
+        <span className="rounded-full bg-black/10 px-1 py-px text-[0.85em] leading-none text-black/70 dark:bg-white/15 dark:text-white/80">
+          {speed}×
+        </span>
+      )}
+    </button>
+  );
+}
+
+const VnBars = memo(function VnBars({
+  amplitudes,
+  metrics,
+  className,
+}: {
+  amplitudes: number[];
+  metrics: (typeof VN_SIZES)[keyof typeof VN_SIZES];
+  className: string;
+}) {
+  return (
+    <div
+      className="flex h-full w-full items-center"
+      style={{ gap: metrics.barGap }}
+    >
+      {amplitudes.map((amplitude, i) => (
+        <span
+          key={i}
+          className={cn("flex-1 rounded-full", className)}
+          style={{
+            minWidth: metrics.bar,
+            height: `${(amplitude * VN_PEAK_RATIO * 100).toFixed(2)}%`,
+          }}
+        />
+      ))}
+    </div>
+  );
+});
+

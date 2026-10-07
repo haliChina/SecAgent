@@ -1,3 +1,12 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@custom-variant dark (&:where(.dark, .dark *));
+@theme {
+  --color-background: var(--bg-0);
+  --color-foreground: var(--text-1);
+  --color-border: var(--line);
+}
+
 :root { color-scheme: dark; --bg-0: #0A0A0B; --bg-1: #131316; --bg-2: #1B1B1F; --bg-3: #2A2A30; --text-1: #F4F4F5; --text-2: #A6A6AF; --text-3: #75757F; --line: #26262B; --line-strong: #3A3A41; --accent: #F97316; --accent-text: #FB923C; --accent-soft: rgba(249,115,22,.13); --accent-border: rgba(249,115,22,.5); color: var(--text-1); background: var(--bg-0); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 720px; background: var(--bg-0); }
@@ -156,8 +165,8 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .oobe-header { max-width: 720px; margin: 12vh auto 26px; }.oobe-header h1 { margin: 7px 0 9px; font-size: 32px; }.oobe-header > p:not(.eyebrow) { max-width: 560px; margin: 0 0 22px; color: var(--text-3); font-size: 15px; line-height: 1.6; }.oobe-intro { max-width: 720px; display: grid; gap: 5px; margin: 0 auto 28px; padding: 14px 16px; border: 1px solid var(--accent-border); border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13px; line-height: 1.5; }.oobe-intro strong { color: var(--accent-text); font-size: 13px; }.oobe-shell > .settings-section { max-width: 720px; }.oobe-shell > .settings-section:nth-of-type(2) { display: none; }.oobe-shell > .settings-section:first-of-type .section-title > .secondary-button { display: none; }.oobe-shell > .settings-section:first-of-type .settings-card { border-color: var(--accent-border); box-shadow: 0 8px 26px rgba(249, 115, 22,.08); }.oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(2), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(6), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(8), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(9) { display: none; }
 @media (max-height: 620px) { .workspace { min-height: 430px; } .messages { padding-top: 55px; } }
-.settings-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 34px; max-width: 1000px; margin: 0 auto; }.settings-nav { display: grid; align-content: start; gap: 6px; }.settings-nav button { padding: 10px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); font-size: 13px; text-align: left; cursor: pointer; }.settings-nav button:hover { background: var(--bg-3); color: var(--text-2); }.settings-nav button.active { background: var(--accent-soft); color: var(--accent-text); font-weight: 650; }.settings-content .settings-section { max-width: none; margin: 0; }.model-list, .skill-list { display: grid; gap: 9px; }.model-list-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 68px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); box-shadow: 0 2px 8px rgba(0,0,0,.03); }.model-list-item > div:first-child { min-width: 0; display: grid; gap: 5px; }.model-list-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.model-list-item span { overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.item-actions { display: flex; flex: 0 0 auto; gap: 8px; }.skill-list-item { padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }.skill-list-item p { margin: 7px 0; color: var(--text-2); font-size: 13px; }.skill-list-item small { display: block; overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.empty-list { color: var(--text-3); font-size: 13px; }.settings-modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.22); }.settings-modal { width: min(720px, 100%); max-height: 90vh; overflow: auto; padding: 22px; border: 1px solid  var(--line-strong); border-radius: 16px; background: var(--bg-2); box-shadow: 0 18px 60px rgba(0,0,0,.2); }.settings-modal .session-modal-header { margin-bottom: 20px; }.settings-modal .form-grid { gap: 14px 16px; }.wide-field { grid-column: 1 / -1; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
-@media (max-width: 720px) { .settings-shell { padding: 64px 20px 48px; }.settings-layout { grid-template-columns: 1fr; gap: 20px; }.settings-nav { grid-template-columns: repeat(2, 1fr); }.settings-nav button { text-align: center; }.form-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; } }
+.settings-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 34px; max-width: 1000px; margin: 0 auto; }.settings-nav { align-self: start; }.settings-content .settings-section { max-width: none; margin: 0; }.model-list, .skill-list { display: grid; gap: 9px; }.model-list-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 68px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); box-shadow: 0 2px 8px rgba(0,0,0,.03); }.model-list-item > div:first-child { min-width: 0; display: grid; gap: 5px; }.model-list-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.model-list-item span { overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.item-actions { display: flex; flex: 0 0 auto; gap: 8px; }.skill-list-item { padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }.skill-list-item p { margin: 7px 0; color: var(--text-2); font-size: 13px; }.skill-list-item small { display: block; overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.empty-list { color: var(--text-3); font-size: 13px; }.settings-modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.22); }.settings-modal { width: min(720px, 100%); max-height: 90vh; overflow: auto; padding: 22px; border: 1px solid  var(--line-strong); border-radius: 16px; background: var(--bg-2); box-shadow: 0 18px 60px rgba(0,0,0,.2); }.settings-modal .session-modal-header { margin-bottom: 20px; }.settings-modal .form-grid { gap: 14px 16px; }.wide-field { grid-column: 1 / -1; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
+@media (max-width: 720px) { .settings-shell { padding: 64px 20px 48px; }.settings-layout { grid-template-columns: 1fr; gap: 20px; }.settings-nav { display: grid; grid-template-columns: repeat(2, 1fr); }.form-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; } }
 
 html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hidden; background: transparent; }
 .wake-root { position: fixed; inset: 0; overflow: hidden; background: transparent; color: var(--text-1); pointer-events: none; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
@@ -567,33 +576,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 设计 token：主蓝 var(--accent) · 文字 var(--text-1) / 次要 var(--text-3) · 线 var(--line)   */
 /* ================================================================== */
 
-/* ---- ScrollProgress (rareui scrollprogress · 底部悬浮进度 pill + 节列表) ---- */
-.scroll-progress { position: fixed; left: 50%; bottom: 132px; z-index: 30; transform: translateX(-50%); }
-/* 离屏 sizer：只在布局树里占位实测，不进视口 */
-.scroll-progress-sizers { position: absolute; left: -9999px; top: 0; visibility: hidden; pointer-events: none; }
-.scroll-progress-sizers .whitespace-nowrap { white-space: nowrap; }
-.scroll-progress-pill-sizer { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-1); font-size: 14px; font-weight: 500; line-height: 1.25; }
-.scroll-progress-ring-sizer { width: 20px; height: 20px; }
-.scroll-progress-label-sizer { white-space: nowrap; }
-.scroll-progress-list-sizer { display: inline-flex; flex-direction: column; gap: 2px; padding: 8px; border: 1px solid var(--line); border-radius: 26px; background: var(--bg-1); font-size: 13px; }
-.scroll-progress-item-sizer { display: inline-flex; align-items: center; gap: 10px; padding: 8px 14px; border-radius: 18px; }
-.scroll-progress-dot-sizer { width: 6px; height: 6px; border-radius: 999px; }
-/* 浮层本体：宽高/圆角由 spring 逐帧写入 */
-.scroll-progress-surface { position: relative; overflow: hidden; border: 1px solid var(--line); background: color-mix(in srgb, var(--bg-1) 88%, transparent); backdrop-filter: blur(10px); box-shadow: 0 8px 30px rgba(0,0,0,.18); }
-.scroll-progress-pill { display: flex; align-items: center; gap: 8px; height: 100%; padding: 10px 16px; border: 0; background: transparent; color: var(--text-1); font-size: 14px; font-weight: 500; line-height: 1.25; cursor: pointer; }
-.scroll-progress-ring { width: 20px; height: 20px; transform: rotate(-90deg); display: block; }
-.scroll-progress-ring-track { stroke: color-mix(in srgb, var(--text-1) 15%, transparent); }
-.scroll-progress-ring-arc { stroke: var(--text-1); transition: none; }
-.scroll-progress-label-box { position: relative; height: 20px; flex: none; }
-.scroll-progress-label { position: absolute; inset: 0 auto auto 0; display: flex; align-items: center; white-space: nowrap; animation: scroll-progress-label-in .22s cubic-bezier(0.22, 1, 0.36, 1) both; }
-@keyframes scroll-progress-label-in { from { opacity: 0; filter: blur(1.5px); } to { opacity: 1; filter: blur(0); } }
-.scroll-progress-list { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 8px; }
-.scroll-progress-highlight { position: absolute; left: 8px; right: 8px; border-radius: 18px; background: color-mix(in srgb, var(--text-1) 10%, transparent); pointer-events: none; }
-.scroll-progress-item { display: flex; align-items: center; gap: 10px; position: relative; z-index: 1; padding: 8px 14px; border: 0; background: transparent; color: var(--text-1); font-size: 13px; line-height: 1.4; text-align: left; cursor: pointer; animation: scroll-progress-item-in .3s cubic-bezier(0.65, 0, 0.35, 1) both; }
-.scroll-progress-item.active { color: var(--text-1); }
-.scroll-progress-item-dot { width: 6px; height: 6px; flex: none; border-radius: 999px; background: color-mix(in srgb, var(--text-1) 30%, transparent); }
-.scroll-progress-item-dot.active { background: var(--accent); }
-@keyframes scroll-progress-item-in { from { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: blur(0); } }
 
 /* ---- MatrixOrb (rareui matrixorb · size prop 定尺寸，动画在 JS 内逐点计算) ---- */
 .matrix-orb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 0 auto 18px; }
@@ -631,37 +613,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .voice-pill-wave i { width: 3px; border-radius: 2px; background: var(--accent); animation: voice-pill-bar .9s ease-in-out infinite alternate; }
 @keyframes voice-pill-bar { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
 
-/* ---- DeleteButton (rareui deletebutton · 展开式两钮确认) ---- */
-/* 深色值照搬原版（surface #262626 / recess #1B1B1B / glyph #9B9AA7），accent 走主题变量 */
-.delete-button { position: relative; display: inline-flex; height: 48px; }
-.delete-trigger { position: relative; z-index: 1; display: grid; place-items: center; height: 48px; border: 0; border-radius: 16px; background: #262626; color: #9B9AA7; cursor: pointer; box-shadow: 0 .5px 1px rgba(0,0,0,.35), 0 1.5px 4px rgba(0,0,0,.3), inset 0 .5px 0 rgba(255,255,255,.05); transition: width .62s cubic-bezier(0.32, 0.72, 0, 1); overflow: hidden; }
-.delete-trigger:hover { color: #C9C9D2; }
-.delete-trigger:focus-visible { outline: 2px solid #868593; outline-offset: 2px; }
-.delete-bin, .delete-check { display: block; }
-.delete-lid { transform-box: view-box; transform-origin: 3px 6px; transition: transform .6s cubic-bezier(0.34, 1.1, 0.64, 1); }
-.delete-button.open .delete-lid { transform: rotate(-35deg); }
-/* kept 回弹：垃圾桶轻晃一下 */
-.delete-bin.settle { animation: delete-settle .45s cubic-bezier(0.32, 0.72, 0, 1) both; }
-@keyframes delete-settle { 0% { transform: scale(1); } 45% { transform: scale(.88) rotate(-6deg); } 100% { transform: scale(1); } }
-/* deleted：触发键换打勾并描画 */
-.delete-check-path { stroke-dasharray: 26; stroke-dashoffset: 26; animation: delete-check-draw .45s cubic-bezier(0.32, 0.72, 0, 1) .1s forwards; }
-@keyframes delete-check-draw { to { stroke-dashoffset: 0; } }
-.delete-panel { position: absolute; inset: 0 auto 0 auto; right: 0; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: 16px; background: #1B1B1B; }
-.delete-panel.shown { animation: delete-panel-in .44s cubic-bezier(0.32, 0.72, 0, 1) .14s both; }
-.delete-panel.closing { opacity: 0; transform: translateX(-6px); transition: opacity .3s cubic-bezier(0.32, 0.72, 0, 1), transform .3s cubic-bezier(0.32, 0.72, 0, 1); }
-@keyframes delete-panel-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: translateX(0); } }
-/* 凹槽左侧的箭头缺口 */
-.delete-panel-recess { position: absolute; left: -5px; top: 50%; z-index: 2; width: 6px; height: 10px; transform: translateY(-50%); background: #1B1B1B; clip-path: polygon(100% 0, 0 50%, 100% 100%); }
-.delete-circle { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 999px; background: #262626; color: #9B9AA7; cursor: pointer; box-shadow: 0 .5px 1px rgba(0,0,0,.35), 0 1.5px 4px rgba(0,0,0,.3), inset 0 .5px 0 rgba(255,255,255,.05); transition: background .2s ease, transform .22s cubic-bezier(0.34, 1.56, 0.64, 1); }
-.delete-panel.shown .delete-circle { animation: delete-circle-in .44s cubic-bezier(0.32, 0.72, 0, 1) both; }
-.delete-panel.shown .delete-circle:nth-child(3) { animation-delay: .21s; }
-@keyframes delete-circle-in { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: scale(1); } }
-.delete-circle:hover { background: #2C2C2C; }
-.delete-circle:active { transform: scale(.84); }
-.delete-circle:focus-visible { outline: 2px solid #868593; outline-offset: 2px; }
-.delete-button.reduced .delete-trigger { transition: none; }
-.delete-button.reduced .delete-lid, .delete-button.reduced .delete-circle { transition: none; }
-.delete-button.reduced .delete-panel.shown, .delete-button.reduced .delete-panel.closing { animation: none; transition: none; opacity: 1; }
 
 /* ---- MessageActions (assistant-ui) ---- */
 .message-actions { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; opacity: 0; transition: opacity .15s ease; }
@@ -697,33 +648,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .stopped-run-tag { display: inline-flex; align-items: center; gap: 7px; margin: 4px 0; color: var(--text-3); font-size: 11.5px; }
 .stopped-run-square { width: 9px; height: 9px; border-radius: 2px; background: var(--text-3); }
 
-/* ---- AnimatedCounter (rareui animatedcounter · 逐位滚轮) ---- */
-.animated-counter { display: inline-flex; align-items: center; font-variant-numeric: tabular-nums; }
-.animated-counter-grid { display: inline-flex; align-items: center; }
-.animated-counter-fixed { display: inline-flex; align-items: center; }
-/* 滚轮列：1.5em 行高窗口 + 上下渐隐遮罩（遮罩图在 JS 内联） */
-.animated-counter-digit { position: relative; display: inline-grid; overflow: hidden; }
-.ac-sizer-face { grid-area: 1 / 1; visibility: hidden; }
-.animated-counter-wheel { position: absolute; inset: 0 0 auto 0; display: flex; flex-direction: column; will-change: transform; }
-.ac-wheel-face { display: flex; align-items: center; justify-content: center; }
-.animated-counter-mark { display: inline-block; animation: counter-mark-in .2s cubic-bezier(0.22, 1, 0.36, 1) both; }
-@keyframes counter-mark-in { from { opacity: 0; } to { opacity: 1; } }
-
-/* ---- HookSidebar (rareui hooksidebar · 双轨弹簧钩导航) ---- */
-/* 列表容器：rail 以它为定位上下文；线 x=2px、钩 12×7、文字 pl 20px（原版比例） */
-.hook-sidebar { display: block; }
-.hook-sidebar-list { position: relative; display: flex; flex-direction: column; gap: 2px; }
-.hook-rail { position: absolute; inset: 0; pointer-events: none; transition: opacity .2s ease; }
-.hook-line { position: absolute; left: 2px; top: 0; width: 1px; height: 0; background: currentColor; }
-.hook-tab { position: absolute; left: 2px; top: 0; display: block; }
-.hook-rail-active { color: var(--accent); }
-.hook-rail-hover { color: color-mix(in srgb, var(--text-1) 30%, transparent); }
-.hook-sidebar-list button { position: relative; padding: 6px 8px 6px 20px; border: 0; border-radius: 8px; background: transparent; color: var(--text-3); font-size: 13px; text-align: left; cursor: pointer; transition: color .2s ease; }
-.hook-sidebar-list button:hover { color: var(--text-2); }
-.hook-sidebar-list button.active { color: var(--text-1); }
-.hook-sidebar-list button:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
-/* 窄屏导航改双列静态布局，纵向钩线失去坐标意义，只留文字态 */
-@media (max-width: 720px) { .hook-rail { display: none; } .hook-sidebar-list button { padding-left: 12px; } }
 
 /* ---- 设置页控件微修：边框 hover 暗示 + 下拉框 focus 环（对齐 rareui 控件手感） ---- */
 .settings-shell select:hover, .settings-shell input:hover, .settings-shell textarea:hover { border-color: var(--line); }
@@ -733,42 +657,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .model-submenu { box-shadow: 0 6px 18px rgba(15, 23, 42, .08); }
 .model-row-chevron { color: var(--accent); font-weight: 700; margin-left: 6px; }
 
-/* ---- VoiceNote (rareui voicenote · 语音消息播放器) ---- */
-.voice-note { position: relative; isolation: isolate; display: inline-flex; align-items: center; user-select: none; }
-.voice-note-shell { position: absolute; inset: 0; z-index: -1; border-radius: 999px; background: #1C1C1C; }
-.voice-note-control { position: relative; z-index: 1; display: flex; flex: none; align-items: center; justify-content: center; border: 0; border-radius: 999px; background: #FFFFFF; color: #000000; cursor: pointer; touch-action: manipulation; transition: transform .22s cubic-bezier(0.34, 1.56, 0.64, 1), opacity .2s ease; }
-.voice-note-control:active { transform: scale(.9); }
-.voice-note-control:disabled { opacity: .5; cursor: default; }
-.voice-note-control:focus-visible { outline: 2px solid #868593; outline-offset: 2px; }
-.voice-note-track { position: relative; height: 100%; flex: 1; touch-action: none; border-radius: 2px; outline: none; transition: opacity .2s ease; }
-.voice-note-track.seekable { cursor: pointer; }
-.voice-note-track.blocked { opacity: .4; pointer-events: none; }
-.voice-note-track:focus-visible { outline: 2px solid #868593; outline-offset: 2px; }
-.voice-note-bars { display: flex; height: 100%; width: 100%; align-items: center; }
-.voice-note-bar { flex: 1; border-radius: 999px; }
-.voice-note-bars.base .voice-note-bar { background: color-mix(in srgb, var(--text-1) 40%, transparent); }
-.voice-note-bars.full .voice-note-bar { background: var(--text-1); }
-.voice-note-clip { position: absolute; inset: 0; }
-.voice-note-time { display: inline-flex; flex: none; align-items: center; gap: 4px; border: 0; padding: 0; background: transparent; color: #9B9AA7; font-weight: 600; font-variant-numeric: tabular-nums; cursor: default; }
-.voice-note-time.clickable { cursor: pointer; }
-.voice-note-time.clickable:hover { color: #C9C9D2; }
-.voice-note-time:disabled { cursor: default; }
-.voice-note-speed-chip { display: inline-flex; align-items: center; padding: 2px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-1) 15%, transparent); color: color-mix(in srgb, var(--text-1) 80%, transparent); font-size: 10px; font-weight: 700; }
-.voice-note-glow { position: absolute; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; border-radius: 999px; }
-.voice-note-glow-field { position: absolute; inset: 0; opacity: 0; transition: opacity .5s cubic-bezier(0.22, 1, 0.36, 1); }
-.voice-note-glow-field.lit { opacity: .62; }
-.voice-note-glow-static { position: absolute; inset: 0; }
-.voice-note-glow-blob { position: absolute; left: 0; top: 0; border-radius: 999px; }
 
 /* ---- 读屏专用（视觉隐藏） ---- */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .thought-line-spinner,
-  .voice-pill-dot, .voice-pill-wave i,
-  .composer-orb-dock,
-  .scroll-progress-label, .scroll-progress-item,
-  .animated-counter-mark, .animated-counter-wheel,
-  .delete-panel.shown, .delete-check-path, .delete-bin.settle, .delete-trigger, .delete-lid, .delete-circle,
-  .hook-rail, .voice-note-glow-field { animation: none !important; transition: none !important; }
+  .thought-line-spinner, .voice-pill-dot, .voice-pill-wave i, .composer-orb-dock { animation: none !important; transition: none !important; }
 }
