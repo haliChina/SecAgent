@@ -1,5 +1,5 @@
 import { AnimatedDetails } from "./AnimatedDetails.js";
-import { ToolErrorCard } from "./ui/Bits.js";
+import { ToolError } from "./ui/Bits.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { toolTitle } from "../utils.js";
 
@@ -79,7 +79,7 @@ export function MessageActivities({ activities, elapsedSeconds, isExecuting = fa
         : activity.kind !== "tool"
         ? <AnimatedDetails className={`intermediate-output ${activity.kind}`} key={`${activity.kind}-${index}`} autoOpen={isExecuting && activeStepKind === "thinking" && index === activities.length - 1 && activity.kind === "thinking"} stickyAutoOpen summary={<><span className="activity-dot">·</span><span>{activity.kind === "thinking" ? "推理" : activity.kind === "summary" ? "中间摘要" : "中间内容"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}><div className="activity-content"><MarkdownContent>{activity.content}</MarkdownContent></div></AnimatedDetails>
         : <AnimatedDetails className="message-tool" key={`${activity.name}-${index}`} summary={<><span className="activity-dot">·</span><span className="tool-name">{toolTitle(activity.name)}</span><span className="tool-state">{"result" in activity ? (toolErrorMessage(activity) ? "已失败" : "已完成") : "调用中"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}> 
-          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p>{toolErrorMessage(activity) ? <ToolErrorCard tool={toolTitle(activity.name)} message={toolErrorMessage(activity) || ""} /> : <pre>{"result" in activity ? JSON.stringify(activity.result, null, 2) : "正在等待返回…"}</pre>}</div></div>
+          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p>{toolErrorMessage(activity) ? <ToolError name={toolTitle(activity.name)} message={toolErrorMessage(activity) || ""} /> : <pre>{"result" in activity ? JSON.stringify(activity.result, null, 2) : "正在等待返回…"}</pre>}</div></div>
         </AnimatedDetails>) }
     </div>
   </AnimatedDetails>;
