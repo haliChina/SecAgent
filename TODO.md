@@ -3,32 +3,25 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R18 · 2026-10-08 18:29 继续）
+## 本轮（R19 · 2026-10-08 19:21）
 
-### 样式修复（用户 5 图）— 全部完成 ✓
-- ✓ 图1 titleBarOverlay 白底深符号 + 双窗 backgroundColor 白（橙图标实测已蓝，ClassIsland 侧除外）
-- ✓ 图2 AuroraBackdrop 蓝系光斑 + 白 fade
-- ✓ 图3 设置布局 190px/min-width 640/divider 透气
-- ✓ 图4/5 ScrollProgress 单节禁止展开
-- ✓ 图6 composer-orb-dock 白化
-（CI ec179ec 主检查 success；a621377 三平台打包运行中/低风险）
+### 真源组件应用接线 — 完成 ✓
+- ✓ composer 语音键 → 真源 VoiceRecorder（mode=auto 短按 streaming/长按 hold、
+  simulated 波形、slide-to-cancel→cancel、蓝白配色、holdAfter=600）
+- ✓ 工具失败展示 → 真源 ToolError（适配层放宽 target/attempt 系列为可选）
+- ✓ 接线过程 CI typecheck 抓到 2 处接口不匹配（40b12e6 失败），修正后
+  7b3a5b6 主检查 success ✓，三平台打包运行中
+- ☐ MessageQueue 接入：需要 composer 排队发送行为（执行中收输入、完成后
+  自动发）——**行为变更，待用户确认**再做
+- ☐ PromptBar（35KB）：完整 composer 替换候选（含 @源菜单 //命令菜单/模型
+  选择器/听写/附件）——体量大，建议下轮专项
+- ☐ VoiceRecorder reactive=mic 源：把应用 micStream 传给组件替代 simulated
+  （需读真源中部音频接入段，确认不与应用 getUserMedia 冲突）
 
-### 真源直译 — 已完成
-- ✓ assistant-ui elements 7 个：NumberTicker/ToolError/MessageQueue/RegenerateMenu/
-  SpeakerIdentity/ComputerUse/DaySeparatorTranscript（R17，CI ec179ec 绿）
-- ✓ react-bits 2 个：VoiceRecorder（voice-pill 真源完整重译：hold/toggle/slide-cancel/
-  波形/音节曲线/stop-reason 状态机）、BranchedMenu（SVG 分支线动画树菜单）（R18，a621377）
-- ✓ demo 验证：17 类组件挂载零错误；ToolError/BranchedMenu/NumberTicker/VoiceRecorder
-  渲染正常；发现并修复 demo @theme 残留深色 token（R15 替换未命中的遗留）
-
-### 应用侧接线（待定项，下轮讨论）
-- ☐ VoiceRecorder 替换 composer 语音键（hold 模式对接 handleMicPointerDown）
-- ☐ ToolError 接入工具调用失败展示
-- ☐ MessageQueue 接入排队发送
-- ☐ PromptBar（35KB）评估：替换 composer
+### 顺延（更早遗留）
 - ☐ 已有 7 组件按真源 diff 重译（day-separator 真源=列表语义，与现分隔条并存）
 
-## 历史（已完成）## 历史（已完成）
+## 历史（已完成）## 历史（已完成）## 历史（已完成）
 - ✓ R14 rareui 组件直译进 Bits.tsx（motion/react 引擎）：MatrixOrb、HookSidebar、
   ScrollProgress、DeleteButton、AnimatedCounter、VoiceNote、VoicePill、ThoughtLine、
   DaySeparator、GuardrailNotice、MessageActions、ErrorStateCard、StoppedRunTag
