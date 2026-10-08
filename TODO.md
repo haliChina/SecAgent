@@ -3,7 +3,22 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R25 · 2026-10-08 21:59）
+## 本轮（R27 · 2026-10-09）
+
+### R26/R27 PromptBar 替换 composer — 完成 ✓（tsc 0 错误 + build 全绿）
+- ✓ Bits.tsx：PromptBar 加受控桥 props（value/onDraftChange/model/onModelChange/
+  onAttachRemove/onDictateCancel），不传即真源行为；修桥 prop `model` 与真源内部
+  `const model` 重名（TS2300×2+2322+2339×2+2345+18048 共 7 错）
+- ✓ App.tsx：composer 内行换 <PromptBar>（模型/推理强度菜单+滑杆、@图片源、
+  听写桥 startPromptDictation/cancelPromptDictation、附件名兑现）；
+  语音三分区/hold 长按/引用块/Orb dock 全保留；删旧菜单 state+死代码
+- ✓ styles.css：R26 order 撤销（旧结构消失）、旧 textarea 规则 >限定防泄漏、
+  .app-promptbar 适配
+- ✓ 本地 node_modules 系统性损坏（pnpm-hoisted 旧树：rollup 二进制截断 SIGBUS、
+  mermaid-parser/zustand/sentry-conventions 残缺）→ npm ci 全新重装修复
+- ☐ 浏览器复现页人工验证（外观/胶囊/菜单溢出）+ 新版安装包交付
+- ☐ 69c5afe CI + 打包（windows 包出来后交付）
+- ☐ 图5 若复现：需用户告知触发路径（点哪个按钮/快捷键）
 
 ### R24 包实测反馈（69c5afe）
 - ✓ 录音两套 UI 打架（第一次残留乱码+X、第二次叠加双波形）：VoicePill 改
@@ -24,7 +39,7 @@
 - ✓ 录音框打架/主主主主/HookSidebar 卡片化/Orb溢出/小Orb/今天空框/
   ScrollProgress 点不动/图标对齐/标题栏配色 —— 9 项全修（e94c647）
 - ✓ 唤醒不发声：模型未输出 <tts> 标签 → 静音；完成态整段朗读兜底
-- ☐ PromptBar 替换 composer 专项（拍板=是：语音三分区/附件/引用迁移）
+- ✓ PromptBar 替换 composer 专项（拍板=是：语音三分区/附件/引用迁移）→ R27 完成
 - ✓ 安装包已交付：SecAgent-Setup-20261008-134156-0cc77615078d.exe（三平台 CI 全绿，含 9 项 UI 修复+TTS 兜底+思考反馈+确认音）
 - ☐ 语音识别设置意义不明已修（主引擎下拉）；待新版包验证
 
@@ -39,5 +54,4 @@
 ## 下一轮顺延
 - ☐ 按真源逐个核对 7 个已有组件的动画参数（与 rare-ui 版 diff）
 - ☐ number-ticker 与 AnimatedCounter 的取舍（并存或替换）
-- ☐ prompt-bar 与现有 composer 的取舍
 - ☐ computer-use 面板接入工具调用展示

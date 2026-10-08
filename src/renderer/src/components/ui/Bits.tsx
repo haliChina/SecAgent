@@ -4005,6 +4005,18 @@ export interface PromptBarProps {
   onStop?: () => void;
   onAttach?: () => string | string[] | void | Promise<string | string[] | void>;
   onDictate?: () => string | void | Promise<string | void>;
+  /* R27 集成桥（不传即保持 react-bits 真源非受控行为）：
+     value/onDraftChange 让外部 state 驱动内部 draft（语音流式识别实时写入），
+     model/onModelChange 同步模型选择（设置页/会话切换会改 selectedModelId），
+     onAttachRemove 在芯片移除时回传文件名（App 侧同步真实附件 state），
+     onDictateCancel 在听写中再次点麦时通知外部收尾（真源只翻转 listening，
+     不回调——App 侧需要 finishVoiceInput）。 */
+  value?: string;
+  onDraftChange?: (value: string) => void;
+  model?: string;
+  onModelChange?: (key: string) => void;
+  onAttachRemove?: (name: string) => void;
+  onDictateCancel?: () => void;
   background?: string;
   color?: string;
   menuBackground?: string;
@@ -4029,7 +4041,7 @@ type Row = {
   attach?: boolean;
 };
 type Token = { kind: 'at' | 'slash'; query: string; start: number };
-type Latest = Pick<PromptBarProps, 'onSend' | 'onStop' | 'onAttach' | 'onDictate' | 'onEffortChange'>;
+type Latest = Pick<PromptBarProps, 'onSend' | 'onStop' | 'onAttach' | 'onDictate' | 'onEffortChange' | 'onDraftChange' | 'onModelChange' | 'onAttachRemove' | 'onDictateCancel'>;
 type Spark = {
   x: number;
   y: number;
@@ -4166,6 +4178,17 @@ export const PromptBar = ({
   onStop,
   onAttach,
   onDictate,
+  value,
+  onDraftChange,
+  /* R27 桥接 prop `model`（string key）与真源内部的 `const model`
+     （PromptBarModel 对象，下方 models.find 结果）重名——TS2300 双重声明，
+     且 send/detail、菜单高亮（model?.key）、models.indexOf(model) 全被
+     prop 的 string 类型污染（TS2322/2339/2345/18048）。解构改别名
+     modelProp，真源内部零改动。 */
+  model: modelProp,
+  onModelChange,
+  onAttachRemove,
+  onDictateCancel,
   background = '#27272a',
   color = '#f5f5f5',
   menuBackground = '#323236',
@@ -4192,11 +4215,20 @@ export const PromptBar = ({
   const lastOpen = useRef<string | null>(null);
   const dictation = useRef(0);
   const latest = useRef<Latest>({});
-  latest.current = { onSend, onStop, onAttach, onDictate, onEffortChange };
+  latest.current = { onSend, onStop, onAttach, onDictate, onEffortChange, onDraftChange, onModelChange, onAttachRemove, onDictateCancel };
 
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
   const [modelKey, setModelKey] = useState(defaultModel);
+
+  /* R27 受控桥：外部 value/model 变化时同步内部 state（内部变更走回调上报，
+     双向不冲突——内部写入后 value 随重渲染对齐相同值，effect 判断相等即跳过）。 */
+  useEffect(() => {
+    if (value !== undefined && value !== draft) setDraft(value);
+  }, [value]);
+  useEffect(() => {
+    if (modelProp !== undefined && modelProp !== modelKey) setModelKey(modelProp);
+  }, [modelProp]);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
@@ -4411,6 +4443,7 @@ export const PromptBar = ({
   const pick = (row: Row) => {
     if (open === 'model') {
       setModelKey(row.key);
+      latest.current.onModelChange?.(row.key);
       setModelOpen(false);
       focusInput();
       return;
@@ -4436,6 +4469,7 @@ export const PromptBar = ({
     if (!canSend || busy) return;
     latest.current.onSend?.(draft.trim(), { attachments, model, effort: level });
     setDraft('');
+    latest.current.onDraftChange?.('');
     setAttachments([]);
     setDismissed(false);
     closeMenus();
@@ -4446,6 +4480,7 @@ export const PromptBar = ({
     if (listening) {
       dictation.current += 1;
       setListening(false);
+      latest.current.onDictateCancel?.();
       return;
     }
     const seq = ++dictation.current;
@@ -4660,7 +4695,10 @@ export const PromptBar = ({
                   type="button"
                   className="inline-grid h-[18px] w-[18px] cursor-pointer place-items-center rounded-[5px] border-0 bg-transparent p-0 text-inherit opacity-60 outline-none [transition:opacity_120ms_ease,background-color_120ms_ease] hover:opacity-100 hover:[background:color-mix(in_srgb,var(--pb-ink)_10%,transparent)]"
                   aria-label={`Remove ${file}`}
-                  onClick={() => setAttachments(a => a.filter((_, j) => j !== i))}
+                  onClick={() => {
+                    setAttachments(a => a.filter((_, j) => j !== i));
+                    latest.current.onAttachRemove?.(file);
+                  }}
                 >
                   <XIcon size={10} strokeWidth={2.5} />
                 </button>
@@ -4678,6 +4716,7 @@ export const PromptBar = ({
           aria-label="Prompt"
           onChange={e => {
             setDraft(e.target.value);
+            latest.current.onDraftChange?.(e.target.value);
             typing.current.energy = Math.min(1.6, typing.current.energy + 0.22);
             typing.current.strokes = Math.min(4, typing.current.strokes + 1);
             setDismissed(false);

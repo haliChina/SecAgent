@@ -1,6 +1,6 @@
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
-import { ArrowUp, LoaderCircle, Square, Volume2 } from "lucide-react";
+import { LoaderCircle, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
 import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
@@ -15,7 +15,7 @@ import type { TraceEvent } from "./constants.js";
 import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
 import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
-import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, ScrollProgress, ThoughtLine, VoicePill, VoiceRecorder, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
+import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
 function selectionInElement(element: HTMLElement): string {
   const selection = window.getSelection();
@@ -68,8 +68,6 @@ export function App() {
   const [previewAttachment, setPreviewAttachment] = useState<ChatAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState("");
   const [composerDragging, setComposerDragging] = useState(false);
-    const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelSubmenu, setModelSubmenu] = useState<"model" | "effort" | null>(null);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
@@ -96,7 +94,11 @@ export function App() {
   const answerScrollPhase = useRef<"follow-bottom" | "settling" | "locked">("follow-bottom");
   const answerScrollLockTimer = useRef<number | undefined>(undefined);
   const answerStartScrollPending = useRef(false);
-  const modelMenuEnd = useRef<HTMLDivElement>(null);
+  /* R27 PromptBar 桥：onAttach 必须返回 Promise，但文件选择器是回调式——
+     pendingAttachResolveRef 暂存 resolve，input change 后由 addImageFiles 兑现；
+     pendingDictationResolveRef 同理暂存听写 promise，finishVoiceInput 收尾时兑现。 */
+  const pendingAttachResolveRef = useRef<((names: string[]) => void) | null>(null);
+  const pendingDictationResolveRef = useRef<((text: string) => void) | null>(null);
   // Official tiers first, then custom models clustered by provider so the
   // submenu can render a labelled group header per provider. The relay's
   // virtual-vision model is a vision-tool backend only, never a main model.
@@ -321,13 +323,6 @@ export function App() {
     setToolConfirmation(null);
   };
 
-  useEffect(() => {
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!modelMenuEnd.current?.contains(event.target as Node)) { setModelMenuOpen(false); setModelSubmenu(null); }
-    };
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, []);
 
   useEffect(() => {
     const closeMenu = () => setMessageMenu(null);
@@ -535,6 +530,14 @@ export function App() {
       setDraft((current) => current || "\u200b");
       setAttachmentError(tooLarge.length ? "部分图片因大小限制未添加" : "");
     }
+    // R27：兑现 PromptBar onAttach 的挂起 resolve（无论接受多少张都结束等待；
+    // 文件选择器被取消时 input 不触发 change，promise 悬置——仅浪费一次
+    // 监听位，无副作用）。
+    const attachResolve = pendingAttachResolveRef.current;
+    if (attachResolve) {
+      pendingAttachResolveRef.current = null;
+      attachResolve(valid.map((item) => item.name));
+    }
   };
   const handlePaste = (event: ReactClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
@@ -690,6 +693,25 @@ export function App() {
     }
   };
 
+  /* R27 PromptBar 听写桥：流式识别的实时文稿由 onSpeechEvent 写入 draft
+     （受控同步进 PromptBar 输入框），所以 dictation promise 恒以空串收场，
+     只负责让 PromptBar 的 listening 态在收尾时正确熄灭。 */
+  const releaseDictation = () => {
+    const resolve = pendingDictationResolveRef.current;
+    if (!resolve) return;
+    pendingDictationResolveRef.current = null;
+    resolve("");
+  };
+  const startPromptDictation = () => new Promise<string>((resolve) => {
+    if (recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) { resolve(""); return; }
+    pendingDictationResolveRef.current = resolve;
+    void startVoiceInput("streaming").then((started) => { if (!started) { pendingDictationResolveRef.current = null; resolve(""); } });
+  });
+  const cancelPromptDictation = () => {
+    releaseDictation();
+    if (recordingRef.current) void finishVoiceInput("send");
+  };
+
   const finishVoiceInput = async (action: VoiceDropAction) => {
     const speechSession = speechSessionRef.current;
     if (!speechSession || speechSession.stopRequested || !session) return;
@@ -700,6 +722,7 @@ export function App() {
     if (action === "cancel") {
       try { await bridge.cancelSpeech(); } catch { /* Ignore cleanup failures. */ }
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setRecordingState(false);
       setSpeechProcessing(false);
       setSpeechMode(null);
@@ -789,6 +812,7 @@ export function App() {
       if (speechSession.timeout !== undefined) window.clearTimeout(speechSession.timeout);
       if (speechSession.settleTimer !== undefined) window.clearTimeout(speechSession.settleTimer);
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setSpeechProcessing(false);
       setSpeechMode(null);
       setVoiceDropZone("send");
@@ -850,11 +874,6 @@ export function App() {
       if (press.startPromise) void press.startPromise.then(() => finishVoiceInput("cancel"));
       else void finishVoiceInput("cancel");
     }
-  };
-  const handleMicClick = () => {
-    if (speechProcessing || sending || voicePendingSendRef.current || !session) return;
-    if (recordingRef.current) void finishVoiceInput("send");
-    else void startVoiceInput("streaming");
   };
 
   useEffect(() => {
@@ -944,29 +963,38 @@ export function App() {
             </div>
           </div>
         </div>}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y） */}<MatrixOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y） */}<MatrixOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
-          </div> : <><div className="composer-actions"><button type="button" className="icon-button" aria-label="添加图片" onClick={() => fileInputRef.current?.click()} onPointerDown={(event) => event.stopPropagation()}><img className="composer-icon" src="/image-icon.svg" alt="" /></button><VoiceRecorder mode="auto" reactive="mic" accentColor="#2563EB" iconColor="#3A4351" background="#FFFFFF" size={38} holdAfter={600} showTime waveform className="composer-voice" disabled={voicePendingSend} ariaLabel={recording ? "停止语音输入" : "语音输入"} onStart={() => { void startVoiceInput("streaming"); }} onStop={({ reason }) => { void finishVoiceInput(reason === "release" || reason === "tap" ? "send" : "cancel"); }} /></div>
-          <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !event.currentTarget.readOnly) { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder={speechMode === "streaming" && recording ? speechStatus || "正在聆听…" : "输入文字或按住说话..."} rows={1} readOnly={recording || speechProcessing} disabled={!session || sending} />
-          <div className={`model-menu ${customModelMode ? "" : "virtual-model-menu"}`} ref={modelMenuEnd}>
-            <button type="button" className={`model-picker ${customModelMode ? "" : "virtual-model-picker"}`} aria-label={customModelMode ? "选择模型和推理强度" : "选择虚拟模型"} aria-expanded={modelMenuOpen} onClick={() => { setModelMenuOpen((open) => !open); setModelSubmenu(null); }}>
-              <span className="model-picker-copy"><strong>{selectedModel?.name || "未配置模型"}</strong>{customModelMode && <small>推理强度 · {reasoningEffortLabels[reasoningEffort]}</small>}</span>
-              <img className={`model-chevron ${modelMenuOpen ? "open" : ""}`} src="/session-chevron.svg" alt="" />
-            </button>
-            {modelMenuOpen && <div className="model-options" role="menu">
-              {customModelMode ? <Fragment>
-                <button type="button" className={`model-setting-row ${modelSubmenu === "model" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "model" ? null : "model")}><span>模型</span><span className="model-setting-value">{selectedModel?.name || "未配置模型"}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{(index === 0 || modelGroupLabel(orderedModels[index - 1]) !== modelGroupLabel(model)) && <div className="model-group-label" role="presentation">{modelGroupLabel(model)}</div>}<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
-                <button type="button" className={`model-setting-row ${modelSubmenu === "effort" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "effort" ? null : "effort")}><span>推理强度</span><span className="model-setting-value">{reasoningEffortLabels[reasoningEffort]}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "effort" && <div className="model-submenu" role="listbox">{reasoningEfforts.map((effort) => <button type="button" className={`model-option ${effort === reasoningEffort ? "selected" : ""}`} role="option" aria-selected={effort === reasoningEffort} key={effort} onClick={() => { setReasoningEffort(effort); setModelSubmenu(null); }}>{reasoningEffortLabels[effort]}</button>)}</div>}
-              </Fragment> : orderedModels.map((model) => (
-                <button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }} key={model.id}>{model.name}</button>
-              ))}
-            </div>}
-          </div>
-          {sending ? <button className="send-button stop-button" type="button" aria-label="停止生成" title="停止生成" onClick={() => void stop()}><Square aria-hidden="true" /></button> : <button className="send-button" type="submit" aria-label="发送" disabled={!session || voicePendingSend || !(draft.replace(/\u200b/g, "").trim() || quotedText || attachments.length)}><ArrowUp aria-hidden="true" /></button>}</>}
+          </div> : <PromptBar
+            className="app-promptbar"
+            placeholder="输入文字，长按输入框说话，或点麦克风"
+            sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
+            commands={[]}
+            models={orderedModels.map((model) => ({ key: model.id, name: model.name, tag: modelGroupLabel(model) }))}
+            model={selectedModelId}
+            onModelChange={setSelectedModelId}
+            efforts={customModelMode ? reasoningEfforts.map((effort) => reasoningEffortLabels[effort]) : ["默认"]}
+            defaultEffort={customModelMode ? reasoningEffortLabels[reasoningEffort] : "默认"}
+            onEffortChange={(label) => { const effort = reasoningEfforts.find((candidate) => reasoningEffortLabels[candidate] === label); if (effort) setReasoningEffort(effort); }}
+            busy={sending}
+            onSend={(text) => { if (!session || voicePendingSendRef.current) return; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
+            onStop={() => { void stop(); }}
+            onAttach={() => new Promise<string[]>((resolve) => { pendingAttachResolveRef.current = resolve; fileInputRef.current?.click(); })}
+            onAttachRemove={(name) => setAttachments((current) => { const index = current.findIndex((attachment) => attachment.name === name); return index < 0 ? current : current.filter((_, position) => position !== index); })}
+            onDictate={startPromptDictation}
+            onDictateCancel={cancelPromptDictation}
+            value={draft}
+            onDraftChange={setDraft}
+            background="#FFFFFF"
+            color="#1B2430"
+            menuBackground="#FFFFFF"
+            sparkColor="#2563EB"
+            width={2000}
+            radius={15}
+            maxRows={5}
+          />}
         </form>
       </section>
       <aside className="trace-panel">
