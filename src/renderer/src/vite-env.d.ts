@@ -1,4 +1,4 @@
-interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string }
+interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string }
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }

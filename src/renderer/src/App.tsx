@@ -470,7 +470,7 @@ export function App() {
   const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
   const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
-  const orbAccent = runningTool ? (runningTool.name === "bash" ? "#FBBF24" : "#F97316") : undefined;
+  const orbAccent = runningTool ? (runningTool.name === "bash" ? "#FBBF24" : "#2563EB") : undefined;
   const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
   // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
   const scrollSections = useMemo(() => {
@@ -892,7 +892,10 @@ export function App() {
         <div className="all-session-list">
           {sessions.length === 0 && <p className="all-session-empty">还没有会话</p>}
           {sessions.map((item) => <div className={`all-session-item ${item.id === session?.meta.id ? "active" : ""}`} key={item.id}>
-            <button className="all-session-title" type="button" onClick={() => { setAllSessionsOpen(false); void changeSession(item.id); }}>{item.title}</button>
+            <div className="all-session-info">
+              <button className="all-session-title" type="button" onClick={() => { setAllSessionsOpen(false); void changeSession(item.id); }}>{item.title}</button>
+              {item.preview && <p className="all-session-preview">{item.preview}</p>}
+            </div>
             <time>{new Date(item.updatedAt).toLocaleString()}</time>
             <DeleteButton ariaLabel={`删除会话 ${item.title}`} onConfirm={() => void deleteSession(item.id)} />
           </div>)}

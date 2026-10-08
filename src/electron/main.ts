@@ -827,7 +827,8 @@ function normalizeAttachments(value: unknown): ChatAttachment[] {
   }).slice(0, 4);
 }
 
-ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); return store().list(); });
+const sessionPreview = (id: string): string => { try { return store().previewOf(id); } catch { return ""; } };
+ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); return store().list().map((meta) => ({ ...meta, preview: sessionPreview(meta.id) })); });
 ipcMain.handle("sessions:create", () => { const session = store().create(); logMain("ipc.sessions.create", { sessionId: session.meta.id }); return session; });
 ipcMain.handle("sessions:delete", (_event, id: string) => { store().delete(id); logMain("ipc.sessions.delete", { sessionId: id }); return store().list(); });
 ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return store().get(id); });

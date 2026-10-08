@@ -447,7 +447,7 @@ export function useStreamLevel(stream: MediaStream | null | undefined): number {
  * 弹簧 180/26）。缓冲按 devicePixelRatio 重建（上限 4）。
  * reduced-motion：静态一帧，state/level 变更重绘。
  * 应用适配（原版没有）：stream prop 走 useStreamLevel（ASR 采集流电平，
- * 组件绝不开流，Codex R5）；默认色取应用 accent #F97316（原版 #F75001）。
+ * 组件绝不开流，Codex R5）；默认色取应用 accent #2563EB（白蓝主题）。
  */
 const MO_STATES: OrbState[] = ["idle", "listening", "thinking"];
 const MO_SCALE: Record<OrbState, number> = { idle: 0.88, listening: 1, thinking: 0.92 };
@@ -501,7 +501,7 @@ function useDevicePixelRatio(): number {
   );
 }
 
-export function MatrixOrb({ size = 240, state = "idle", level, color = "#F97316", dots = 11, stream, labels }: {
+export function MatrixOrb({ size = 240, state = "idle", level, color = "#2563EB", dots = 11, stream, labels }: {
   size?: number;
   state?: OrbState;
   level?: number;
@@ -656,7 +656,7 @@ export function MatrixOrb({ size = 240, state = "idle", level, color = "#F97316"
 /* AuroraBackdrop (reactbits Aurora · lightMode 移植) — 空状态极光衬底  */
 /* ------------------------------------------------------------------ */
 /**
- * 深底极光（Canvas 2D 零依赖移植，配色从 accent 橙 #F97316 派生）：四个漂移的低
+ * 深底极光（Canvas 2D 零依赖移植，配色从 accent 蓝 #2563EB 派生）：四个漂移的低
  * 透明度光斑 lighter 叠加，底部整幅渐隐到页面底色 --bg-0——标题与输入区域始终近底色。
  * prefers-reduced-motion 静态一帧、document.hidden 停 rAF（不空烧 GPU）。
  * 矮屏（max-height:760px）由 CSS 压缩球尺寸，光带随容器等比收缩。
@@ -1605,8 +1605,8 @@ export function HookSidebar({ activeId, items, onSelect }: {
   items: Array<{ id: string; label: string; dividerBefore?: boolean }>;
   onSelect: (id: string) => void;
 }) {
-  // 应用适配：active 轨颜色取主题 accent（原版默认 #FC4C01，rareui 站点橙）
-  const color = "#F97316";
+  // 应用适配：active 轨颜色取主题 accent 蓝（原版默认 #FC4C01）
+  const color = "#2563EB";
   const dashed = true;
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
@@ -1894,7 +1894,7 @@ export function VoiceNote({
   defaultPlaying = false,
   onPlayingChange,
   onEnded,
-  accent = "#F97316",
+  accent = "#2563EB",
   size = "md",
   seekable = true,
   speeds = VN_SPEEDS,

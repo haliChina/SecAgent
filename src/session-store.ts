@@ -24,6 +24,17 @@ export class SessionStore {
     const index = this.readIndex();
     return index.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
+
+  /** 会话列表预览：最后一条含文本的消息，压缩空白后截断（无消息返回空串）。 */
+  previewOf(id: string): string {
+    try {
+      const data = this.get(id);
+      const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
+      return last ? last.content.replace(/\s+/g, " ").trim().slice(0, 72) : "";
+    } catch {
+      return "";
+    }
+  }
   create(title = "新会话", options: { listed?: boolean } = {}): SessionData {
     const now = new Date().toISOString();
     const meta: SessionMeta = { id: randomUUID(), title, createdAt: now, updatedAt: now };
