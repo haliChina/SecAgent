@@ -2492,11 +2492,12 @@ export function ToolError({
   "children" | "name" | "target" | "message" | "attempt" | "maxAttempts" | "retrying" | "onRetry" | "onSkip"
 > & {
   name: string;
-  target: string;
+  // 应用适配：真源必填的 target/attempt 系列放宽为可选（工具活动里无对应数据）
+  target?: string;
   message: string;
-  attempt: number;
-  maxAttempts: number;
-  retrying: boolean;
+  attempt?: number;
+  maxAttempts?: number;
+  retrying?: boolean;
   onRetry?: () => void;
   onSkip?: () => void;
 }) {
