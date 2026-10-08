@@ -21,6 +21,7 @@
 import { Fragment, createContext, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
+import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon } from "lucide-react";
 
 /** rare-ui 的 cn 为 twMerge(clsx(...))；本项目无 Tailwind 类冲突合并需求，clsx 等价 */
 const cn = clsx;
@@ -310,7 +311,7 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
               <motion.button
                 key="pill"
                 type="button"
-                onClick={() => setOpen(true)}
+                onClick={() => { if (sections.length > 1) setOpen(true); }}
                 aria-label="显示章节列表"
                 className="absolute inset-0 flex items-center gap-2.5 py-1.5 pl-2 pr-4"
                 initial={{
@@ -689,10 +690,10 @@ export function AuroraBackdrop() {
     observer.observe(container);
 
     const blobs = [
-      { rgb: "249, 115, 22", scale: 0.55, speed: 1 / 26000, phase: 0, y: 0.4 },
-      { rgb: "139, 92, 246", scale: 0.42, speed: 1 / 19000, phase: 2.1, y: 0.28 },
-      { rgb: "59, 130, 246", scale: 0.36, speed: 1 / 33000, phase: 4.4, y: 0.5 },
-      { rgb: "234, 88, 12", scale: 0.3, speed: 1 / 22000, phase: 5.6, y: 0.34 }
+      { rgb: "37, 99, 235", scale: 0.55, speed: 1 / 26000, phase: 0, y: 0.4 },
+      { rgb: "96, 165, 250", scale: 0.42, speed: 1 / 19000, phase: 2.1, y: 0.28 },
+      { rgb: "147, 197, 253", scale: 0.36, speed: 1 / 33000, phase: 4.4, y: 0.5 },
+      { rgb: "59, 130, 246", scale: 0.3, speed: 1 / 22000, phase: 5.6, y: 0.34 }
     ];
     const draw = (time: number): void => {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -707,16 +708,16 @@ export function AuroraBackdrop() {
         const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
         gradient.addColorStop(0, `rgba(${blob.rgb},0.11)`);
         gradient.addColorStop(0.6, `rgba(${blob.rgb},0.04)`);
-        gradient.addColorStop(1, "rgba(10,10,11,0)");
+        gradient.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, cssWidth, cssHeight);
       }
       ctx.globalCompositeOperation = "source-over";
-      // 深色版：整幅渐隐到页面底色 --bg-0 (#0A0A0B)
+      // 浅色版：整幅渐隐到页面底色 --bg-0 (#FFFFFF)
       const fade = ctx.createLinearGradient(0, 0, 0, cssHeight);
-      fade.addColorStop(0, "rgba(10,10,11,0)");
-      fade.addColorStop(0.55, "rgba(10,10,11,.45)");
-      fade.addColorStop(1, "rgba(10,10,11,1)");
+      fade.addColorStop(0, "rgba(255,255,255,0)");
+      fade.addColorStop(0.55, "rgba(255,255,255,.45)");
+      fade.addColorStop(1, "rgba(255,255,255,1)");
       ctx.fillStyle = fade;
       ctx.fillRect(0, 0, cssWidth, cssHeight);
     };
@@ -2404,3 +2405,487 @@ const VnBars = memo(function VnBars({
   );
 });
 
+/* ------------------------------------------------------------------ */
+/* assistant-ui 真源直译（packages/ui/.../elements/*.tsx @ assistant-ui） */
+/* surfaces token 内联；animate-in 组合类以 aui-pop-* 本地动画等价替换。   */
+/* ------------------------------------------------------------------ */
+
+/* surfaces (assistant-ui elements/surfaces.tsx) */
+const AUI_PAPER = "bg-background border border-border/60 dark:bg-popover";
+const AUI_FLOATING = "bg-background border border-border/60 dark:bg-popover";
+const AUI_FIELD = "bg-foreground/[0.04] dark:bg-foreground/[0.06]";
+const AUI_GHOST =
+  "flex items-center justify-center rounded-full text-muted-foreground outline-hidden transition-[background-color,color,scale] duration-150 hover:bg-foreground/[0.06] hover:text-foreground/90 active:scale-[0.96] focus-visible:ring-1 focus-visible:ring-foreground/20 motion-reduce:transition-none dark:hover:bg-foreground/[0.09]";
+const AUI_MONO = "font-mono text-[11px] tracking-tight";
+
+/* range utils (assistant-ui elements/../utils/range.ts) — 内联 */
+const auiAt = <T,>(list: readonly T[], index: number): T | undefined =>
+  list.length === 0 ? undefined : list[Math.min(Math.max(index, 0), list.length - 1)];
+const auiIndexIn = <T,>(list: readonly T[], index: number): number =>
+  list.length === 0 ? -1 : Math.min(Math.max(index, 0), list.length - 1);
+
+export function NumberTicker({
+  value,
+  label,
+  className,
+  ...props
+}: Omit<ComponentProps<"div">, "children" | "value" | "label"> & {
+  value: number;
+  label: string;
+}) {
+  function RollingDigit({ digit }: { digit: number }) {
+    return (
+      <span className="inline-flex h-[1.15em] overflow-hidden">
+        <span
+          className="flex flex-col transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
+          style={{ transform: `translateY(-${digit * 1.15}em)` }}
+        >
+          {Array.from({ length: 10 }, (_, i) => (
+            <span key={i} className="h-[1.15em] leading-[1.15]">
+              {i}
+            </span>
+          ))}
+        </span>
+      </span>
+    );
+  }
+  const formatted = value.toLocaleString("en-US");
+  return (
+    <div
+      data-slot="number-ticker"
+      className={cn("flex flex-col items-center gap-2.5", className)}
+      {...props}
+    >
+      <span
+        className="flex text-3xl font-medium tracking-tight tabular-nums"
+        aria-label={formatted}
+      >
+        {formatted.split("").map((char, i) =>
+        /\d/.test(char) ? (
+            <RollingDigit key={i} digit={Number(char)} />
+          ) : (
+            <span key={i} className="h-[1.15em] leading-[1.15]">
+              {char}
+            </span>
+          ),
+        )}
+      </span>
+      <span className={cn(AUI_MONO, "text-muted-foreground")}>{label}</span>
+    </div>
+  );
+}
+
+export function ToolError({
+  name,
+  target,
+  message,
+  attempt,
+  maxAttempts,
+  retrying,
+  onRetry,
+  onSkip,
+  className,
+  ...props
+}: Omit<
+  ComponentProps<"div">,
+  "children" | "name" | "target" | "message" | "attempt" | "maxAttempts" | "retrying" | "onRetry" | "onSkip"
+> & {
+  name: string;
+  target: string;
+  message: string;
+  attempt: number;
+  maxAttempts: number;
+  retrying: boolean;
+  onRetry?: () => void;
+  onSkip?: () => void;
+}) {
+  return (
+    <div
+      data-slot="tool-error"
+      className={cn(AUI_PAPER, "flex w-full max-w-sm flex-col gap-3 rounded-2xl p-3.5", className)}
+      {...props}
+    >
+      <div className="flex items-center gap-2.5">
+        <AlertCircleIcon className="size-3.5 shrink-0 text-red-500" />
+        <span className={cn(AUI_MONO, "text-muted-foreground min-w-0 wrap-anywhere")}>{name}</span>
+        <span className="text-foreground/80 min-w-0 flex-1 truncate text-[13px]">{target}</span>
+        <span className={cn(AUI_MONO, "text-muted-foreground shrink-0 tabular-nums")}>
+          {attempt}/{maxAttempts}
+        </span>
+      </div>
+      <div
+        className={cn(
+          AUI_FIELD,
+          "rounded-xl px-3 py-2 font-mono text-[11px] leading-relaxed break-words text-red-700 dark:text-red-300",
+        )}
+      >
+        {message}
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onSkip}
+          disabled={!onSkip}
+          className="text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground/90 h-7 rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30"
+        >
+          Skip
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retrying}
+          className="text-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground/95 flex h-7 items-center gap-1.5 rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96] disabled:pointer-events-none"
+        >
+          {retrying ? (
+            <Loader2Icon className="size-3 animate-spin motion-reduce:animate-none" />
+          ) : (
+            <RotateCwIcon className="size-3" />
+          )}
+          {retrying ? "Retrying" : "Retry"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export interface AuiQueuedMessage {
+  id: string;
+  text: string;
+}
+
+export function MessageQueue({
+  running,
+  queued,
+  onCancel,
+  className,
+  ...props
+}: Omit<ComponentProps<"div">, "children" | "running" | "queued" | "onCancel"> & {
+  running: string;
+  queued: readonly AuiQueuedMessage[];
+  onCancel?: (id: string) => void;
+}) {
+  return (
+    <div
+      data-slot="message-queue"
+      className={cn("flex w-full max-w-sm flex-col gap-2", className)}
+      {...props}
+    >
+      <div className={cn(AUI_PAPER, "flex items-center gap-2.5 rounded-2xl p-3")}>
+        <span className="relative flex size-2 shrink-0">
+          <span className="absolute inline-flex size-full animate-ping rounded-full bg-blue-500/60 motion-reduce:hidden" />
+          <span className="relative inline-flex size-2 rounded-full bg-blue-500 dark:bg-blue-400" />
+        </span>
+        <span className="text-foreground/90 min-w-0 flex-1 truncate text-[13.5px]">{running}</span>
+        <span className={cn(AUI_MONO, "text-muted-foreground shrink-0")}>running</span>
+      </div>
+
+      {queued.length > 0 && (
+        <div className="flex items-baseline justify-between px-1">
+          <span className={cn(AUI_MONO, "text-muted-foreground")}>{queued.length} queued</span>
+          <span className={cn(AUI_MONO, "text-muted-foreground")}>sends when this finishes</span>
+        </div>
+      )}
+
+      <ul className="flex flex-col gap-1.5">
+        {queued.map((message, index) => (
+          <li
+            key={message.id}
+            className={cn(
+              AUI_FIELD,
+              "aui-pop-up flex items-center gap-2.5 rounded-2xl py-2 pr-2 pl-3",
+            )}
+          >
+            <span className={cn(AUI_MONO, "text-muted-foreground w-3 shrink-0 tabular-nums")}>
+              {index + 1}
+            </span>
+            <span className="text-foreground/60 min-w-0 flex-1 truncate text-[13.5px]">
+              {message.text}
+            </span>
+            <ArrowUpIcon className="text-foreground/25 size-3 shrink-0" />
+            {onCancel && (
+              <button
+                type="button"
+                aria-label={`Remove "${message.text}" from the queue`}
+                onClick={() => onCancel(message.id)}
+                className={cn(AUI_GHOST, "size-6 shrink-0")}
+              >
+                <XIcon className="size-3.5" />
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export interface AuiRegenerateOption {
+  id: string;
+  label: string;
+  detail: string;
+}
+
+export function RegenerateMenu({
+  options,
+  open,
+  currentId,
+  onOpenChange,
+  onPick,
+  className,
+  ...props
+}: Omit<
+  ComponentProps<"div">,
+  "children" | "options" | "open" | "currentId" | "onOpenChange" | "onPick"
+> & {
+  options: readonly AuiRegenerateOption[];
+  open: boolean;
+  currentId: string;
+  onOpenChange?: (open: boolean) => void;
+  onPick?: (id: string) => void;
+}) {
+  return (
+    <div
+      data-slot="regenerate-menu"
+      className={cn("flex w-full max-w-sm flex-col gap-2", className)}
+      {...props}
+    >
+      {onOpenChange && (
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-label="Regenerate with a different model"
+          onClick={() => onOpenChange(!open)}
+          className={cn(AUI_GHOST, "size-7 self-start", open && "bg-foreground/[0.06] text-foreground/90")}
+        >
+          <RefreshCwIcon className="size-3.5" />
+        </button>
+      )}
+
+      {open && (
+        <div
+          className={cn(
+            AUI_FLOATING,
+            "aui-pop-down flex flex-col gap-0.5 rounded-2xl p-1.5",
+          )}
+        >
+          {options.map((option) => {
+            const content = (
+              <>
+                <span className="min-w-0 flex-1 truncate text-[13px]">{option.label}</span>
+                <span className={cn(AUI_MONO, "text-muted-foreground shrink-0")}>
+                  {option.id === currentId ? "current" : option.detail}
+                </span>
+              </>
+            );
+            const itemClass = onPick
+              ? "hover:bg-foreground/[0.05] flex items-baseline gap-2 rounded-xl px-2.5 py-1.5 text-start transition-colors"
+              : "flex items-baseline gap-2 rounded-xl px-2.5 py-1.5 text-start";
+            return onPick ? (
+              <button key={option.id} type="button" onClick={() => onPick(option.id)} className={itemClass}>
+                {content}
+              </button>
+            ) : (
+              <div key={option.id} className={itemClass}>
+                {content}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export type AuiSpeakerKind = "user" | "agent" | "subagent" | "tool";
+
+export interface AuiSpeakerTurn {
+  id: string;
+  kind: AuiSpeakerKind;
+  name: string;
+  detail?: string;
+  text: string;
+}
+
+const AUI_TONE: Record<AuiSpeakerKind, string> = {
+  user: "bg-foreground/[0.06] text-muted-foreground",
+  agent: "bg-blue-500/12 text-blue-600 dark:bg-blue-400/15 dark:text-blue-400",
+  subagent: "bg-foreground/[0.06] text-muted-foreground",
+  tool: "bg-foreground/[0.04] text-muted-foreground",
+};
+
+export function SpeakerIdentity({
+  turns,
+  className,
+  ...props
+}: Omit<ComponentProps<"div">, "children" | "turns"> & {
+  turns: readonly AuiSpeakerTurn[];
+}) {
+  return (
+    <div
+      data-slot="speaker-identity"
+      className={cn("flex w-full max-w-sm flex-col gap-3.5", className)}
+      {...props}
+    >
+      {turns.map((turn) => (
+        <div key={turn.id} className="flex gap-2.5">
+          <span
+            className={cn(
+              "flex size-6 shrink-0 items-center justify-center rounded-lg",
+              AUI_TONE[turn.kind],
+              turn.kind === "subagent" && "rounded-full",
+            )}
+          >
+            {turn.kind === "user" ? (
+              <UserIcon className="size-3" />
+            ) : turn.kind === "tool" ? (
+              <WrenchIcon className="size-3" />
+            ) : (
+              <BotIcon className="size-3" />
+            )}
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <span className="flex items-baseline gap-1.5">
+              <span className="text-[13px] font-medium">{turn.name}</span>
+              {turn.detail && (
+                <span className={cn(AUI_MONO, "text-muted-foreground")}>{turn.detail}</span>
+              )}
+            </span>
+            <span className="text-foreground/65 text-[13.5px] leading-relaxed break-words">
+              {turn.text}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export interface AuiComputerStep {
+  id: string;
+  action: string;
+  target: string;
+  x: number;
+  y: number;
+}
+
+export function ComputerUse({
+  url,
+  steps,
+  activeIndex,
+  children,
+  className,
+  ...props
+}: Omit<ComponentProps<"div">, "url" | "steps" | "activeIndex" | "children"> & {
+  url: string;
+  steps: readonly AuiComputerStep[];
+  activeIndex: number;
+  children?: ReactNode;
+}) {
+  const index = auiIndexIn(steps, activeIndex);
+  const active = auiAt(steps, index);
+  const trail = steps.slice(Math.max(0, index - 2), index + 1);
+  return (
+    <div
+      data-slot="computer-use"
+      className={cn(AUI_PAPER, "flex w-full max-w-md flex-col overflow-hidden rounded-2xl", className)}
+      {...props}
+    >
+      <div className="flex items-center gap-2 px-3 py-2">
+        <span className="flex shrink-0 gap-1">
+          {["bg-red-500/50", "bg-amber-500/50", "bg-emerald-500/50"].map((tint) => (
+            <span key={tint} aria-hidden className={cn("size-2 rounded-full", tint)} />
+          ))}
+        </span>
+        <span className={cn(AUI_FIELD, AUI_MONO, "text-muted-foreground min-w-0 flex-1 truncate rounded-full px-2.5 py-1")}>
+          {url}
+        </span>
+      </div>
+      <div className="border-foreground/[0.07] relative min-h-[8.5rem] overflow-hidden border-t">
+        {children}
+        {trail.map((step, i) => (
+          <span
+            key={step.id}
+            aria-hidden
+            className="pointer-events-none absolute size-2 rounded-full bg-blue-500 transition-opacity duration-300 dark:bg-blue-400"
+            style={{ left: `${step.x}%`, top: `${step.y}%`, opacity: 0.18 * (i + 1) }}
+          />
+        ))}
+        {active && (
+          <MousePointer2Icon
+            aria-hidden
+            className="pointer-events-none absolute size-4 fill-blue-500 text-blue-500 transition-[left,top] duration-500 ease-out motion-reduce:transition-none dark:fill-blue-400 dark:text-blue-400"
+            style={{ left: `${active.x}%`, top: `${active.y}%`, translate: "-50% -50%" }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+export interface AuiDatedMessage {
+  id: string;
+  day: string;
+  time: string;
+  role: "user" | "assistant";
+  text: string;
+}
+
+export function DaySeparatorTranscript({
+  messages,
+  className,
+  ...props
+}: Omit<ComponentProps<"div">, "children" | "messages"> & {
+  messages: readonly AuiDatedMessage[];
+}) {
+  let lastDay = "";
+  return (
+    <div
+      data-slot="day-separator-transcript"
+      className={cn("flex w-full max-w-sm flex-col gap-2", className)}
+      {...props}
+    >
+      {messages.map((message) => {
+        const newDay = message.day !== lastDay;
+        lastDay = message.day;
+        return (
+          <div key={message.id} className="flex flex-col gap-2">
+            {newDay && (
+              <div className="flex items-center gap-3">
+                <span className="bg-border h-px w-6" />
+                <span className={cn(AUI_MONO, "text-muted-foreground")}>{message.day}</span>
+                <span className="bg-border h-px flex-1" />
+              </div>
+            )}
+            <div className="group flex items-center gap-1.5">
+              <div
+                className={cn(
+                  "flex min-w-0 flex-1 items-baseline gap-2",
+                  message.role === "user" && "flex-row-reverse",
+                )}
+              >
+                <span
+                  className={cn(
+                    "max-w-[80%] text-[13.5px] leading-relaxed break-words",
+                    message.role === "user"
+                      ? "bg-foreground/[0.05] rounded-2xl px-3.5 py-2"
+                      : "text-foreground/75",
+                  )}
+                >
+                  {message.text}
+                </span>
+                <span
+                  className={cn(
+                    AUI_MONO,
+                    "text-foreground/0 group-hover:text-foreground/30 shrink-0 tabular-nums transition-colors",
+                  )}
+                >
+                  {message.time}
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
