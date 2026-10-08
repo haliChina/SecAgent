@@ -169,10 +169,14 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
     }, reduceMotion ? 0 : 700)
     setActiveId(id)
     setOpen(false)
-    document.getElementById(id)?.scrollIntoView({
-      behavior: reduceMotion ? "auto" : "smooth",
-      block: "start",
-    })
+    // App 适配：消息流在内部滚动容器，window 级 scrollIntoView 无效（R24 反馈"点不动"）
+    const target = document.getElementById(id)
+    const container = containerRef?.current
+    if (target && container && container.contains(target)) {
+      container.scrollTo({ top: target.offsetTop - 24, behavior: reduceMotion ? "auto" : "smooth" })
+    } else {
+      target?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
+    }
   }
 
   const size = open ? openSize : collapsedSize
@@ -3342,7 +3346,7 @@ export const VoiceRecorder = ({
       disabled={disabled}
       aria-label={ariaLabel}
       aria-pressed={listening}
-      className={`group relative isolate m-0 inline-grid cursor-pointer touch-none place-items-center border-0 bg-transparent p-0 outline-none select-none [width:var(--vp-size)] [height:var(--vp-size)] [border-radius:var(--vp-radius)] [color:var(--vp-icon)] [font-family:inherit] [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [transition:transform_160ms_cubic-bezier(0.23,1,0.32,1),color_150ms_ease] before:absolute before:[inset:calc(-1*var(--vp-hit))] before:content-[''] data-[state=listening]:z-[1] data-[state=listening]:[color:var(--vp-accent)] data-[pressed]:[transform:scale(var(--vp-press))] disabled:pointer-events-none disabled:cursor-default disabled:opacity-55 motion-reduce:[transform:none]! motion-reduce:[transition:color_150ms_ease]${className ? ` ${className}` : ''}`}
+      className={`rb-vp group relative isolate m-0 inline-grid cursor-pointer touch-none place-items-center border-0 bg-transparent p-0 outline-none select-none [width:var(--vp-size)] [height:var(--vp-size)] [border-radius:var(--vp-radius)] [color:var(--vp-icon)] [font-family:inherit] [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [transition:transform_160ms_cubic-bezier(0.23,1,0.32,1),color_150ms_ease] before:absolute before:[inset:calc(-1*var(--vp-hit))] before:content-[''] data-[state=listening]:z-[1] data-[state=listening]:[color:var(--vp-accent)] data-[pressed]:[transform:scale(var(--vp-press))] disabled:pointer-events-none disabled:cursor-default disabled:opacity-55 motion-reduce:[transform:none]! motion-reduce:[transition:color_150ms_ease]${className ? ` ${className}` : ''}`}
       data-state={listening ? 'listening' : 'idle'}
       data-pressed={pressed ? '' : undefined}
       data-input={input}
