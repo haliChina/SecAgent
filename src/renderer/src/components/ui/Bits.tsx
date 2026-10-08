@@ -3685,6 +3685,8 @@ export const BranchedMenu = ({
 /* 适配：可选化应用无数据 props；未传回调的按钮条件隐藏；copied 内部化。     */
 /* ------------------------------------------------------------------ */
 
+export type AuiReaction = "up" | "down" | null;
+
 function ShimmerLabel({ active = true, className, ...props }: ComponentProps<"span"> & { active?: boolean }) {
   return <span className={cn(active && "aui-shimmer motion-reduce:animate-none", className)} {...props} />;
 }
