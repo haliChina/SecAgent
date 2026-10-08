@@ -15,6 +15,8 @@
 .aui-pop-down { animation: aui-pop-down .2s cubic-bezier(0.23, 1, 0.32, 1) both; }
 @keyframes aui-pop-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .aui-pop-up { animation: aui-pop-up .3s cubic-bezier(0.23, 1, 0.32, 1) both; }
+@keyframes aui-shimmer { from { background: linear-gradient(90deg, currentColor 40%, transparent 50%, currentColor 60%); background-size: 200% 100%; background-position: 100% 0; -webkit-background-clip: text; background-clip: text; color: transparent; } to { background-position: -100% 0; } }
+.aui-shimmer { animation: aui-shimmer 1.4s linear infinite; }
 /* Preflight button 片段——rareui 组件假设存在（否则裸 button 显示 UA 灰块，图1 问题） */
 button { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 body { margin: 0; min-width: 720px; background: var(--bg-0); }

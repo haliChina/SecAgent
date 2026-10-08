@@ -5,7 +5,13 @@
 
 ## 本轮（R19 · 2026-10-08 19:21）
 
-### 真源组件应用接线 — 完成 ✓
+### 真源组件应用接线 — 完成 ✓（R20 交付）
+
+- ✓ R20：7b3a5b6 三平台 windows/macos 绿（linux 收尾中）；Windows 安装包
+  SecAgent-Setup-20261008-113811-7b3a5b6f0976.exe（213.7MB）已 16 线程下载、
+  PE 校验后交付用户
+- ☐ TODO.md 本地更新未推送（攒下轮随代码提交，避免单独触发 CI）
+
 - ✓ composer 语音键 → 真源 VoiceRecorder（mode=auto 短按 streaming/长按 hold、
   simulated 波形、slide-to-cancel→cancel、蓝白配色、holdAfter=600）
 - ✓ 工具失败展示 → 真源 ToolError（适配层放宽 target/attempt 系列为可选）
