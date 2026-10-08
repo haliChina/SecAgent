@@ -21,6 +21,7 @@
 import { Fragment, createContext, isValidElement, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
+import type { LucideIcon } from "lucide-react";
 import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon } from "lucide-react";
 
 /** rare-ui 的 cn 为 twMerge(clsx(...))；本项目无 Tailwind 类冲突合并需求，clsx 等价 */
@@ -3420,7 +3421,7 @@ export const VoiceRecorder = ({
 export interface BranchedMenuChild {
   value: string;
   label: string;
-  icon?: ReactNode;
+  icon?: ReactNode | LucideIcon;
 }
 
 export interface BranchedMenuItem {
@@ -3473,9 +3474,9 @@ const DEFAULT_ITEMS: BranchedMenuItem[] = [
 const PAD = 6;
 const MARK = 16;
 
-const renderIcon = (icon: ReactNode | ComponentType<{ size?: number; strokeWidth?: number }>) => {
+const renderIcon = (icon: ReactNode | LucideIcon) => {
   if (isValidElement(icon)) return icon;
-  const Ico = icon as ComponentType<{ size?: number; strokeWidth?: number }>;
+  const Ico = icon as LucideIcon;
   return <Ico size={16} strokeWidth={1.8} />;
 }
 const toSet = (open: number | number[]) => new Set(Array.isArray(open) ? open : open >= 0 ? [open] : []);

@@ -3,22 +3,32 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R16 · 2026-10-08 17:11）
+## 本轮（R18 · 2026-10-08 18:29 继续）
 
-### 样式修复（用户 5 图）
-- ☐ 图1 主窗口标题栏：右侧控制按钮黑底残留 + 应用图标仍为橙色 → 蓝系
-- ☐ 图2 wake 悬浮卡片：灰白→深灰渐变背景残留（浅色主题应白卡）
-- ☐ 图3 设置弹窗 HookSidebar：虚线轨穿行、项间距过密
-- ☐ 图4/图5 DaySeparator：圆点两态不一致（实心小点 vs 空心圆环）
-- ☐ 图6 MatrixOrb 运行球：黑色容器背景残留（应浅色底蓝点阵）
+### 样式修复（用户 5 图）— 全部完成 ✓
+- ✓ 图1 titleBarOverlay 白底深符号 + 双窗 backgroundColor 白（橙图标实测已蓝，ClassIsland 侧除外）
+- ✓ 图2 AuroraBackdrop 蓝系光斑 + 白 fade
+- ✓ 图3 设置布局 190px/min-width 640/divider 透气
+- ✓ 图4/5 ScrollProgress 单节禁止展开
+- ✓ 图6 composer-orb-dock 白化
+（CI ec179ec 主检查 success；a621377 三平台打包运行中/低风险）
 
-### 真源组件直译（reactbits.dev + assistant-ui.com，替代 rare-ui 转抄基线）
-已有组件按真源核对：voice-pill、thought-line、guardrail-notice、message-actions、
-error-state、stopped-run、day-separator（7 个，先 diff 关键参数再决定是否重译）
-新增直译：prompt-bar、tool-error、message-queue、speaker-identity、
-regenerate-menu、computer-use、branched-menu、number-ticker（8 个）
+### 真源直译 — 已完成
+- ✓ assistant-ui elements 7 个：NumberTicker/ToolError/MessageQueue/RegenerateMenu/
+  SpeakerIdentity/ComputerUse/DaySeparatorTranscript（R17，CI ec179ec 绿）
+- ✓ react-bits 2 个：VoiceRecorder（voice-pill 真源完整重译：hold/toggle/slide-cancel/
+  波形/音节曲线/stop-reason 状态机）、BranchedMenu（SVG 分支线动画树菜单）（R18，a621377）
+- ✓ demo 验证：17 类组件挂载零错误；ToolError/BranchedMenu/NumberTicker/VoiceRecorder
+  渲染正常；发现并修复 demo @theme 残留深色 token（R15 替换未命中的遗留）
 
-## 历史（已完成）
+### 应用侧接线（待定项，下轮讨论）
+- ☐ VoiceRecorder 替换 composer 语音键（hold 模式对接 handleMicPointerDown）
+- ☐ ToolError 接入工具调用失败展示
+- ☐ MessageQueue 接入排队发送
+- ☐ PromptBar（35KB）评估：替换 composer
+- ☐ 已有 7 组件按真源 diff 重译（day-separator 真源=列表语义，与现分隔条并存）
+
+## 历史（已完成）## 历史（已完成）
 - ✓ R14 rareui 组件直译进 Bits.tsx（motion/react 引擎）：MatrixOrb、HookSidebar、
   ScrollProgress、DeleteButton、AnimatedCounter、VoiceNote、VoicePill、ThoughtLine、
   DaySeparator、GuardrailNotice、MessageActions、ErrorStateCard、StoppedRunTag
