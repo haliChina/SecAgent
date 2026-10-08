@@ -183,7 +183,17 @@ export function WakeOverlay() {
     rawAnswerRef.current = raw;
     const tagMatch = raw.match(/<tts\b([^>]*)>/i);
     const tagStart = tagMatch?.index ?? -1;
-    if (tagStart < 0) return;
+    if (tagStart < 0) {
+      // 兜底：模型未输出 <tts> 标签时，完成态整段朗读（否则唤醒回答静音）
+      if (final) {
+        const whole = markdownToSpeech(raw);
+        if (whole) {
+          enqueueTts(whole);
+          wakeTtsScheduledRef.current = whole;
+        }
+      }
+      return;
+    }
     const attributes = tagMatch?.[1] || "";
     listenAfterTtsRef.current = /\blisten_after\s*=\s*["']true["']/i.test(attributes);
     const start = tagStart + tagMatch![0].length;
