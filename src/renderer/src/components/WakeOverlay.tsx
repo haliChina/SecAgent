@@ -238,7 +238,9 @@ export function WakeOverlay() {
     setRecording(false);
   };
 
-  const submitTranscript = async () => {
+  const playAckBeep = () => { try { const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext; if (!Ctx) return; const ctx = new Ctx(); const now = ctx.currentTime; [880, 1318].forEach((freq, i) => { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.frequency.value = freq; osc.type = "sine"; gain.gain.setValueAtTime(0.0001, now + i * 0.13); gain.gain.exponentialRampToValueAtTime(0.12, now + i * 0.13 + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.13 + 0.12); osc.connect(gain).connect(ctx.destination); osc.start(now + i * 0.13); osc.stop(now + i * 0.13 + 0.14); }); window.setTimeout(() => void ctx.close(), 700); } catch { /* 提示音失败不影响主流程 */ } };
+
+const submitTranscript = async () => {
     if (submittingRef.current) return;
     const currentText = transcriptRef.current.trim();
     if (!currentText || !sessionId) return;
@@ -486,7 +488,7 @@ export function WakeOverlay() {
               ? <MarkdownContent>{finalAnswerText}</MarkdownContent>
               : streamingAnswer || ttsPreview
                 ? <MarkdownContent>{streamingAnswer || ttsPreview}</MarkdownContent>
-                : "···"}
+                : <span className="wake-thinking" role="status" aria-label="正在思考"><span className="wake-thinking-dot" /><span className="wake-thinking-dot" /><span className="wake-thinking-dot" /><span className="wake-thinking-text">正在思考…</span></span>}
           </div>
         </div>
       </div>}
