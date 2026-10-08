@@ -3,31 +3,22 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R19 · 2026-10-08 19:21）
+## 本轮（R21 · 2026-10-08 20:04）
 
-### 真源组件应用接线 — 完成 ✓（R20 交付）
+### VoiceRecorder 真实麦克风源 + 4 组件真源接线 — 完成 ✓
+- ✓ reactive=mic：组件自管 getUserMedia/AudioContext 生命周期，失败降级
+  end(mic-denied)→cancel（与识别流并存安全：closeMic 只关自己的流）
+- ✓ AuiGuardrailNotice/AuiMessageActions/AuiErrorState/AuiStoppedRun 真源
+  直译接线（幻觉提醒/消息操作条/桥接错误卡/停止标签），适配层可选化 +
+  未传回调按钮隐藏 + copied 内部化 + ShimmerLabel 流光内联
+- ✓ CI：070eaf0 主检查抓到 AuiReaction 缺失 → 4f21124 主检查 success ✓
+- ✓ linux/windows/macos（7b3a5b6）全绿确认；R19 安装包已交付
+- ☐ MessageQueue 接入：**待用户确认排队行为变更**（执行中收输入完成后自动发）
+- ☐ PromptBar 专项（862 行/35KB：@源 //命令 模型选择 推理强度 附件 听写——
+  与应用 composer 能力一一对应，hugeicons 13 个待映射 lucide）
+- ☐ 三平台（4f21124）打包完成后提取新版安装包交付
 
-- ✓ R20：7b3a5b6 三平台 windows/macos 绿（linux 收尾中）；Windows 安装包
-  SecAgent-Setup-20261008-113811-7b3a5b6f0976.exe（213.7MB）已 16 线程下载、
-  PE 校验后交付用户
-- ☐ TODO.md 本地更新未推送（攒下轮随代码提交，避免单独触发 CI）
-
-- ✓ composer 语音键 → 真源 VoiceRecorder（mode=auto 短按 streaming/长按 hold、
-  simulated 波形、slide-to-cancel→cancel、蓝白配色、holdAfter=600）
-- ✓ 工具失败展示 → 真源 ToolError（适配层放宽 target/attempt 系列为可选）
-- ✓ 接线过程 CI typecheck 抓到 2 处接口不匹配（40b12e6 失败），修正后
-  7b3a5b6 主检查 success ✓，三平台打包运行中
-- ☐ MessageQueue 接入：需要 composer 排队发送行为（执行中收输入、完成后
-  自动发）——**行为变更，待用户确认**再做
-- ☐ PromptBar（35KB）：完整 composer 替换候选（含 @源菜单 //命令菜单/模型
-  选择器/听写/附件）——体量大，建议下轮专项
-- ☐ VoiceRecorder reactive=mic 源：把应用 micStream 传给组件替代 simulated
-  （需读真源中部音频接入段，确认不与应用 getUserMedia 冲突）
-
-### 顺延（更早遗留）
-- ☐ 已有 7 组件按真源 diff 重译（day-separator 真源=列表语义，与现分隔条并存）
-
-## 历史（已完成）## 历史（已完成）## 历史（已完成）
+## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）
 - ✓ R14 rareui 组件直译进 Bits.tsx（motion/react 引擎）：MatrixOrb、HookSidebar、
   ScrollProgress、DeleteButton、AnimatedCounter、VoiceNote、VoicePill、ThoughtLine、
   DaySeparator、GuardrailNotice、MessageActions、ErrorStateCard、StoppedRunTag
