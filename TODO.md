@@ -3,21 +3,21 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R23 · 2026-10-08 20:38）
+## 本轮（R24 · 2026-10-08 21:14）
 
-### PromptBar 真源直译 — 完成 ✓
-- ✓ 862 行真源直译进 Bits（@源 //命令 模型 推理强度 附件 听写 发送/停止/
-  SVG send 键形变动画），hugeicons 13 个→lucide，tsc 类型零真实错误
-- ✓ 主检查 success（56aeef6），三平台打包运行中
-- ✓ demo V5：PromptBar 白蓝配色（真源 props 原生换色 background/color/
-  menuBackground/sparkColor）、命令菜单交互验证、VLM 终检通过
-- ☐ **应用 composer 替换 PromptBar：待用户确认**（需迁移 textarea 长按
-  语音三分区/图片粘贴/拖拽上传/引用——onDictate 对接语音流）
-- ☐ **MessageQueue 接入：待用户确认**（排队发送行为变更）
-- ☐ 已有 7 组件真源 diff 重译评估（day-separator 真源=列表段落语义，
-  与现分隔条语义不同，并存合理；其余差异大的已用真源版替换）
+### 用户实测反馈修复（R21 包 9 项 UI + 唤醒不发声）— 完成 ✓
+- ✓ demo 8 组件样式暴毙：根因=直译组件 Tailwind 类 demo 无 Tailwind，
+  postcss 编译 utilities 注入 demo HTML，AnimatedCounter/侧栏等全恢复
+- ✓ Cancel 残留：--vp-* 60 变量整块缺失（r19 漏搬），真源 voice-pill
+  CSS 注入（.rb-vp 前缀共存）
+- ✓ 录音框打架/主主主主/HookSidebar 卡片化/Orb溢出/小Orb/今天空框/
+  ScrollProgress 点不动/图标对齐/标题栏配色 —— 9 项全修（e94c647）
+- ✓ 唤醒不发声：模型未输出 <tts> 标签 → 静音；完成态整段朗读兜底
+- ☐ PromptBar 替换 composer 专项（拍板=是：语音三分区/附件/引用迁移）
+- ☐ e94c647 三平台打包完成后交付新安装包
+- ☐ 语音识别设置意义不明已修（主引擎下拉）；待新版包验证
 
-## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）
+## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）
 - ✓ R14 rareui 组件直译进 Bits.tsx（motion/react 引擎）：MatrixOrb、HookSidebar、
   ScrollProgress、DeleteButton、AnimatedCounter、VoiceNote、VoicePill、ThoughtLine、
   DaySeparator、GuardrailNotice、MessageActions、ErrorStateCard、StoppedRunTag
