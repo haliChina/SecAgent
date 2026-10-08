@@ -3,22 +3,21 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R21 · 2026-10-08 20:04）
+## 本轮（R23 · 2026-10-08 20:38）
 
-### VoiceRecorder 真实麦克风源 + 4 组件真源接线 — 完成 ✓
-- ✓ reactive=mic：组件自管 getUserMedia/AudioContext 生命周期，失败降级
-  end(mic-denied)→cancel（与识别流并存安全：closeMic 只关自己的流）
-- ✓ AuiGuardrailNotice/AuiMessageActions/AuiErrorState/AuiStoppedRun 真源
-  直译接线（幻觉提醒/消息操作条/桥接错误卡/停止标签），适配层可选化 +
-  未传回调按钮隐藏 + copied 内部化 + ShimmerLabel 流光内联
-- ✓ CI：070eaf0 主检查抓到 AuiReaction 缺失 → 4f21124 主检查 success ✓
-- ✓ linux/windows/macos（7b3a5b6）全绿确认；R19 安装包已交付
-- ☐ MessageQueue 接入：**待用户确认排队行为变更**（执行中收输入完成后自动发）
-- ☐ PromptBar 专项（862 行/35KB：@源 //命令 模型选择 推理强度 附件 听写——
-  与应用 composer 能力一一对应，hugeicons 13 个待映射 lucide）
-- ☐ 三平台（4f21124）打包完成后提取新版安装包交付
+### PromptBar 真源直译 — 完成 ✓
+- ✓ 862 行真源直译进 Bits（@源 //命令 模型 推理强度 附件 听写 发送/停止/
+  SVG send 键形变动画），hugeicons 13 个→lucide，tsc 类型零真实错误
+- ✓ 主检查 success（56aeef6），三平台打包运行中
+- ✓ demo V5：PromptBar 白蓝配色（真源 props 原生换色 background/color/
+  menuBackground/sparkColor）、命令菜单交互验证、VLM 终检通过
+- ☐ **应用 composer 替换 PromptBar：待用户确认**（需迁移 textarea 长按
+  语音三分区/图片粘贴/拖拽上传/引用——onDictate 对接语音流）
+- ☐ **MessageQueue 接入：待用户确认**（排队发送行为变更）
+- ☐ 已有 7 组件真源 diff 重译评估（day-separator 真源=列表段落语义，
+  与现分隔条语义不同，并存合理；其余差异大的已用真源版替换）
 
-## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）
+## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）## 历史（已完成）
 - ✓ R14 rareui 组件直译进 Bits.tsx（motion/react 引擎）：MatrixOrb、HookSidebar、
   ScrollProgress、DeleteButton、AnimatedCounter、VoiceNote、VoicePill、ThoughtLine、
   DaySeparator、GuardrailNotice、MessageActions、ErrorStateCard、StoppedRunTag
