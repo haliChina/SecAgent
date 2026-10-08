@@ -686,6 +686,7 @@ function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false, _wind
     minWidth: 720,
     minHeight: 560,
     title: "SecAgent设置",
+    skipTaskbar: false,
     parent: windowRef && !windowRef.isDestroyed() && windowRef.isVisible() ? windowRef : undefined,
     modal: false,
     backgroundColor: "#FFFFFF",

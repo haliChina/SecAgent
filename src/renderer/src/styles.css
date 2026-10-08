@@ -91,7 +91,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .r3f-error { overflow: auto; margin: 12px 0; padding: 10px 12px; border: 1px solid rgba(248,113,113,.35); border-radius: 7px; background: rgba(248,113,113,.14); color: #F87171; white-space: pre-wrap; }
 .user .bubble { color: var(--text-1); background: var(--bg-3); border-color: var(--line-strong); border-radius: 14px 4px 14px 14px; }
 .loading { color: var(--text-3); }
-.empty-state { overflow: hidden; border-radius: 24px; position: relative; margin: auto; text-align: center; color: var(--text-3); }.empty-state h2 { position: relative; color: var(--text-1); margin-bottom: 6px; }.empty-state p { position: relative; }
+.empty-state { position: relative; margin: auto; text-align: center; color: var(--text-3); }.empty-state h2 { position: relative; color: var(--text-1); margin-bottom: 6px; }.empty-state p { position: relative; }
 .composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 14px 15px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid var(--line-strong); border-radius: 15px; background: rgba(255,255,255,.88); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 rgba(255, 255, 255, .7); }
 .composer.dragging { border-color: var(--accent); background: var(--accent-soft); }.composer-attachments { flex: 0 0 100%; min-width: 0; }.attachment-strip { display: flex; flex-wrap: wrap; gap: 8px; }.attachment-card { position: relative; width: 58px; height: 58px; overflow: hidden; border: 1px solid  var(--line-strong); border-radius: 9px; background: var(--bg-3); }.attachment-card img { display: block; width: 100%; height: 100%; object-fit: cover; }.attachment-preview-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }.attachment-preview-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }.attachment-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.72); color: var(--bg-2); font-size: 15px; line-height: 16px; cursor: pointer; }.attachment-error { flex: 0 0 100%; color: #F87171; font-size: 11px; }.message-attachment-strip { margin-bottom: 8px; }.message-attachment-strip .attachment-card { width: 96px; height: 96px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.composer textarea { flex: 1 1 120px; }
 .composer-actions { display: flex; gap: 12px; }
@@ -914,7 +914,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* ==== R24：设置 HookSidebar 卡片化（真源直译版布局） ==== */
 .settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 76px; bottom: 20px; left: 22px; box-sizing: border-box; width: 188px; padding: 10px 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(0,0,0,.04); overflow-y: auto; }
 .settings-shell > .settings-error, .settings-shell > .settings-section, .settings-shell > .settings-sections, .settings-shell > div:not([class*="hook"]) { margin-left: 0; }
-.settings-shell .settings-section { margin-left: 216px; max-width: calc(100% - 216px); }
 .settings-shell [data-slot="hook-sidebar-item"] { width: 100%; }
 .settings-shell [data-slot="hook-sidebar-item"][data-active="true"] { background: var(--accent-soft); color: var(--accent-text); }
 @media (max-width: 960px) { .settings-shell [data-slot="hook-sidebar"] { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell .settings-section { margin-left: 0; max-width: none; } }
@@ -927,3 +926,12 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .wake-thinking-dot:nth-child(3) { animation-delay: .3s; }
 .wake-thinking-text { margin-left: 4px; }
 @keyframes wake-think-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* R25：设置页双栏布局（grid 文档流，nav 卡片 sticky） */
+.settings-shell.has-window-title:not(.oobe-shell) { display: grid; grid-template-columns: 176px minmax(0, 1fr); column-gap: 30px; align-items: start; max-width: 1040px; }
+.settings-shell.has-window-title:not(.oobe-shell) > .settings-error { grid-column: 1 / -1; }
+.settings-shell.has-window-title:not(.oobe-shell) > .settings-window-title { position: fixed; }
+.settings-shell .settings-section { margin-left: 0 !important; max-width: none !important; }
+@media (max-width: 960px) {
+  .settings-shell.has-window-title:not(.oobe-shell) { grid-template-columns: minmax(0, 1fr); }
+  .settings-shell [data-slot="hook-sidebar"] { position: static; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 auto 22px; max-width: 1000px; }
+}
