@@ -50,6 +50,11 @@ DisableWelcomePage=yes
 ; prefills DirEdit with the previous install location.
 DisableDirPage=no
 Uninstallable=yes
+; 升级时 SecAgent 大概率正在运行：默认自动关闭锁文件进程并在安装后
+; 自动重启它（Restart Manager）。用户仍可在 Preparing 页改选。
+CloseApplications=yes
+CloseApplicationsFilter=SecAgent.exe
+RestartApplications=yes
 SetupIconFile=..\resources\icon.ico
 #ifdef UiTestBuild
 PrivilegesRequired=lowest
@@ -661,6 +666,8 @@ begin
 
   WizardForm.PreparingLabel.AutoSize := False;
   WizardForm.PreparingLabel.Anchors := [akLeft, akTop];
+  { R26: 默认勾「是」自动关闭（原默认否→升级死锁在这里像卡死） }
+  WizardForm.PreparingYesRadio.Checked := True;
   WizardForm.PreparingLabel.SetBounds(UiX(UI_MARGIN), UiY(384),
     UiX(468), UiY(60));
   WizardForm.PreparingLabel.Color := UI_COLOR_BAND;
@@ -670,6 +677,11 @@ begin
   WizardForm.PreparingMemo.Left := UiX(UI_MARGIN);
   WizardForm.PreparingMemo.Width := UiX(468);
   WizardForm.PreparingMemo.Color := clWhite;
+  { R26: 锁文件应用列表移进卡片可视区（原坐标溢出卡片底部） }
+  WizardForm.PreparingMemo.Top := UiY(430);
+  WizardForm.PreparingMemo.Height := UiY(80);
+  WizardForm.PreparingNoRadio.Top := UiY(516);
+  WizardForm.PreparingYesRadio.Top := UiY(494);
 
   WizardForm.PreparingYesRadio.Anchors := [akLeft, akTop];
   WizardForm.PreparingYesRadio.Left := UiX(UI_MARGIN);
