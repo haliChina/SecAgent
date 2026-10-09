@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface State {
   error: Error | null;
+  componentStack: string | null;
   copied: boolean;
 }
 
@@ -18,22 +19,28 @@ interface State {
  * （settings-shell 外壳复用，视觉不跳）。
  */
 export class WindowErrorBoundary extends Component<{ crashTitle: string; windowTitle?: string; children: ReactNode }, State> {
-  state: State = { error: null, copied: false };
+  state: State = { error: null, componentStack: null, copied: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { error, copied: false };
+    return { error, componentStack: null, copied: false };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("[renderer] 渲染崩溃:", error, info.componentStack);
+    // R28：React #130（元素类型 undefined）这类错误只有组件栈能定位到具体组件，
+    // 落到 state 里随错误一起展示/复制，报障时无需翻 DevTools。
+    if (info.componentStack) this.setState({ componentStack: info.componentStack });
   }
 
   private copyDetails = (): void => {
     const error = this.state.error;
     if (!error) return;
-    void navigator.clipboard?.writeText(String(error.stack || error)).then(() => {
+    const details = this.state.componentStack
+      ? `${String(error.stack || error)}\n\nComponent stack:${this.state.componentStack}`
+      : String(error.stack || error);
+    void navigator.clipboard?.writeText(details).then(() => {
       this.setState({ copied: true });
-      window.setTimeout(() => this.setState((current) => ({ copied: false })), 2000);
+      window.setTimeout(() => this.setState({ copied: false }), 2000);
     }).catch(() => undefined);
   };
 
@@ -45,9 +52,10 @@ export class WindowErrorBoundary extends Component<{ crashTitle: string; windowT
           <h2>{this.props.crashTitle}</h2>
           <p>渲染过程中发生异常（此前这类错误表现为整窗白屏）。详细信息：</p>
           <pre>{String(this.state.error.stack || this.state.error)}</pre>
+          {this.state.componentStack ? <details className="settings-crash-components"><summary>组件栈（定位用）</summary><pre>{this.state.componentStack}</pre></details> : null}
           <div className="settings-crash-actions">
             <button type="button" onClick={this.copyDetails}>{this.state.copied ? "已复制 ✓" : "复制错误信息"}</button>
-            <button type="button" className="settings-crash-retry" onClick={() => this.setState({ error: null, copied: false })}>重试</button>
+            <button type="button" className="settings-crash-retry" onClick={() => this.setState({ error: null, componentStack: null, copied: false })}>重试</button>
           </div>
         </div>
       </main>;

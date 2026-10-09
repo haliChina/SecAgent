@@ -93,6 +93,15 @@ button:focus:not(:focus-visible) { outline: none; }
 .loading { color: var(--text-3); }
 .empty-state { position: relative; margin: auto; text-align: center; color: var(--text-3); }.empty-state h2 { position: relative; color: var(--text-1); margin-bottom: 6px; }.empty-state p { position: relative; }
 .composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 14px 15px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid var(--line-strong); border-radius: 15px; background: rgba(255,255,255,.88); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 rgba(255, 255, 255, .7); }
+/* R27+ PromptBar 自带外框（--pb-bg/radius/阴影全套），:has 命中时 composer 退化为
+   无形容器，避免「双层外框」之间的 padding 间隙；语音三分区/引用块等兄弟元素
+   仍需要留白，统一补 0 14px 8px 内边距。语音模式下 PromptBar 不在，规则自动失效。 */
+.composer:has(.app-promptbar) { padding: 0; border: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; min-height: 0; }
+.composer:has(.app-promptbar) .composer-attachments,
+.composer:has(.app-promptbar) .attachment-error { padding: 0 14px 8px; }
+.composer:has(.app-promptbar) .composer-quote { margin: 0 14px 8px; }
+.composer:has(.app-promptbar) .speech-status { padding: 0 14px 8px; flex-basis: auto; }
+.composer:has(.app-promptbar) .rb-vp { margin: 0 14px 8px; }
 .composer.dragging { border-color: var(--accent); background: var(--accent-soft); }.composer-attachments { flex: 0 0 100%; min-width: 0; }.attachment-strip { display: flex; flex-wrap: wrap; gap: 8px; }.attachment-card { position: relative; width: 58px; height: 58px; overflow: hidden; border: 1px solid  var(--line-strong); border-radius: 9px; background: var(--bg-3); }.attachment-card img { display: block; width: 100%; height: 100%; object-fit: cover; }.attachment-preview-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }.attachment-preview-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }.attachment-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.72); color: var(--bg-2); font-size: 15px; line-height: 16px; cursor: pointer; }.attachment-error { flex: 0 0 100%; color: #F87171; font-size: 11px; }.message-attachment-strip { margin-bottom: 8px; }.message-attachment-strip .attachment-card { width: 96px; height: 96px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.composer > textarea { flex: 1 1 120px; }
 .composer-actions { display: flex; gap: 12px; }
 .icon-button { width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--text-1); cursor: pointer; }
@@ -143,6 +152,9 @@ button:focus:not(:focus-visible) { outline: none; }
 .settings-crash h2 { margin: 0 0 8px; font-size: 16px; color: #F87171; }
 .settings-crash p { margin: 0 0 12px; font-size: 13px; color: var(--text-2); }
 .settings-crash pre { max-height: 320px; overflow: auto; padding: 12px; border-radius: 8px; background: rgba(248,113,113,.14); color: #F87171; font-size: 12px; white-space: pre-wrap; word-break: break-all; }
+.settings-crash-components { margin-top: 10px; }
+.settings-crash-components summary { color: var(--text-2); font-size: 12px; cursor: pointer; user-select: none; }
+.settings-crash-components pre { margin-top: 6px; color: var(--text-2); background: var(--bg-2); }
 .settings-crash button { margin-top: 12px; padding: 8px 18px; border: 0; border-radius: 8px; background: var(--accent); color: var(--bg-2); font-size: 13px; cursor: pointer; }
 .settings-crash-actions { display: flex; gap: 10px; }
 .settings-crash-actions button { margin-top: 12px; }
@@ -240,9 +252,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 @keyframes wake-dots { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .wake-agent-content .execution-summary { margin: 0 0 4px; max-width: 680px; }
 .wake-error { max-width: min(760px, calc(100vw - 50px)); padding: 8px 12px; border-radius: 10px; background: rgba(61,22,22,.92); color: #F87171; font-size: 13px; }
-.wake-hotkey-field { display: flex; align-items: flex-end; gap: 10px; max-width: 480px; }.wake-hotkey-field label, .wake-phrase-field { flex: 1; display: grid; gap: 6px; color: var(--text-2); font-size: 12px; }.wake-hotkey-field input, .wake-phrase-field input { width: 100%; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; }.wake-hotkey-field input:focus, .wake-phrase-field input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37, 99, 235,.12); }.wake-model-setting { margin-top: 18px; }.wake-phrase-field { margin-top: 18px; }.settings-help { margin: 12px 0 0; color: var(--text-2); font-size: 12px; }
-.settings-nav { position: fixed; z-index: 3; top: 126px; left: 18px; display: grid; gap: 3px; width: 132px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.97); box-shadow: 0 2px 8px rgba(0,0,0,.03); }.settings-nav a { padding: 8px 10px; border-radius: 6px; color: var(--text-2); font-size: 13px; text-decoration: none; }.settings-nav a:hover { background: var(--accent-soft); color: var(--accent-text); }.plugin-state { margin-left: 8px; color: var(--text-3); font-size: 12px; font-weight: 400; }.plugin-state.ready, .plugin-message.ready, mark.ready { color: #4ADE80; }.plugin-state.error, .plugin-message.error, mark.error { color: #F87171; }.plugin-meta, .plugin-message, .plugin-empty, .plugin-page p { color: var(--text-3); font-size: 13px; }.plugin-toggle { color: var(--text-2); font-size: 12px; }.plugin-page { margin-top: 15px; padding: 13px; border-radius: 8px; background: var(--accent-soft); }.plugin-page h3 { margin: 0 0 4px; font-size: 14px; }.plugin-page p { margin: 5px 0; }.plugin-page mark { padding: 2px 5px; border-radius: 4px; background: rgba(74,222,128,.15); }
-@media (max-width: 960px) { .settings-nav { position: static; width: auto; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 auto 22px; max-width: 1000px; } }
+.settings-help { margin: 12px 0 0; color: var(--text-2); font-size: 12px; }
+/* R28 清理：旧版 .settings-nav 窄条/a 链接规则已删（HooksSidebar 用 button + Tailwind）。
+   .settings-nav 现役规则见下方 254 行 fixed 侧栏，布局交给组件 Tailwind flex 类。 */
+.plugin-state { margin-left: 8px; color: var(--text-3); font-size: 12px; font-weight: 400; }.plugin-state.ready, .plugin-message.ready, mark.ready { color: #4ADE80; }.plugin-state.error, .plugin-message.error, mark.error { color: #F87171; }.plugin-meta, .plugin-message, .plugin-empty, .plugin-page p { color: var(--text-3); font-size: 13px; }.plugin-toggle { color: var(--text-2); font-size: 12px; }.plugin-page { margin-top: 15px; padding: 13px; border-radius: 8px; background: var(--accent-soft); }.plugin-page h3 { margin: 0 0 4px; font-size: 14px; }.plugin-page p { margin: 5px 0; }.plugin-page mark { padding: 2px 5px; border-radius: 4px; background: rgba(74,222,128,.15); }
 
 /* Settings uses one active panel at a time with the navigation kept in a left rail. */
 .settings-shell:not(.oobe-shell) { padding-left: 268px; }

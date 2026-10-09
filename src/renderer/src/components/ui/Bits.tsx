@@ -1627,17 +1627,28 @@ export function HookSidebar({ activeId, items, onSelect }: {
     const list = listRef.current;
     if (!list) return;
     const measure = () => {
-      setCenters(
-        itemRefs.current
-          .map((el) => (el ? el.offsetTop + el.offsetHeight / 2 : null))
-          .filter((c): c is number => c !== null),
-      );
+      // 设置窗口常以 hidden 创建、ready-to-show 后才显示：未布局完成时宽/高为 0，
+      // offsetTop 全部塌到 0，钩线会叠到第一项上且 ResizeObserver 不再触发。此时跳过，
+      // 等布局稳定（observer/rAF）再测。
+      if (list.getBoundingClientRect().width === 0) return;
+      const next = itemRefs.current.map((el) => (el ? el.offsetTop + el.offsetHeight / 2 : null));
+      if (next.length !== items.length || next.some((c) => c === null)) return;
+      setCenters(next as number[]);
     };
 
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(list);
-    return () => observer.disconnect();
+    // 容器尺寸不变但按钮位置变化（窗口从隐藏到显示、字体晚到）时容器 observer 不触发，
+    // 逐个按钮 observe + 双 rAF 兜底，确保真实位置最终被测到。
+    for (const el of itemRefs.current) if (el) observer.observe(el);
+    const first = requestAnimationFrame(measure);
+    const second = requestAnimationFrame(() => requestAnimationFrame(measure));
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(first);
+      cancelAnimationFrame(second);
+    };
   }, [items.length]);
 
   const activeY = activeIndex < 0 ? null : (centers[activeIndex] ?? null);
@@ -4552,7 +4563,7 @@ export const PromptBar = ({
       <style>{STYLE}</style>
       {open ? (
         <div
-          className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[200px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
+          className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[260px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
           role={open === 'effort' ? 'dialog' : 'listbox'}
           aria-label={
             open === 'at' ? 'Sources' : open === 'slash' ? 'Commands' : open === 'model' ? 'Models' : 'Effort'
@@ -4637,7 +4648,7 @@ export const PromptBar = ({
                       {renderPbIcon(row.icon, 15)}
                     </span>
                   ) : null}
-                  <span className="flex-none text-[13px] font-medium">{row.name}</span>
+                  <span className="min-w-0 shrink truncate text-[13px] font-medium">{row.name}</span>
                   {row.description ? (
                     <span className="min-w-0 flex-auto truncate text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
                       {row.description}
