@@ -37,8 +37,16 @@ function exposeApi(): ExposedApi {
   return (globalThis as unknown as { __api: ExposedApi }).__api;
 }
 
-/** 装一个只把 api 暴露到 globalThis 的插件，让测试直接订阅。 */
-async function withApi(name: string, body: (api: ExposedApi, manager: PluginManager, workspace: string) => Promise<void>): Promise<void> {
+/**
+ * 装一个只把 api 暴露到 globalThis 的插件，让测试直接订阅。
+ * makeRuntime 会登记创建的 runtime 与 audit：Windows 不允许删除仍被
+ * SQLite 句柄打开的文件，清理目录前必须全部 close（与 runtime.test.ts 同一套约定）。
+ */
+type RuntimeOptions = ConstructorParameters<typeof SecAgentRuntime>[5];
+async function withApi(
+  name: string,
+  body: (api: ExposedApi, manager: PluginManager, workspace: string, makeRuntime: (config: SecAgentConfig, options?: RuntimeOptions) => SecAgentRuntime) => Promise<void>,
+): Promise<void> {
   const workspace = temp(name);
   const archivePath = path.join(workspace, "observer.zip");
   const archive = new AdmZip() as unknown as { addFile(n: string, d: Buffer): void; writeZip(f: string): void };
@@ -51,17 +59,28 @@ async function withApi(name: string, body: (api: ExposedApi, manager: PluginMana
   const manager = new PluginManager(workspace);
   await manager.initialize();
   await manager.install(archivePath);
+  const runtimes: SecAgentRuntime[] = [];
+  const audits: AuditStore[] = [];
+  const makeRuntime = (config: SecAgentConfig, options?: RuntimeOptions): SecAgentRuntime => {
+    const audit = new AuditStore(workspace);
+    audits.push(audit);
+    const runtime = new SecAgentRuntime(config, audit, [], undefined, manager, options);
+    runtimes.push(runtime);
+    return runtime;
+  };
   try {
-    await body(exposeApi(), manager, workspace);
+    await body(exposeApi(), manager, workspace, makeRuntime);
   } finally {
+    for (const runtime of runtimes) await runtime.close().catch(() => {});
+    for (const audit of audits) audit.close();
     await manager.shutdown();
-    fs.rmSync(workspace, { recursive: true, force: true });
+    fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 }
 
 test("回合经前置规则短路时派发完整序列，且不泄露提示词与工具结果", async () => {
   const seen: ActivityEvent[] = [];
-  await withApi("activity-prerule", async (api, manager, workspace) => {
+  await withApi("activity-prerule", async (api, manager, workspace, makeRuntime) => {
     const archivePath = path.join(workspace, "pre.zip");
     const archive = new AdmZip() as unknown as { addFile(n: string, d: Buffer): void; writeZip(f: string): void };
     archive.addFile("secagent-plugin.json", Buffer.from(JSON.stringify({ apiVersion: 1, id: "prerule", name: "PR", version: "1.0.0", main: "main.mjs", permissions: ["agent.tools", "agent.pre_rules"] })));
@@ -75,7 +94,7 @@ export function activate(api) {
     await manager.install(archivePath);
     api.onActivity((event) => { seen.push(event); });
 
-    const runtime = new SecAgentRuntime(baseConfig(workspace), new AuditStore(workspace), [], undefined, manager);
+    const runtime = makeRuntime(baseConfig(workspace));
     await runtime.run("用户私密的提示词", "high", [{ role: "user", content: "用户私密的提示词" }], undefined, { sessionId: "sess-7" });
 
     const kinds = seen.map((e) => e.kind);
@@ -94,7 +113,7 @@ export function activate(api) {
 
 test("工具走审批闸门时派发 approval_requested / approval_resolved", async () => {
   const seen: ActivityEvent[] = [];
-  await withApi("activity-approval", async (api, manager, workspace) => {
+  await withApi("activity-approval", async (api, manager, workspace, makeRuntime) => {
     const archivePath = path.join(workspace, "tool.zip");
     const archive = new AdmZip() as unknown as { addFile(n: string, d: Buffer): void; writeZip(f: string): void };
     archive.addFile("secagent-plugin.json", Buffer.from(JSON.stringify({ apiVersion: 1, id: "guarded", name: "G", version: "1.0.0", main: "main.mjs", permissions: ["agent.tools", "agent.pre_rules"] })));
@@ -108,12 +127,8 @@ export function activate(api) {
     await manager.install(archivePath);
     api.onActivity((event) => { seen.push(event); });
 
-    const runtime = new SecAgentRuntime(
+    const runtime = makeRuntime(
       baseConfig(workspace, { guard: { enabled: true, approved: [] } }),
-      new AuditStore(workspace),
-      [],
-      undefined,
-      manager,
       { confirmToolCall: async () => true }, // 用户点了「同意」
     );
     const result = await runtime.run("危险", "high", [{ role: "user", content: "危险" }], undefined, { sessionId: "s1" });
@@ -134,11 +149,11 @@ test("中断派发 turn_blocked(aborted)，真实异常派发 turn_failed(error)
   // 走真实网络分支需要密钥环境变量；不给会在请求发出前就失败，测不到 abort
   t.after(() => { delete process.env.SECAGENT_ACTIVITY_TEST_KEY; });
   process.env.SECAGENT_ACTIVITY_TEST_KEY = "test-key";
-  await withApi("activity-terminal", async (api, manager, workspace) => {
+  await withApi("activity-terminal", async (api, manager, workspace, makeRuntime) => {
     api.onActivity((event) => { seen.push(event); });
 
     // 入口就 abort：不构成一个回合，不应有任何事件
-    const dry = new SecAgentRuntime(baseConfig(workspace), new AuditStore(workspace), [], undefined, manager);
+    const dry = makeRuntime(baseConfig(workspace));
     const preAborted = new AbortController();
     preAborted.abort();
     await assert.rejects(() => dry.run("停", "high", undefined, preAborted.signal, { sessionId: "s2" }));
@@ -156,7 +171,7 @@ test("中断派发 turn_blocked(aborted)，真实异常派发 turn_failed(error)
           maxTokens: 100, systemPrompt: "unused",
         },
       });
-      const runtime = new SecAgentRuntime(hangingConfig, new AuditStore(workspace), [], undefined, manager);
+      const runtime = makeRuntime(hangingConfig);
       const aborting = new AbortController();
       setTimeout(() => aborting.abort(), 40);
       await assert.rejects(() => runtime.run("再试", "high", undefined, aborting.signal, { sessionId: "s2" }));
@@ -167,9 +182,8 @@ test("中断派发 turn_blocked(aborted)，真实异常派发 turn_failed(error)
       assert.equal(seen.some((e) => e.kind === "turn_failed"), false, "中断被误报成失败");
 
       seen.length = 0;
-      const refused = new SecAgentRuntime(
+      const refused = makeRuntime(
         baseConfig(workspace, { agent: { ...(baseConfig(workspace).agent as unknown as Record<string, unknown>), apiKeyEnv: "SECAGENT_ACTIVITY_TEST_KEY" } }),
-        new AuditStore(workspace), [], undefined, manager,
       );
       await assert.rejects(() => refused.run("失败", "high", undefined, undefined, { sessionId: "s3" }));
       const failed = seen.filter((e) => e.kind === "turn_failed");
@@ -186,15 +200,18 @@ test("中断派发 turn_blocked(aborted)，真实异常派发 turn_failed(error)
 
 test("没有订阅者时派发不影响回合行为，快照仍记录最终状态", async () => {
   const workspace = temp("activity-nosub");
+  const manager = new PluginManager(workspace);
+  const audit = new AuditStore(workspace);
+  const runtime = new SecAgentRuntime(baseConfig(workspace), audit, [], undefined, manager);
   try {
-    const manager = new PluginManager(workspace);
     await manager.initialize();
-    const runtime = new SecAgentRuntime(baseConfig(workspace), new AuditStore(workspace), [], undefined, manager);
     await assert.rejects(() => runtime.run("嗨", "high", undefined, undefined, { sessionId: "s4" }));
     assert.equal(manager.getActivity().phase, "failed");
     assert.equal(manager.getActivity().last?.sessionId, "s4");
-    await manager.shutdown();
   } finally {
-    fs.rmSync(workspace, { recursive: true, force: true });
+    await runtime.close().catch(() => {});
+    audit.close();
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
