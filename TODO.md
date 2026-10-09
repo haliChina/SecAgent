@@ -3,6 +3,24 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R39 · 2026-10-09）
+
+### PR #1 merge master（3fd7d5f）✓
+- master 新进 4 提交：overlay 权限+createOverlay / 运行预算+GUI 确认闸门 /
+  api.onActivity (#2) / Windows CI EBUSY 修复 (#3)
+- 唯一冲突：main.ts import 行（并集解决）；tsc EXIT=0；
+  通道 79→81（+overlay:ignore-mouse/move，master 新功能，预期）
+- PR#1 mergeable: true ✓
+
+### UI 借鉴方向（用户指定，下轮 UI 阶段用）
+- DeepSeek-Harness、ZCode 等——视觉参考待研究（列表/卡片密度、
+  对话流布局、侧栏结构、暗色主题细节）
+
+### B2-d main.ts 解体第四批 🔶
+- ☐ 窗口/托盘/菜单域（4 窗口 + tray + app menu + overlay 窗口组）
+- ☐ sessions/wake 域（含 settings:save 快捷键联动）
+- 目标 main.ts < 500（当前 1020，merge 后含 overlay 新代码）
+
 ## 本轮（R38 · 2026-10-09）
 
 ### B2 main.ts 解体 — 第三批（c1-c3）完成 ✓（Build 全绿 bc6e83c）
