@@ -3,6 +3,26 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R34 · 2026-10-09）
+
+### 用户扩权：UX 及后端一并重写 — P3 首批 + 后端 B0/B1-1 完成 ✓
+- ✓ P3 首批三组件（ThoughtLine/VoicePill/DaySeparator）：
+  样式随组件走（各自 .css）+ 类名/DOM 不变纯迁移；每组件一提交
+- ✓ 删 styles.css 死块：rb-vp 真源 CSS 236 行（R24 注入从未接线）+
+  composer 区 rb-vp 补丁行；929 → 677 行（累计 -288）
+- ✓ 后端 B0 审计（BACKEND-REWRITE-PLAN.md）：
+  main.ts 1691 行 70 IPC 通道（后端的 Bits.tsx）；四安装器平行复制
+  3702 行（classisland/classwidgets/iccce/secrandom 同接口同五阶段）；
+  asr/tts 分层是范本；24 测试文件是安全网
+- ✓ B1-1 死代码清除（8b14cdb）：12 死导出 + 2 传导孤儿（writeDirect/
+  writeWithWindowsUac）；复查确认 startCompanionProcessWithSameElevation
+  被三安装器使用故保留（避免误删）
+- ✓ P3 安装包已交付：SecAgent-Setup-20261009-102810-929ce67cd454.exe
+- ☐ B1-2（下轮）：四安装器提取 CompanionInstallerBase（3702 → ~1500 行）
+- ☐ B2：main.ts 解体（70 IPC 通道按域分组）
+- ☐ P3 续：delete-button/animated-counter/hook-sidebar/prompt-bar 等组件
+- ☐ B4：App.tsx 1019 行拆分 + styles.css 按窗口分域
+
 ## 本轮（R33 · 2026-10-09）
 
 ### P2 设计 token 统一 — 完成 ✓（CI 全绿 b390090）
