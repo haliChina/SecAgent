@@ -283,9 +283,18 @@ export class PluginManager {
       zip.extractAllTo(staging, true);
       const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : "plugin.json");
       if (previous) await this.deactivate(manifest.id);
-      await this.removeDirTolerant(pluginRoot, manifest.id);
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.renameSync(extractedRoot, target);
+      try {
+        await this.removeDirTolerant(pluginRoot, manifest.id);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.renameSync(extractedRoot, target);
+      } catch (error) {
+        // 安装在中途失败（如旧目录被锁且隔离也失败）：此刻插件已停用，
+        // 状态里仍是旧版本——尽力把旧版本重新激活，避免服务中断到下次重启。
+        if (previous?.enabled) {
+          try { await this.activate(manifest.id); } catch { /* 旧目录已残缺则保持停用，等待用户重试 */ }
+        }
+        throw error;
+      }
       this.state.plugins = this.state.plugins.filter((item) => item.id !== manifest.id);
       this.state.plugins.push({ id: manifest.id, version: manifest.version, enabled: previous?.enabled ?? true });
       this.saveState();
