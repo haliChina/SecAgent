@@ -12,9 +12,22 @@
   通道 79→81（+overlay:ignore-mouse/move，master 新功能，预期）
 - PR#1 mergeable: true ✓
 
-### UI 借鉴方向（用户指定，下轮 UI 阶段用）
-- DeepSeek-Harness、ZCode 等——视觉参考待研究（列表/卡片密度、
-  对话流布局、侧栏结构、暗色主题细节）
+### UI 借鉴研究（DeepSeek-Harness + ZCode）✓ 2026-10-09
+可落地的设计要点（按对 SecAgent 的适用度排序）：
+1. 【DSH】运行轨迹视图：时间线 + 每次工具调用记录与执行详情，
+   "让每一次运行有迹可循"——我们已有 sessions:runtime-events
+   数据流，缺的是前端 Timeline 面板（P3 候选：TraceView）
+2. 【ZCode】对话面板是一等公民：不藏在侧边栏，主窗对话流为核心
+   布局——校准我们主窗信息层级（当前已接近，保持）
+3. 【DSH】Session/Workspace 管理组：分组/扁平切换、搜索、fork、
+   归档——sessions:list 可加 search/fork/archive（后端 P4 候选）
+4. 【ZCode】语义化主题 Token 贯穿：zai-light/zai-dark 枚举
+   贯穿设置页与侧栏——我们暗色主题 R1-R14 已做，补 token 命名
+   系统化审查（P3 候选）
+5. 【DSH】工具调用独立渲染：conversation.chat.node 按 key 分发
+   ——我们已有 MessageActivities，对齐此模式扩展
+6. 【ZCode】轻量克制：侧栏底部齿轮设置入口、Cmd+K 系快捷键
+   习惯——低成本高感知
 
 ### B2-d main.ts 解体第四批 🔶
 - ☐ 窗口/托盘/菜单域（4 窗口 + tray + app menu + overlay 窗口组）

@@ -1,0 +1,3 @@
+npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+src/electron/ipc-sessions.ts(31,42): error TS2307: Cannot find module '../conversation-format.js' or its corresponding type declarations.
+EXIT=2
