@@ -105,7 +105,6 @@ button:focus:not(:focus-visible) { outline: none; }
 .composer:has(.app-promptbar) .attachment-error { padding: 0 14px 8px; }
 .composer:has(.app-promptbar) .composer-quote { margin: 0 14px 8px; }
 .composer:has(.app-promptbar) .speech-status { padding: 0 14px 8px; flex-basis: auto; }
-.composer:has(.app-promptbar) .rb-vp { margin: 0 14px 8px; }
 .composer.dragging { border-color: var(--accent); background: var(--accent-soft); }.composer-attachments { flex: 0 0 100%; min-width: 0; }.attachment-strip { display: flex; flex-wrap: wrap; gap: 8px; }.attachment-card { position: relative; width: 58px; height: 58px; overflow: hidden; border: 1px solid  var(--line-strong); border-radius: 9px; background: var(--bg-3); }.attachment-card img { display: block; width: 100%; height: 100%; object-fit: cover; }.attachment-preview-button { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: zoom-in; }.attachment-preview-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }.attachment-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(0,0,0,.72); color: var(--bg-2); font-size: 15px; line-height: 16px; cursor: pointer; }.attachment-error { flex: 0 0 100%; color: #F87171; font-size: 11px; }.message-attachment-strip { margin-bottom: 8px; }.message-attachment-strip .attachment-card { width: 96px; height: 96px; }.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; clip-path: inset(50%); }.composer > textarea { flex: 1 1 120px; }
 .composer-actions { display: flex; gap: 12px; }
 .icon-button { width: 24px; height: 28px; padding: 0; border: 0; background: transparent; color: var(--text-1); cursor: pointer; }
@@ -624,26 +623,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .composer-orb-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 @keyframes orb-dock-in { from { opacity: 0; transform: translateY(8px) scale(.5); } }
 
-/* ---- DaySeparator (assistant-ui) ---- */
-.day-separator { display: flex; align-items: center; gap: 14px; margin: 10px 0 -4px; color: var(--text-3); font-size: 11.5px; user-select: none; }
-.day-separator-line { flex: 1; height: 1px; background: var(--line); }
-.day-separator-label { min-width: 48px; text-align: center; letter-spacing: .04em; }
-
-/* ---- ThoughtLine (reactbits) ---- */
-.thought-line { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 6px; color: var(--text-3); font-size: 12.5px; }
-.thought-line-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--bg-1); border-top-color: var(--accent); animation: thought-spin 0.9s linear infinite; }
-.thought-line.done .thought-line-spinner { animation: none; border: 2px solid var(--accent); border-radius: 3px; width: 10px; height: 10px; background: transparent; }
-@keyframes thought-spin { to { transform: rotate(360deg); } }
-
-/* ---- VoicePill (reactbits) ---- */
-.voice-pill { display: inline-flex; align-items: center; gap: 9px; min-height: 40px; padding: 6px 16px 6px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-3); color: var(--text-2); font-size: 12.5px; }
-.voice-pill.recording { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-text); }
-.voice-pill-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-3); }
-.voice-pill.recording .voice-pill-dot { background: #F87171; animation: voice-pill-blink 1.1s ease-in-out infinite; }
-@keyframes voice-pill-blink { 50% { opacity: .35; } }
-.voice-pill-wave { display: inline-flex; align-items: center; gap: 2.5px; height: 24px; }
-.voice-pill-wave i { width: 3px; border-radius: 2px; background: var(--accent); animation: voice-pill-bar .9s ease-in-out infinite alternate; }
-@keyframes voice-pill-bar { from { transform: scaleY(.35); } to { transform: scaleY(1); } }
+/* P3 R33：DaySeparator/ThoughtLine/VoicePill 样式已随组件走
+   （parts/day-separator.css、thought-line.css、voice-pill.css）。 */
 
 /* P1-2 R31：旧版 MessageActions/ToolErrorCard/ErrorStateCard/GuardrailNotice/
    StoppedRunTag/BranchedMenu 的类规则已删（对应组件零引用，见
@@ -659,245 +640,12 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
-  .thought-line-spinner, .voice-pill-dot, .voice-pill-wave i, .composer-orb-dock { animation: none !important; transition: none !important; }
+  /* P3 R33：thought-line/voice-pill 的动效已各自随组件 CSS 降级。 */
+  .composer-orb-dock { animation: none !important; transition: none !important; }
 }
 
-/* ==== react-bits VoicePill 真源 CSS（R24 注入，改前缀 .rb-vp 与旧状态条共存） ==== */
-.rb-vp {
-  --vp-accent: #f5f5f5;
-  --vp-icon: #a1a1aa;
-  --vp-bg: #27272a;
-  --vp-size: 28px;
-  --vp-radius: 14px;
-  --vp-reach: 8px;
-  --vp-extra: 0px;
-  --vp-clock-w: 0px;
-  --vp-wave-w: 0px;
-  --vp-slide: 0px;
-  --vp-cancel: 0;
-  --vp-stop: 9px;
-  --vp-icon-size: 15px;
-  --vp-time-size: 10px;
-  --vp-open: 200ms;
-  --vp-press: 0.95;
-  --vp-hit: 8px;
-  --vp-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  isolation: isolate;
-  width: var(--vp-size);
-  height: var(--vp-size);
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: var(--vp-radius);
-  background: transparent;
-  color: var(--vp-icon);
-  font-family: inherit;
-  cursor: pointer;
-  outline: none;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-touch-callout: none;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: none;
-  transition:
-    transform 160ms var(--vp-ease-out),
-    color 150ms ease;
-}
-
-.rb-vp::before {
-  content: '';
-  position: absolute;
-  inset: calc(-1 * var(--vp-hit));
-}
-
-.rb-vp[data-state='listening'] {
-  z-index: 1;
-  color: var(--vp-accent);
-}
-
-.rb-vp[data-pressed] {
-  transform: scale(var(--vp-press));
-}
-
-.rb-vp:disabled {
-  opacity: 0.55;
-  cursor: default;
-  pointer-events: none;
-}
-
-.voice-pill__capsule {
-  position: absolute;
-  inset: 0 0 0 calc(-1 * (var(--vp-reach) + var(--vp-extra)));
-  border-radius: var(--vp-radius);
-  background: var(--vp-bg);
-  clip-path: inset(0 0 0 calc(var(--vp-reach) + var(--vp-extra)) round var(--vp-radius));
-  pointer-events: none;
-  transition:
-    clip-path var(--vp-open) var(--vp-ease-out),
-    background-color 150ms ease;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .rb-vp[data-state='idle']:not(:disabled):hover .voice-pill__capsule {
-    background: color-mix(in srgb, var(--vp-icon) 10%, var(--vp-bg));
-  }
-}
-
-.rb-vp[data-state='listening'] .voice-pill__capsule {
-  clip-path: inset(0 0 round var(--vp-radius));
-}
-
-.voice-pill__time {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 100%;
-  display: grid;
-  place-items: center;
-  width: var(--vp-clock-w);
-  box-sizing: border-box;
-  color: var(--vp-accent);
-  font-size: var(--vp-time-size);
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  line-height: 1;
-  opacity: 0;
-  filter: blur(2px);
-  transform: translateX(var(--vp-slide));
-  pointer-events: none;
-  transition:
-    opacity 200ms ease,
-    filter 200ms ease,
-    transform 240ms var(--vp-ease-out);
-}
-
-.rb-vp[data-state='listening'] .voice-pill__time {
-  opacity: calc(1 - var(--vp-cancel));
-  filter: blur(0);
-}
-
-.voice-pill__wave {
-  position: absolute;
-  top: 18%;
-  right: calc(100% + var(--vp-clock-w));
-  width: var(--vp-wave-w);
-  height: 64%;
-  opacity: 0;
-  filter: blur(2px);
-  transform: translateX(var(--vp-slide));
-  pointer-events: none;
-  transition:
-    opacity 200ms ease,
-    filter 200ms ease,
-    transform 240ms var(--vp-ease-out);
-}
-
-.rb-vp[data-state='listening'] .voice-pill__wave {
-  opacity: calc(1 - var(--vp-cancel));
-  filter: blur(0);
-}
-
-.voice-pill__cancel {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 100%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  width: var(--vp-extra);
-  color: var(--vp-accent);
-  font-size: var(--vp-time-size);
-  font-weight: 500;
-  line-height: 1;
-  opacity: var(--vp-cancel);
-  pointer-events: none;
-}
-
-.rb-vp[data-sliding] .voice-pill__time,
-.rb-vp[data-sliding] .voice-pill__wave,
-.rb-vp[data-sliding] .voice-pill__glyph {
-  transition-property: opacity, filter;
-}
-
-.voice-pill__glyph {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: var(--vp-size);
-  height: var(--vp-size);
-  transform: translateX(var(--vp-slide));
-  transition: transform 240ms var(--vp-ease-out);
-}
-
-.voice-pill__glyph > * {
-  grid-area: 1 / 1;
-  transition:
-    opacity 200ms ease,
-    filter 200ms ease,
-    transform 200ms var(--vp-ease-out);
-}
-
-.voice-pill__mic {
-  display: inline-flex;
-}
-
-.voice-pill__stop {
-  width: var(--vp-stop);
-  height: var(--vp-stop);
-  border-radius: 22%;
-  background: currentColor;
-  opacity: 0;
-  filter: blur(2px);
-  transform: scale(0.6);
-}
-
-.rb-vp[data-state='listening'] .voice-pill__mic {
-  opacity: 0;
-  filter: blur(2px);
-  transform: scale(0.7);
-}
-
-.rb-vp[data-state='listening'] .voice-pill__stop {
-  opacity: 1;
-  filter: blur(0);
-  transform: scale(1);
-}
-
-.rb-vp[data-input='key'] .voice-pill__capsule,
-.rb-vp[data-input='key'] .voice-pill__time,
-.rb-vp[data-input='key'] .voice-pill__glyph > * {
-  transition-duration: 0ms;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rb-vp {
-    transform: none !important;
-    transition: color 150ms ease;
-  }
-
-  .voice-pill__capsule {
-    transition: background-color 150ms ease;
-  }
-
-  .voice-pill__glyph > * {
-    filter: none !important;
-    transform: none !important;
-    transition: opacity 200ms ease;
-  }
-
-  .voice-pill__time,
-  .voice-pill__wave,
-  .voice-pill__glyph {
-    filter: none !important;
-    transition-property: opacity;
-  }
-}
+/* P3 R33：react-bits VoicePill 真源 CSS（.rb-vp 前缀，R24 注入）整段删除——
+   rb-vp/voice-pill__* 类在全部 TSX 零引用（从未接线，录音 UI 用 VoicePill 适配版）。 */
 /* ==== R24：设置 HookSidebar 卡片化（真源直译版布局） ==== */
 .settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 76px; bottom: 20px; left: 22px; box-sizing: border-box; width: 188px; padding: 10px 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(0,0,0,.04); overflow-y: auto; }
 .settings-shell > .settings-error, .settings-shell > .settings-section, .settings-shell > .settings-sections, .settings-shell > div:not([class*="hook"]) { margin-left: 0; }
