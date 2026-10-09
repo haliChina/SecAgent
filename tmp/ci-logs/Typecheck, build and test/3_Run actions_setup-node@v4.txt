@@ -1,0 +1,27 @@
+﻿2026-10-09T12:08:07.9348856Z ##[group]Run actions/setup-node@v4
+2026-10-09T12:08:07.9350134Z with:
+2026-10-09T12:08:07.9351121Z   node-version: 22
+2026-10-09T12:08:07.9352532Z   cache: npm
+2026-10-09T12:08:07.9353466Z   always-auth: false
+2026-10-09T12:08:07.9354494Z   check-latest: false
+2026-10-09T12:08:07.9365628Z   token: ***
+2026-10-09T12:08:07.9366597Z ##[endgroup]
+2026-10-09T12:08:08.0824794Z Found in cache @ /opt/hostedtoolcache/node/22.23.3/x64
+2026-10-09T12:08:08.0828573Z (node:2297) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-09T12:08:08.0830293Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-09T12:08:08.0832768Z ##[group]Environment details
+2026-10-09T12:08:08.4687849Z node: v22.23.3
+2026-10-09T12:08:08.4688386Z npm: 10.9.9
+2026-10-09T12:08:08.4688656Z yarn: 1.22.22
+2026-10-09T12:08:08.4689333Z ##[endgroup]
+2026-10-09T12:08:08.4709004Z [command]/opt/hostedtoolcache/node/22.23.3/x64/bin/npm config get cache
+2026-10-09T12:08:08.5799023Z /home/runner/.npm
+2026-10-09T12:08:08.8481981Z Cache hit for: node-cache-Linux-x64-npm-722ab1f8f52fab3e10431b180ab787f1ea47cc5407b59f806484fd3b4a798f5c
+2026-10-09T12:08:08.8586776Z (node:2297) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-09T12:08:10.1280114Z Received 0 of 158597318 (0.0%), 0.0 MBs/sec
+2026-10-09T12:08:11.1294313Z Received 130023424 of 158597318 (82.0%), 61.9 MBs/sec
+2026-10-09T12:08:11.4412951Z Received 158597318 of 158597318 (100.0%), 65.4 MBs/sec
+2026-10-09T12:08:11.4442029Z Cache Size: ~151 MB (158597318 B)
+2026-10-09T12:08:11.4498456Z [command]/usr/bin/tar -xf /home/runner/work/_temp/36392b0b-efa3-443e-830a-83374edea5a4/cache.tzst -P -C /home/runner/work/SecAgent/SecAgent --use-compress-program unzstd
+2026-10-09T12:08:11.8387736Z Cache restored successfully
+2026-10-09T12:08:11.8464717Z Cache restored from key: node-cache-Linux-x64-npm-722ab1f8f52fab3e10431b180ab787f1ea47cc5407b59f806484fd3b4a798f5c

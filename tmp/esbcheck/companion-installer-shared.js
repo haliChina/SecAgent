@@ -1,90 +1,48 @@
-/**
- * 伴随软件安装器共享内核（B1-2）。
- *
- * classisland/classwidgets/iccce/secrandom 四安装器经 B0 审计确认：
- * 辅助函数 13 个四文件逐字一致，5 个仅差常量注入。本模块由
- * gen-shared.py 从 classwidgets.ts 机械提取生成（函数体零手改，
- * 仅参数化替换），各安装器保留平台特有逻辑。
- */
-
 import { execFile } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { DEFAULT_MARKETPLACE_PROXY_URL, describeDownloadAttempt, marketplaceRequestUrls, type DownloadAttemptLogger } from "./marketplace.js";
-
-export type SupportedPlatform = NodeJS.Platform;
-export type PathApi = typeof path.win32;
-export type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
-export type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
-
-export interface CompanionReleaseMetadata {
-  tag_name: string;
-  assets: Array<{ name: string; browser_download_url: string; digest: string }>;
-}
-
-export interface DiscoveredProcess {
-  executablePath: string;
-  pid: number;
-  commandLine?: string;
-  version?: string;
-  processName?: string;
-}
-
-export interface CompanionDownloadSpec {
-  productName: string;
-  releaseApiUrl: string;
-  releasePageUrl: string;
-  repository: string;
-  assetName: string;
-  maxBytes: number;
-}
-
+import { describeDownloadAttempt, marketplaceRequestUrls } from "./marketplace.js";
 const execFileAsync = promisify(execFile);
-
-export function platformPath(platform: SupportedPlatform): PathApi {
+function platformPath(platform) {
   return platform === "win32" ? path.win32 : path.posix;
 }
-
-export function normalizePath(value: string, platform: SupportedPlatform): string {
+function normalizePath(value, platform) {
   const api = platformPath(platform);
   const normalized = api.normalize(value);
   return platform === "win32" ? normalized.toLowerCase() : normalized;
 }
-
-export function hashId(executablePath: string, rootPath: string, platform: SupportedPlatform): string {
+function hashId(executablePath, rootPath, platform) {
   return crypto.createHash("sha256").update(`${normalizePath(executablePath, platform)}\0${normalizePath(rootPath, platform)}`).digest("hex").slice(0, 20);
 }
-
-export function defaultExists(candidate: string): boolean {
-  try { return fs.existsSync(candidate); } catch { return false; }
+function defaultExists(candidate) {
+  try {
+    return fs.existsSync(candidate);
+  } catch {
+    return false;
+  }
 }
-
-export function defaultReadFile(filePath: string): string {
+function defaultReadFile(filePath) {
   return fs.readFileSync(filePath, "utf8");
 }
-
-export function defaultCommandRunner(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+function defaultCommandRunner(file, args) {
   return execFileAsync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 2 * 1024 * 1024 }).then((result) => ({ stdout: result.stdout, stderr: result.stderr }));
 }
-
-export function quotePowerShell(value: string): string {
+function quotePowerShell(value) {
   return `'${value.replaceAll("'", "''")}'`;
 }
-
-export function parseJsonList(output: string): string[] {
+function parseJsonList(output) {
   if (!output.trim()) return [];
   try {
-    const parsed = JSON.parse(output) as unknown;
-    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string");
+    const parsed = JSON.parse(output);
+    if (Array.isArray(parsed)) return parsed.filter((item) => typeof item === "string");
     return typeof parsed === "string" ? [parsed] : [];
   } catch {
     return [];
   }
 }
-
-export async function discoverWindowsExternalPaths(commandRunner: CommandRunner, env: NodeJS.ProcessEnv, patterns: { displayNameFilter: string; targetPathPattern: string }): Promise<string[]> {
+async function discoverWindowsExternalPaths(commandRunner, env, patterns) {
   const registryScript = String.raw`
 $keys = @(
   'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
@@ -114,19 +72,20 @@ $result = Get-ChildItem -Path $roots -Filter '*.lnk' -File -Recurse -ErrorAction
   }
 @($result) | ConvertTo-Json -Compress
 `;
-  const paths: string[] = [];
+  const paths = [];
   try {
     const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", registryScript]);
     paths.push(...parseJsonList(result.stdout));
-  } catch { /* Registry access is best effort. */ }
+  } catch {
+  }
   try {
     const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", shortcutScript]);
     paths.push(...parseJsonList(result.stdout));
-  } catch { /* Shortcut access is best effort. */ }
+  } catch {
+  }
   return paths;
 }
-
-export async function discoverRunningProcesses(platform: SupportedPlatform, commandRunner: CommandRunner, exeNames: string[]): Promise<DiscoveredProcess[]> {
+async function discoverRunningProcesses(platform, commandRunner, exeNames) {
   if (platform !== "win32") return [];
   const script = String.raw`
 $names = @('${exeNames.join("', '")}')
@@ -147,33 +106,30 @@ Get-CimInstance Win32_Process |
   try {
     const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
     if (!result.stdout.trim()) return [];
-    const raw = JSON.parse(result.stdout) as unknown;
+    const raw = JSON.parse(result.stdout);
     const items = Array.isArray(raw) ? raw : [raw];
     return items.flatMap((item) => {
       if (!item || typeof item !== "object") return [];
-      const record = item as Record<string, unknown>;
+      const record = item;
       if (typeof record.executablePath !== "string" || typeof record.pid !== "number") return [];
-      return [{ executablePath: record.executablePath, pid: record.pid, ...(typeof record.commandLine === "string" ? { commandLine: record.commandLine } : {}), ...(typeof record.version === "string" ? { version: record.version } : {}), ...(typeof record.processName === "string" ? { processName: record.processName } : {}) }];
+      return [{ executablePath: record.executablePath, pid: record.pid, ...typeof record.commandLine === "string" ? { commandLine: record.commandLine } : {}, ...typeof record.version === "string" ? { version: record.version } : {}, ...typeof record.processName === "string" ? { processName: record.processName } : {} }];
     });
   } catch {
     return [];
   }
 }
-
-export function escapeRegExp(value: string): string {
+function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
-export function releaseTagFromPage(url: string | undefined, html: string): string | undefined {
-  const candidates = [url || "", ...(html.match(/\/releases\/tag\/[^\s"'<]+/gi) || [])];
+function releaseTagFromPage(url, html) {
+  const candidates = [url || "", ...html.match(/\/releases\/tag\/[^\s"'<]+/gi) || []];
   for (const candidate of candidates) {
     const match = candidate.match(/\/releases\/tag\/([^/?#"'<]+)/i);
     if (match?.[1]) return decodeURIComponent(match[1]);
   }
-  return undefined;
+  return void 0;
 }
-
-export function releaseAssetFromExpandedPage(html: string, assetName: string): CompanionReleaseMetadata["assets"][number] | undefined {
+function releaseAssetFromExpandedPage(html, assetName) {
   const blocks = html.match(/<li\b[\s\S]*?<\/li>/gi) || [];
   for (const block of blocks) {
     if (!new RegExp(`>${escapeRegExp(assetName)}<`, "i").test(block)) continue;
@@ -184,43 +140,59 @@ export function releaseAssetFromExpandedPage(html: string, assetName: string): C
     if (new URL(browserDownloadUrl).hostname !== "github.com") continue;
     return { name: assetName, browser_download_url: browserDownloadUrl, digest: `sha256:${digest}` };
   }
-  return undefined;
+  return void 0;
 }
-
-export async function fetchReleasePageMetadata(fetcher: Fetcher, now: () => number, releasePageUrl: string, repository: string, assetName: string): Promise<CompanionReleaseMetadata | undefined> {
-  let lastError: unknown;
+async function fetchReleasePageMetadata(fetcher, now, releasePageUrl, repository, assetName) {
+  let lastError;
   for (const pageUrl of marketplaceRequestUrls(`${releasePageUrl}?secagent_cache=${now()}`)) {
     try {
-      const response = await fetcher(pageUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
-      if (!response.ok) { lastError = new Error(`HTTP ${response.status}`); continue; }
+      const response = await fetcher(pageUrl, { signal: AbortSignal.timeout(12e3), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
+      if (!response.ok) {
+        lastError = new Error(`HTTP ${response.status}`);
+        continue;
+      }
       const html = await response.text();
       const tag = releaseTagFromPage(response.url, html);
-      if (!tag) { lastError = new Error("GitHub Release 页面缺少版本标签"); continue; }
+      if (!tag) {
+        lastError = new Error("GitHub Release \u9875\u9762\u7F3A\u5C11\u7248\u672C\u6807\u7B7E");
+        continue;
+      }
       const expandedUrl = `https://github.com/${repository}/releases/expanded_assets/${encodeURIComponent(tag)}?secagent_cache=${now()}`;
       for (const assetsUrl of marketplaceRequestUrls(expandedUrl)) {
         try {
-          const assetsResponse = await fetcher(assetsUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
-          if (!assetsResponse.ok) { lastError = new Error(`HTTP ${assetsResponse.status}`); continue; }
-          const asset = releaseAssetFromExpandedPage(await assetsResponse.text(), assetName);
+          const assetsResponse = await fetcher(assetsUrl, { signal: AbortSignal.timeout(12e3), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
+          if (!assetsResponse.ok) {
+            lastError = new Error(`HTTP ${assetsResponse.status}`);
+            continue;
+          }
+          const asset = releaseAssetFromExpandedPage(await assetsResponse.text());
           if (asset) return { tag_name: tag, assets: [asset] };
-          lastError = new Error(`Release 页面缺少 ${assetName} 或 SHA-256`);
-        } catch (error) { lastError = error; }
+          lastError = new Error(`Release \u9875\u9762\u7F3A\u5C11 ${assetName} \u6216 SHA-256`);
+        } catch (error) {
+          lastError = error;
+        }
       }
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      lastError = error;
+    }
   }
-  return undefined;
+  return void 0;
 }
-
-export function parseWindowsCommandLine(commandLine: string | undefined): string[] {
+function parseWindowsCommandLine(commandLine) {
   if (!commandLine?.trim()) return [];
-  const args: string[] = [];
+  const args = [];
   let current = "";
   let quoted = false;
   let slashCount = 0;
-  const pushSlashes = (count: number) => { current += "\\".repeat(count); };
+  const pushSlashes = (count) => {
+    current += "\\".repeat(count);
+  };
   for (let index = 0; index < commandLine.length; index++) {
     const char = commandLine[index];
-    if (char === "\\") { slashCount++; continue; }
+    if (char === "\\") {
+      slashCount++;
+      continue;
+    }
     if (char === '"') {
       pushSlashes(Math.floor(slashCount / 2));
       if (slashCount % 2 === 1) current += '"';
@@ -231,16 +203,18 @@ export function parseWindowsCommandLine(commandLine: string | undefined): string
     pushSlashes(slashCount);
     slashCount = 0;
     if (/\s/.test(char) && !quoted) {
-      if (current) { args.push(current); current = ""; }
+      if (current) {
+        args.push(current);
+        current = "";
+      }
     } else current += char;
   }
   pushSlashes(slashCount);
   if (current) args.push(current);
   return args;
 }
-
-export function compareVersions(left: string, right: string): number {
-  const parse = (value: string) => value.trim().replace(/^v/i, "").split(/[.+-]/).map((part) => Number(part) || 0);
+function compareVersions(left, right) {
+  const parse = (value) => value.trim().replace(/^v/i, "").split(/[.+-]/).map((part) => Number(part) || 0);
   const a = parse(left);
   const b = parse(right);
   for (let index = 0; index < Math.max(a.length, b.length); index++) {
@@ -249,62 +223,58 @@ export function compareVersions(left: string, right: string): number {
   }
   return 0;
 }
-
-export async function waitForInstalledPlugin(
-  readVersion: () => string | undefined,
-  expectedVersion: string,
-  timeoutMs = 15_000,
-  pollMs = 250
-): Promise<string | undefined> {
+async function waitForInstalledPlugin(readVersion, expectedVersion, timeoutMs = 15e3, pollMs = 250) {
   const deadline = Date.now() + timeoutMs;
   while (true) {
     const current = readVersion();
     if (current && compareVersions(current, expectedVersion) >= 0) return current;
-    if (Date.now() >= deadline) return undefined;
+    if (Date.now() >= deadline) return void 0;
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }
-
-export async function defaultVersionOf(executablePath: string, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<string | undefined> {
+async function defaultVersionOf(executablePath, platform, commandRunner) {
   if (platform === "win32") {
     const script = `$item = Get-Item -LiteralPath ${quotePowerShell(executablePath)}; $item.VersionInfo.ProductVersion`;
     try {
       const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-      return result.stdout.trim() || undefined;
-    } catch { return undefined; }
+      return result.stdout.trim() || void 0;
+    } catch {
+      return void 0;
+    }
   }
   if (platform === "darwin") {
     const api = path.posix;
     const appPath = executablePath.match(/^(.*?\.app)\/Contents\/MacOS\//i)?.[1];
-    if (!appPath) return undefined;
+    if (!appPath) return void 0;
     try {
       const result = await commandRunner("plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", api.join(appPath, "Contents", "Info.plist")]);
-      return result.stdout.trim() || undefined;
-    } catch { return undefined; }
+      return result.stdout.trim() || void 0;
+    } catch {
+      return void 0;
+    }
   }
-  return undefined;
+  return void 0;
 }
-
-export async function downloadLatestCompanionPlugin(fetcher: Fetcher, now: () => number, onProgress: ((phase: string, message?: string) => void) | undefined, onRoute: DownloadAttemptLogger | undefined, spec: CompanionDownloadSpec): Promise<{ bytes: Buffer; version: string; sha256: string }> {
-  onProgress?.("downloading", `正在通过 ghproxy.sectl.cn 下载最新 ${spec.productName} 插件`);
-  let release: { tag_name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown } | undefined;
-  let lastError: unknown;
+async function downloadLatestCompanionPlugin(fetcher, now, onProgress, onRoute, spec) {
+  onProgress?.("downloading", `\u6B63\u5728\u901A\u8FC7 ghproxy.sectl.cn \u4E0B\u8F7D\u6700\u65B0 ${spec.productName} \u63D2\u4EF6`);
+  let release;
+  let lastError;
   for (const directUrl of [spec.releaseApiUrl]) {
     const metadataCandidates = marketplaceRequestUrls(`${directUrl}?secagent_cache=${now()}`);
     for (let index = 0; index < metadataCandidates.length; index++) {
       const candidate = metadataCandidates[index];
       const startedAt = Date.now();
       try {
-        const response = await fetcher(candidate, { signal: AbortSignal.timeout(12_000), headers: { Accept: "application/vnd.github+json", "User-Agent": "SecAgent" } });
+        const response = await fetcher(candidate, { signal: AbortSignal.timeout(12e3), headers: { Accept: "application/vnd.github+json", "User-Agent": "SecAgent" } });
         if (!response.ok) {
           lastError = new Error(`HTTP ${response.status}`);
           onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status, error: `HTTP ${response.status}` }, metadataCandidates.slice(index + 1)));
           continue;
         }
-        const payload = await response.json() as typeof release;
+        const payload = await response.json();
         if (!payload || typeof payload.tag_name !== "string" || payload.draft === true || payload.prerelease === true || !Array.isArray(payload.assets)) {
-          lastError = new Error("GitHub 最新 Release 信息无效");
-          onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status, error: "GitHub 最新 Release 信息无效" }, metadataCandidates.slice(index + 1)));
+          lastError = new Error("GitHub \u6700\u65B0 Release \u4FE1\u606F\u65E0\u6548");
+          onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status, error: "GitHub \u6700\u65B0 Release \u4FE1\u606F\u65E0\u6548" }, metadataCandidates.slice(index + 1)));
           continue;
         }
         onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status }, []));
@@ -320,25 +290,25 @@ export async function downloadLatestCompanionPlugin(fetcher: Fetcher, now: () =>
     const pageRelease = await fetchReleasePageMetadata(fetcher, now, spec.releasePageUrl, spec.repository, spec.assetName);
     if (pageRelease) release = pageRelease;
   }
-  if (!release) throw new Error(`无法读取 ${spec.productName} 最新 Release：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  if (!release) throw new Error(`\u65E0\u6CD5\u8BFB\u53D6 ${spec.productName} \u6700\u65B0 Release\uFF1A${lastError instanceof Error ? lastError.message : String(lastError)}`);
   const assets = Array.isArray(release.assets) ? release.assets : [];
-  const asset = assets.find((item: unknown) => {
+  const asset = assets.find((item) => {
     if (!item || typeof item !== "object") return false;
-    const record = item as Record<string, unknown>;
+    const record = item;
     return record.name === spec.assetName && typeof record.browser_download_url === "string";
-  }) as Record<string, unknown> | undefined;
-  if (!asset) throw new Error(`最新 ${spec.productName} Release 缺少 ${spec.assetName}`);
+  });
+  if (!asset) throw new Error(`\u6700\u65B0 ${spec.productName} Release \u7F3A\u5C11 ${spec.assetName}`);
   const size = typeof asset.size === "number" ? asset.size : 0;
-  if (size > spec.maxBytes) throw new Error(`${spec.productName} 插件包过大，已停止安装`);
+  if (size > spec.maxBytes) throw new Error(`${spec.productName} \u63D2\u4EF6\u5305\u8FC7\u5927\uFF0C\u5DF2\u505C\u6B62\u5B89\u88C5`);
   const digest = typeof asset.digest === "string" ? asset.digest.replace(/^sha256:/i, "") : "";
-  if (!/^[a-f0-9]{64}$/i.test(digest)) throw new Error(`${spec.productName} Release 缺少有效的 SHA-256 校验值`);
-  const downloadUrl = asset.browser_download_url as string;
+  if (!/^[a-f0-9]{64}$/i.test(digest)) throw new Error(`${spec.productName} Release \u7F3A\u5C11\u6709\u6548\u7684 SHA-256 \u6821\u9A8C\u503C`);
+  const downloadUrl = asset.browser_download_url;
   const packageCandidates = marketplaceRequestUrls(downloadUrl);
   for (let index = 0; index < packageCandidates.length; index++) {
     const candidate = packageCandidates[index];
     const startedAt = Date.now();
     try {
-      const response = await fetcher(candidate, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "SecAgent" } });
+      const response = await fetcher(candidate, { signal: AbortSignal.timeout(6e4), headers: { "User-Agent": "SecAgent" } });
       if (!response.ok) {
         lastError = new Error(`HTTP ${response.status}`);
         onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, error: `HTTP ${response.status}` }, packageCandidates.slice(index + 1)));
@@ -346,15 +316,15 @@ export async function downloadLatestCompanionPlugin(fetcher: Fetcher, now: () =>
       }
       const bytes = Buffer.from(await response.arrayBuffer());
       if (bytes.length > spec.maxBytes) {
-        lastError = new Error(`${spec.productName} 插件包过大`);
-        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, error: `${spec.productName} 插件包过大` }, packageCandidates.slice(index + 1)));
+        lastError = new Error(`${spec.productName} \u63D2\u4EF6\u5305\u8FC7\u5927`);
+        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, error: `${spec.productName} \u63D2\u4EF6\u5305\u8FC7\u5927` }, packageCandidates.slice(index + 1)));
         continue;
       }
-      onProgress?.("verifying", `正在校验 ${spec.productName} 插件 SHA-256`);
+      onProgress?.("verifying", `\u6B63\u5728\u6821\u9A8C ${spec.productName} \u63D2\u4EF6 SHA-256`);
       const actual = crypto.createHash("sha256").update(bytes).digest("hex");
       if (actual.toLowerCase() !== digest.toLowerCase()) {
-        lastError = new Error(`${spec.productName} 插件 SHA-256 校验失败`);
-        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, sha256: actual, error: `SHA-256 校验失败，期望 ${digest}` }, packageCandidates.slice(index + 1)));
+        lastError = new Error(`${spec.productName} \u63D2\u4EF6 SHA-256 \u6821\u9A8C\u5931\u8D25`);
+        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, sha256: actual, error: `SHA-256 \u6821\u9A8C\u5931\u8D25\uFF0C\u671F\u671B ${digest}` }, packageCandidates.slice(index + 1)));
         continue;
       }
       onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, sha256: actual }, []));
@@ -364,10 +334,9 @@ export async function downloadLatestCompanionPlugin(fetcher: Fetcher, now: () =>
       onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { error: error instanceof Error ? error.message : String(error) }, packageCandidates.slice(index + 1)));
     }
   }
-  throw new Error(`下载 ${spec.productName} 插件失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  throw new Error(`\u4E0B\u8F7D ${spec.productName} \u63D2\u4EF6\u5931\u8D25\uFF1A${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
-
-export async function defaultRequestGracefulClose(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<boolean> {
+async function defaultRequestGracefulClose(pid, platform, commandRunner) {
   if (platform === "win32") {
     const script = `$process = Get-Process -Id ${pid} -ErrorAction Stop; [bool]$process.CloseMainWindow()`;
     const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
@@ -376,8 +345,7 @@ export async function defaultRequestGracefulClose(pid: number, platform: Support
   process.kill(pid, "SIGTERM");
   return true;
 }
-
-export async function defaultForceTerminate(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<void> {
+async function defaultForceTerminate(pid, platform, commandRunner) {
   if (platform === "win32") {
     const script = `Stop-Process -Id ${pid} -Force -ErrorAction Stop`;
     await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
@@ -385,7 +353,35 @@ export async function defaultForceTerminate(pid: number, platform: SupportedPlat
   }
   process.kill(pid, "SIGKILL");
 }
-
-export async function defaultIsProcessRunning(pid: number): Promise<boolean> {
-  try { process.kill(pid, 0); return true; } catch { return false; }
+async function defaultIsProcessRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
+export {
+  compareVersions,
+  defaultCommandRunner,
+  defaultExists,
+  defaultForceTerminate,
+  defaultIsProcessRunning,
+  defaultReadFile,
+  defaultRequestGracefulClose,
+  defaultVersionOf,
+  discoverRunningProcesses,
+  discoverWindowsExternalPaths,
+  downloadLatestCompanionPlugin,
+  escapeRegExp,
+  fetchReleasePageMetadata,
+  hashId,
+  normalizePath,
+  parseJsonList,
+  parseWindowsCommandLine,
+  platformPath,
+  quotePowerShell,
+  releaseAssetFromExpandedPage,
+  releaseTagFromPage,
+  waitForInstalledPlugin
+};

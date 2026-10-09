@@ -5,7 +5,6 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { closeHostProcesses, enumerateHostProcesses, installCompanionPackage, startCompanionProcessWithSameElevation, type CompanionExecutor, type CompanionLogger, type CompanionPackageSpec, type HostProcessFilter, type HostProcessInfo } from "./companion-package.js";
-import { compareVersions, defaultCommandRunner, defaultExists, defaultForceTerminate, defaultIsProcessRunning, defaultReadFile, defaultRequestGracefulClose, defaultVersionOf, discoverRunningProcesses, discoverWindowsExternalPaths, downloadLatestCompanionPlugin, hashId, normalizePath, parseJsonList, parseWindowsCommandLine, platformPath, waitForInstalledPlugin, type CommandRunner, type CompanionDownloadSpec, type DiscoveredProcess, type Fetcher, type PathApi, type SupportedPlatform } from "./companion-installer-shared.js";
 import { DEFAULT_MARKETPLACE_PROXY_URL, describeDownloadAttempt, marketplaceRequestUrls, type DownloadAttemptLogger } from "./marketplace.js";
 
 export const CLASSWIDGETS_PLUGIN_REPOSITORY = "SECTL/ClassWidgets-SecAgent-Plugin";
@@ -13,8 +12,6 @@ export const CLASSWIDGETS_PLUGIN_ID = "cn.sectl.secagent";
 export const CLASSWIDGETS_PLUGIN_ASSET_NAME = "cn.sectl.secagent.cwplugin";
 export const MIN_CLASSWIDGETS_VERSION = "2.0.0.0";
 export const CLASSWIDGETS_RELEASE_API_URL = `https://api.github.com/repos/${CLASSWIDGETS_PLUGIN_REPOSITORY}/releases/latest`;
-
-/** B1-2：共享下载内核的差异化描述（GitHub Release 下载降级链/资产名/体积上限）。 */
 const CLASSWIDGETS_RELEASE_PAGE_URL = `https://github.com/${CLASSWIDGETS_PLUGIN_REPOSITORY}/releases/latest`;
 
 /** CW2 stores its plugin API compatibility in `api_version` (PEP 440 specifier).
@@ -25,16 +22,12 @@ const CLASSWIDGETS_PLUGIN_ID_PATTERN = /"id"\s*:\s*"([^"]+)"/i;
 const CLASSWIDGETS_PLUGIN_ENTRY_PATTERN = /"entry"\s*:\s*"([^"]+)"/i;
 const WINDOWS_CLASSWIDGETS_EXE = "ClassWidgets.exe";
 const MAX_CLASSWIDGETS_PLUGIN_BYTES = 100 * 1024 * 1024;
-/** B1-2：共享下载内核的差异化描述（GitHub Release 下载降级链/资产名/体积上限）。 */
-export const CLASSWIDGETS_DOWNLOAD_SPEC: CompanionDownloadSpec = {
-  productName: "Class Widgets",
-  releaseApiUrl: CLASSWIDGETS_RELEASE_API_URL,
-  releasePageUrl: CLASSWIDGETS_RELEASE_PAGE_URL,
-  repository: CLASSWIDGETS_PLUGIN_REPOSITORY,
-  assetName: CLASSWIDGETS_PLUGIN_ASSET_NAME,
-  maxBytes: MAX_CLASSWIDGETS_PLUGIN_BYTES
-};
 const CLASSWIDGETS_HEALTH_URL = "http://127.0.0.1:18791/health";
+
+type SupportedPlatform = NodeJS.Platform;
+type PathApi = typeof path.win32;
+type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
+type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export interface ClassWidgetsInstallCandidate {
   id: string;
@@ -72,7 +65,13 @@ export interface ClassWidgetsInstallProgress {
   message?: string;
 }
 
-export type ClassWidgetsRunningProcess = DiscoveredProcess;
+export interface ClassWidgetsRunningProcess {
+  executablePath: string;
+  pid: number;
+  commandLine?: string;
+  version?: string;
+  processName?: string;
+}
 
 export interface ClassWidgetsDiscoveryOptions {
   platform?: SupportedPlatform;
@@ -105,6 +104,207 @@ export interface ClassWidgetsInstallerOptions extends ClassWidgetsDiscoveryOptio
 }
 
 const execFileAsync = promisify(execFile);
+
+function platformPath(platform: SupportedPlatform): PathApi {
+  return platform === "win32" ? path.win32 : path.posix;
+}
+
+function normalizePath(value: string, platform: SupportedPlatform): string {
+  const api = platformPath(platform);
+  const normalized = api.normalize(value);
+  return platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function hashId(executablePath: string, pluginsPath: string, platform: SupportedPlatform): string {
+  return crypto.createHash("sha256").update(`${normalizePath(executablePath, platform)}\0${normalizePath(pluginsPath, platform)}`).digest("hex").slice(0, 20);
+}
+
+function defaultExists(candidate: string): boolean {
+  try { return fs.existsSync(candidate); } catch { return false; }
+}
+
+function defaultReadFile(filePath: string): string {
+  return fs.readFileSync(filePath, "utf8");
+}
+
+function defaultCommandRunner(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return execFileAsync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 2 * 1024 * 1024 }).then((result) => ({ stdout: result.stdout, stderr: result.stderr }));
+}
+
+function quotePowerShell(value: string): string {
+  return `'${value.replaceAll("'", "''")}'`;
+}
+
+function parseJsonList(output: string): string[] {
+  if (!output.trim()) return [];
+  try {
+    const parsed = JSON.parse(output) as unknown;
+    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string");
+    return typeof parsed === "string" ? [parsed] : [];
+  } catch {
+    return [];
+  }
+}
+
+async function discoverWindowsExternalPaths(commandRunner: CommandRunner, env: NodeJS.ProcessEnv): Promise<string[]> {
+  const registryScript = String.raw`
+$keys = @(
+  'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+  'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+)
+$result = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
+  Where-Object { $_.DisplayName -like '*Class*Widgets*' } |
+  ForEach-Object { @($_.InstallLocation, ($_.DisplayIcon -replace ',\d+$', '')) } |
+  Where-Object { $_ -and $_.ToString().Trim() }
+@($result) | ConvertTo-Json -Compress
+`;
+  const shortcutRoots = [
+    path.win32.join(env.APPDATA || "", "Microsoft", "Windows", "Start Menu", "Programs"),
+    path.win32.join(env.ProgramData || "C:\\ProgramData", "Microsoft", "Windows", "Start Menu", "Programs"),
+    path.win32.join(env.USERPROFILE || "", "Desktop")
+  ];
+  const shortcutScript = String.raw`
+$roots = @(${shortcutRoots.map(quotePowerShell).join(",")})
+$shell = New-Object -ComObject WScript.Shell
+$result = Get-ChildItem -Path $roots -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue |
+  ForEach-Object {
+    try {
+      $shortcut = $shell.CreateShortcut($_.FullName)
+      if ($shortcut.TargetPath -match '(?i)Class.?Widgets') { $shortcut.TargetPath }
+    } catch { }
+  }
+@($result) | ConvertTo-Json -Compress
+`;
+  const paths: string[] = [];
+  try {
+    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", registryScript]);
+    paths.push(...parseJsonList(result.stdout));
+  } catch { /* Registry access is best effort. */ }
+  try {
+    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", shortcutScript]);
+    paths.push(...parseJsonList(result.stdout));
+  } catch { /* Shortcut access is best effort. */ }
+  return paths;
+}
+
+async function discoverRunningProcesses(platform: SupportedPlatform, commandRunner: CommandRunner): Promise<ClassWidgetsRunningProcess[]> {
+  if (platform !== "win32") return [];
+  const script = String.raw`
+$names = @('${WINDOWS_CLASSWIDGETS_EXE}')
+Get-CimInstance Win32_Process |
+  Where-Object { $names -contains $_.Name } |
+  ForEach-Object {
+    $version = $null
+    try { $version = (Get-Item -LiteralPath $_.ExecutablePath).VersionInfo.ProductVersion } catch { }
+    [pscustomobject]@{
+      executablePath = if ($_.ExecutablePath) { [string]$_.ExecutablePath } else { [string]$_.Name }
+      pid = [int]$_.ProcessId
+      commandLine = $_.CommandLine
+      version = $version
+      processName = [string]$_.Name
+    }
+  } | ConvertTo-Json -Compress
+`;
+  try {
+    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
+    if (!result.stdout.trim()) return [];
+    const raw = JSON.parse(result.stdout) as unknown;
+    const items = Array.isArray(raw) ? raw : [raw];
+    return items.flatMap((item) => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      if (typeof record.executablePath !== "string" || typeof record.pid !== "number") return [];
+      return [{ executablePath: record.executablePath, pid: record.pid, ...(typeof record.commandLine === "string" ? { commandLine: record.commandLine } : {}), ...(typeof record.version === "string" ? { version: record.version } : {}), ...(typeof record.processName === "string" ? { processName: record.processName } : {}) }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+interface ClassWidgetsReleaseMetadata {
+  tag_name: string;
+  assets: Array<{ name: string; browser_download_url: string; digest: string }>;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function releaseTagFromPage(url: string | undefined, html: string): string | undefined {
+  const candidates = [url || "", ...(html.match(/\/releases\/tag\/[^\s"'<]+/gi) || [])];
+  for (const candidate of candidates) {
+    const match = candidate.match(/\/releases\/tag\/([^/?#"'<]+)/i);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  }
+  return undefined;
+}
+
+function releaseAssetFromExpandedPage(html: string): ClassWidgetsReleaseMetadata["assets"][number] | undefined {
+  const blocks = html.match(/<li\b[\s\S]*?<\/li>/gi) || [];
+  for (const block of blocks) {
+    if (!new RegExp(`>${escapeRegExp(CLASSWIDGETS_PLUGIN_ASSET_NAME)}<`, "i").test(block)) continue;
+    const href = block.match(/href=["']([^"']+\/releases\/download\/[^"']+)["']/i)?.[1]?.replaceAll("&amp;", "&");
+    const digest = block.match(/sha256:([a-f0-9]{64})/i)?.[1];
+    if (!href || !digest) continue;
+    const browserDownloadUrl = new URL(href, "https://github.com").toString();
+    if (new URL(browserDownloadUrl).hostname !== "github.com") continue;
+    return { name: CLASSWIDGETS_PLUGIN_ASSET_NAME, browser_download_url: browserDownloadUrl, digest: `sha256:${digest}` };
+  }
+  return undefined;
+}
+
+async function fetchReleasePageMetadata(fetcher: Fetcher, now: () => number): Promise<ClassWidgetsReleaseMetadata | undefined> {
+  let lastError: unknown;
+  for (const pageUrl of marketplaceRequestUrls(`${CLASSWIDGETS_RELEASE_PAGE_URL}?secagent_cache=${now()}`)) {
+    try {
+      const response = await fetcher(pageUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
+      if (!response.ok) { lastError = new Error(`HTTP ${response.status}`); continue; }
+      const html = await response.text();
+      const tag = releaseTagFromPage(response.url, html);
+      if (!tag) { lastError = new Error("GitHub Release 页面缺少版本标签"); continue; }
+      const expandedUrl = `https://github.com/${CLASSWIDGETS_PLUGIN_REPOSITORY}/releases/expanded_assets/${encodeURIComponent(tag)}?secagent_cache=${now()}`;
+      for (const assetsUrl of marketplaceRequestUrls(expandedUrl)) {
+        try {
+          const assetsResponse = await fetcher(assetsUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
+          if (!assetsResponse.ok) { lastError = new Error(`HTTP ${assetsResponse.status}`); continue; }
+          const asset = releaseAssetFromExpandedPage(await assetsResponse.text());
+          if (asset) return { tag_name: tag, assets: [asset] };
+          lastError = new Error(`Release 页面缺少 ${CLASSWIDGETS_PLUGIN_ASSET_NAME} 或 SHA-256`);
+        } catch (error) { lastError = error; }
+      }
+    } catch (error) { lastError = error; }
+  }
+  return undefined;
+}
+
+function parseWindowsCommandLine(commandLine: string | undefined): string[] {
+  if (!commandLine?.trim()) return [];
+  const args: string[] = [];
+  let current = "";
+  let quoted = false;
+  let slashCount = 0;
+  const pushSlashes = (count: number) => { current += "\\".repeat(count); };
+  for (let index = 0; index < commandLine.length; index++) {
+    const char = commandLine[index];
+    if (char === "\\") { slashCount++; continue; }
+    if (char === '"') {
+      pushSlashes(Math.floor(slashCount / 2));
+      if (slashCount % 2 === 1) current += '"';
+      else quoted = !quoted;
+      slashCount = 0;
+      continue;
+    }
+    pushSlashes(slashCount);
+    slashCount = 0;
+    if (/\s/.test(char) && !quoted) {
+      if (current) { args.push(current); current = ""; }
+    } else current += char;
+  }
+  pushSlashes(slashCount);
+  if (current) args.push(current);
+  return args;
+}
 
 function potentialExecutablePaths(input: string, platform: SupportedPlatform): string[] {
   const api = platformPath(platform);
@@ -198,8 +398,50 @@ async function waitForClassWidgetsHealth(fetcher: Fetcher, timeoutMs = 45_000, p
   }
 }
 
+async function waitForInstalledPlugin(
+  readVersion: () => string | undefined,
+  expectedVersion: string,
+  timeoutMs = 15_000,
+  pollMs = 250
+): Promise<string | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  while (true) {
+    const current = readVersion();
+    if (current && compareClassWidgetsVersions(current, expectedVersion) >= 0) return current;
+    if (Date.now() >= deadline) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+async function defaultVersionOf(executablePath: string, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<string | undefined> {
+  if (platform === "win32") {
+    const script = `$item = Get-Item -LiteralPath ${quotePowerShell(executablePath)}; $item.VersionInfo.ProductVersion`;
+    try {
+      const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
+      return result.stdout.trim() || undefined;
+    } catch { return undefined; }
+  }
+  if (platform === "darwin") {
+    const api = path.posix;
+    const appPath = executablePath.match(/^(.*?\.app)\/Contents\/MacOS\//i)?.[1];
+    if (!appPath) return undefined;
+    try {
+      const result = await commandRunner("plutil", ["-extract", "CFBundleShortVersionString", "raw", "-o", "-", api.join(appPath, "Contents", "Info.plist")]);
+      return result.stdout.trim() || undefined;
+    } catch { return undefined; }
+  }
+  return undefined;
+}
+
 export function compareClassWidgetsVersions(left: string, right: string): number {
-  return compareVersions(left, right);
+  const parse = (value: string) => value.trim().replace(/^v/i, "").split(/[.+-]/).map((part) => Number(part) || 0);
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] || 0) - (b[index] || 0);
+    if (difference) return difference > 0 ? 1 : -1;
+  }
+  return 0;
 }
 
 export function isCompatibleClassWidgetsVersion(version: string | undefined): boolean {
@@ -213,12 +455,9 @@ export async function discoverClassWidgetsInstallations(options: ClassWidgetsDis
   const env = options.env || process.env;
   const exists = options.exists || defaultExists;
   const commandRunner = options.commandRunner || defaultCommandRunner;
-  const runningProcesses = options.runningProcesses || await discoverRunningProcesses(platform, commandRunner, [WINDOWS_CLASSWIDGETS_EXE]);
+  const runningProcesses = options.runningProcesses || await discoverRunningProcesses(platform, commandRunner);
   const running = runningProcesses.map((processInfo) => ({ ...processInfo }));
-  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env, {
-      displayNameFilter: "-like '*Class*Widgets*'",
-      targetPathPattern: "(?i)Class.?Widgets"
-    }) : [];
+  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env) : [];
   const inputPaths = [
     ...staticExecutablePaths(platform, home, env),
     ...(options.executablePaths || []),
@@ -269,6 +508,111 @@ function isClassWidgetsPluginReady(candidate: ClassWidgetsInstallCandidate): boo
   return Boolean(candidate.installedPluginVersion && (!candidate.isRunning || candidate.pluginHealthy === true));
 }
 
+async function downloadLatestClassWidgetsPlugin(fetcher: Fetcher, now: () => number, onProgress?: (phase: ClassWidgetsInstallPhase, message?: string) => void, onRoute?: DownloadAttemptLogger): Promise<{ bytes: Buffer; version: string; sha256: string }> {
+  onProgress?.("downloading", "正在通过 ghproxy.sectl.cn 下载最新 Class Widgets 插件");
+  let release: { tag_name?: unknown; draft?: unknown; prerelease?: unknown; assets?: unknown } | undefined;
+  let lastError: unknown;
+  for (const directUrl of [CLASSWIDGETS_RELEASE_API_URL]) {
+    const metadataCandidates = marketplaceRequestUrls(`${directUrl}?secagent_cache=${now()}`);
+    for (let index = 0; index < metadataCandidates.length; index++) {
+      const candidate = metadataCandidates[index];
+      const startedAt = Date.now();
+      try {
+        const response = await fetcher(candidate, { signal: AbortSignal.timeout(12_000), headers: { Accept: "application/vnd.github+json", "User-Agent": "SecAgent" } });
+        if (!response.ok) {
+          lastError = new Error(`HTTP ${response.status}`);
+          onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status, error: `HTTP ${response.status}` }, metadataCandidates.slice(index + 1)));
+          continue;
+        }
+        const payload = await response.json() as typeof release;
+        if (!payload || typeof payload.tag_name !== "string" || payload.draft === true || payload.prerelease === true || !Array.isArray(payload.assets)) {
+          lastError = new Error("GitHub 最新 Release 信息无效");
+          onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status, error: "GitHub 最新 Release 信息无效" }, metadataCandidates.slice(index + 1)));
+          continue;
+        }
+        onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { status: response.status }, []));
+        release = payload;
+        break;
+      } catch (error) {
+        lastError = error;
+        onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { error: error instanceof Error ? error.message : String(error) }, metadataCandidates.slice(index + 1)));
+      }
+    }
+  }
+  if (!release) {
+    const pageRelease = await fetchReleasePageMetadata(fetcher, now);
+    if (pageRelease) release = pageRelease;
+  }
+  if (!release) throw new Error(`无法读取 Class Widgets 最新 Release：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  const assets = Array.isArray(release.assets) ? release.assets : [];
+  const asset = assets.find((item: unknown) => {
+    if (!item || typeof item !== "object") return false;
+    const record = item as Record<string, unknown>;
+    return record.name === CLASSWIDGETS_PLUGIN_ASSET_NAME && typeof record.browser_download_url === "string";
+  }) as Record<string, unknown> | undefined;
+  if (!asset) throw new Error(`最新 Class Widgets Release 缺少 ${CLASSWIDGETS_PLUGIN_ASSET_NAME}`);
+  const size = typeof asset.size === "number" ? asset.size : 0;
+  if (size > MAX_CLASSWIDGETS_PLUGIN_BYTES) throw new Error("Class Widgets 插件包过大，已停止安装");
+  const digest = typeof asset.digest === "string" ? asset.digest.replace(/^sha256:/i, "") : "";
+  if (!/^[a-f0-9]{64}$/i.test(digest)) throw new Error("Class Widgets Release 缺少有效的 SHA-256 校验值");
+  const downloadUrl = asset.browser_download_url as string;
+  const packageCandidates = marketplaceRequestUrls(downloadUrl);
+  for (let index = 0; index < packageCandidates.length; index++) {
+    const candidate = packageCandidates[index];
+    const startedAt = Date.now();
+    try {
+      const response = await fetcher(candidate, { signal: AbortSignal.timeout(60_000), headers: { "User-Agent": "SecAgent" } });
+      if (!response.ok) {
+        lastError = new Error(`HTTP ${response.status}`);
+        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, error: `HTTP ${response.status}` }, packageCandidates.slice(index + 1)));
+        continue;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.length > MAX_CLASSWIDGETS_PLUGIN_BYTES) {
+        lastError = new Error("Class Widgets 插件包过大");
+        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, error: "Class Widgets 插件包过大" }, packageCandidates.slice(index + 1)));
+        continue;
+      }
+      onProgress?.("verifying", "正在校验 Class Widgets 插件 SHA-256");
+      const actual = crypto.createHash("sha256").update(bytes).digest("hex");
+      if (actual.toLowerCase() !== digest.toLowerCase()) {
+        lastError = new Error("Class Widgets 插件 SHA-256 校验失败");
+        onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, sha256: actual, error: `SHA-256 校验失败，期望 ${digest}` }, packageCandidates.slice(index + 1)));
+        continue;
+      }
+      onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { status: response.status, bytes: bytes.length, sha256: actual }, []));
+      return { bytes, version: typeof release.tag_name === "string" ? release.tag_name : "unknown", sha256: actual };
+    } catch (error) {
+      lastError = error;
+      onRoute?.(describeDownloadAttempt("plugin-package", candidate, startedAt, { error: error instanceof Error ? error.message : String(error) }, packageCandidates.slice(index + 1)));
+    }
+  }
+  throw new Error(`下载 Class Widgets 插件失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
+}
+
+async function defaultRequestGracefulClose(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<boolean> {
+  if (platform === "win32") {
+    const script = `$process = Get-Process -Id ${pid} -ErrorAction Stop; [bool]$process.CloseMainWindow()`;
+    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
+    return result.stdout.trim().toLowerCase() !== "false";
+  }
+  process.kill(pid, "SIGTERM");
+  return true;
+}
+
+async function defaultForceTerminate(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<void> {
+  if (platform === "win32") {
+    const script = `Stop-Process -Id ${pid} -Force -ErrorAction Stop`;
+    await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
+    return;
+  }
+  process.kill(pid, "SIGKILL");
+}
+
+async function defaultIsProcessRunning(pid: number): Promise<boolean> {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+
 export class ClassWidgetsInstaller {
   private candidates = new Map<string, ClassWidgetsInstallCandidate>();
   private readonly platform: SupportedPlatform;
@@ -312,7 +656,7 @@ export class ClassWidgetsInstaller {
     };
     const log = (stage: string, data: unknown = {}) => this.options.log?.(`companion.classwidgets.${stage}`, data);
     log("install.begin", { targetIds, candidates: selected.map((candidate) => ({ id: candidate.id, executablePath: candidate.executablePath, pluginsPath: candidate.pluginsPath, version: candidate.version, installedPluginVersion: candidate.installedPluginVersion, isRunning: candidate.isRunning, pid: candidate.pid, processIds: candidate.processIds })) });
-    const packageData = await downloadLatestCompanionPlugin(this.fetcher, this.options.now || Date.now, (phase, message) => report(phase as ClassWidgetsInstallPhase, message), (attempt) => log("download.attempt", attempt), CLASSWIDGETS_DOWNLOAD_SPEC);
+    const packageData = await downloadLatestClassWidgetsPlugin(this.fetcher, this.options.now || Date.now, (phase, message) => report(phase, message), (attempt) => log("download.attempt", attempt));
     log("download.success", { version: packageData.version, bytes: packageData.bytes.length, sha256: packageData.sha256, repository: CLASSWIDGETS_PLUGIN_REPOSITORY, asset: CLASSWIDGETS_PLUGIN_ASSET_NAME });
     const api = platformPath(this.platform);
     const restart = this.options.restartProcess || ((executablePath: string, args: string[]) =>

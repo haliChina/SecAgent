@@ -6,7 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { compareVersions, describeDownloadAttempt, marketplaceRequestUrls, type DownloadAttemptLogger } from "./marketplace.js";
 import { closeHostProcesses, enumerateHostProcesses, installCompanionPackage, startCompanionProcessWithSameElevation, type CompanionExecutor, type CompanionLogger, type CompanionPackageSpec, type HostProcessFilter, type HostProcessInfo } from "./companion-package.js";
-import { defaultCommandRunner, defaultExists, defaultForceTerminate, defaultIsProcessRunning, defaultReadFile, defaultRequestGracefulClose, discoverRunningProcesses, discoverWindowsExternalPaths, hashId, normalizePath, parseJsonList, parseWindowsCommandLine, platformPath, waitForInstalledPlugin, type CommandRunner, type DiscoveredProcess, type Fetcher, type PathApi, type SupportedPlatform } from "./companion-installer-shared.js";
+import { defaultCommandRunner, defaultExists, defaultForceTerminate, defaultIsProcessRunning, defaultReadFile, defaultRequestGracefulClose, discoverRunningProcesses, discoverWindowsExternalPaths, hashId, normalizePath, parseJsonList, parseWindowsCommandLine, platformPath, quotePowerShell, type CommandRunner, type DiscoveredProcess, type Fetcher, type PathApi, type SupportedPlatform, waitForInstalledPlugin } from "./companion-installer-shared.js";
 
 export const SECRANDOM_PLUGIN_REPOSITORY = "SECTL/SecRandom-SecAgent-Plugin";
 export const SECRANDOM_PLUGIN_ID = "secrandom.secagent";
