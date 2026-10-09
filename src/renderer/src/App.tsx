@@ -124,7 +124,14 @@ export function App() {
     bridge.setWakeContext({ sessionId: session?.meta.id, modelId: selectedModelId || undefined, reasoningEffort: customModelMode ? reasoningEffort : defaultEffort });
   }, [bridge, session?.meta.id, selectedModelId, reasoningEffort, defaultEffort, customModelMode]);
   useEffect(() => {
-    if (!reasoningEfforts.includes(reasoningEffort)) setReasoningEffort(reasoningEfforts[0] || "high");
+    if (!reasoningEfforts.includes(reasoningEffort)) {
+      // R29：模型切换档位收缩时（如 GLM-5 的 max → Qwen 只到 high），
+      // 回退到新列表中不超过当前档位的最高档，而不是直接掉到最低档。
+      const rank: Record<ReasoningEffort, number> = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+      const current = rank[reasoningEffort];
+      const fallback = [...reasoningEfforts].sort((a, b) => rank[a] - rank[b]).filter((candidate) => rank[candidate] <= current).pop();
+      setReasoningEffort(fallback ?? reasoningEfforts[0] ?? "high");
+    }
   }, [reasoningEffort, reasoningEfforts]);
   const initializing = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);

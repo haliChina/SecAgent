@@ -22,7 +22,7 @@ import { Fragment, createContext, isValidElement, memo, useCallback, useContext,
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
-import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon, ChevronDownIcon, PaperclipIcon, CalendarIcon, ChartLineIcon, FileIcon, GlobeIcon, HelpCircleIcon, MailIcon, PlusIcon, SparklesIcon, CheckIcon, ShieldIcon, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, EllipsisIcon, SquareIcon, ArrowRightIcon, CircleAlertIcon } from "lucide-react";
+import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon, ChevronDownIcon, PaperclipIcon, CalendarIcon, ChartLineIcon, FileIcon, GlobeIcon, MailIcon, PlusIcon, SparklesIcon, CheckIcon, ShieldIcon, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, EllipsisIcon, SquareIcon, ArrowRightIcon, CircleAlertIcon } from "lucide-react";
 
 /** rare-ui 的 cn 为 twMerge(clsx(...))；本项目无 Tailwind 类冲突合并需求，clsx 等价 */
 const cn = clsx;
@@ -4122,6 +4122,10 @@ const parseToken = (draft: string): Token | null => {
 
 const renderPbIcon = (icon: ReactNode | LucideIcon, size: number) => {
   if (isValidElement(icon)) return icon;
+  /* R29：真源 Source.icon 为必填组件；应用侧 sources 未传 icon（undefined）。
+     原版直接 <Ico/> 渲染 undefined 组件 → React #130 整窗崩溃（点击 + 打开
+     Sources 菜单即触发）。非法/缺失一律返回 null，不再假设可渲染。 */
+  if (typeof icon !== 'function') return null;
   const Ico = icon as LucideIcon;
   return <Ico size={size} strokeWidth={1.8} />;
 }
@@ -4247,6 +4251,19 @@ export const PromptBar = ({
     const i = efforts.indexOf(defaultEffort);
     return i >= 0 ? i : Math.max(0, Math.floor((efforts.length - 1) / 2));
   });
+  /* R29：模型切换会改变档位列表（GLM-5 系有 max，Qwen/豆包只到 high，glm-4.x
+     仅 high）。真源把回退后的档位经 defaultEffort 传回，这里跟随同步；列表不
+     含当前标签时夹取旧 index 到新范围——否则 level 空白、滑杆圆点/aria 越界。
+     （efforts 是外部每次渲染的 .map 新数组，effect 频跑但 set 相等值即跳过。） */
+  useEffect(() => {
+    const found = efforts.indexOf(defaultEffort);
+    if (found >= 0) {
+      if (found !== effortIndex) setEffortIndex(found);
+    } else {
+      const clamped = Math.max(0, Math.min(effortIndex, efforts.length - 1));
+      if (clamped !== effortIndex) setEffortIndex(clamped);
+    }
+  }, [efforts, defaultEffort]);
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
   const [listening, setListening] = useState(false);
@@ -4265,8 +4282,11 @@ export const PromptBar = ({
   const cursor = Math.min(active, Math.max(0, list.length - 1));
   const canSend = draft.trim().length > 0 || attachments.length > 0;
   const armed = busy || canSend;
-  const level = efforts[effortIndex] ?? '';
-  const maxed = efforts.length > 1 && effortIndex === efforts.length - 1;
+  /* R29 渲染期夹取：模型切换的重渲染先于上面同步 effect 生效，这里兜底防
+     越界（level 空白、滑杆圆点/aria 超出范围的一帧）。 */
+  const safeEffortIndex = Math.max(0, Math.min(effortIndex, efforts.length - 1));
+  const level = efforts[safeEffortIndex] ?? '';
+  const maxed = efforts.length > 1 && safeEffortIndex === efforts.length - 1;
 
   const focusInput = () => inputRef.current?.focus({ preventScroll: true });
   const closeMenus = useCallback(() => {
@@ -4436,7 +4456,7 @@ export const PromptBar = ({
       e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
     if (step) {
       e.preventDefault();
-      setEffort(effortIndex + step);
+      setEffort(safeEffortIndex + step);
     } else if (e.key === 'Home') {
       e.preventDefault();
       setEffort(0);
@@ -4566,25 +4586,19 @@ export const PromptBar = ({
           className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[260px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
           role={open === 'effort' ? 'dialog' : 'listbox'}
           aria-label={
-            open === 'at' ? 'Sources' : open === 'slash' ? 'Commands' : open === 'model' ? 'Models' : 'Effort'
+            open === 'at' ? '来源' : open === 'slash' ? '命令' : open === 'model' ? '模型' : '推理强度'
           }
           data-kind={open}
         >
           {open === 'effort' ? (
             <>
               <div className="flex items-center gap-2 text-[13px] leading-[18px]">
-                <span className="[color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">Effort</span>
+                <span className="[color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">推理强度</span>
                 <span className="font-medium">{level}</span>
-                <span
-                  className="ml-auto inline-flex [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]"
-                  title="Higher effort thinks longer before answering"
-                >
-                  <HelpCircleIcon size={14} strokeWidth={1.8} />
-                </span>
               </div>
               <div className="mt-3 flex justify-between text-[12px] leading-4 [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
-                <span>Faster</span>
-                <span>Smarter</span>
+                <span>更快</span>
+                <span>更深入思考</span>
               </div>
               <div
                 className="relative mt-2 h-[22px] cursor-pointer touch-none rounded-[11px] outline-none select-none [background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)]"
@@ -4593,10 +4607,10 @@ export const PromptBar = ({
                 aria-label="Effort"
                 aria-valuemin={0}
                 aria-valuemax={efforts.length - 1}
-                aria-valuenow={effortIndex}
+                aria-valuenow={safeEffortIndex}
                 aria-valuetext={level}
                 style={
-                  { '--pb-effort-x': stepAt(effortIndex), '--pb-effort-fill': fillAt(effortIndex) } as CSSProperties
+                  { '--pb-effort-x': stepAt(safeEffortIndex), '--pb-effort-fill': fillAt(safeEffortIndex) } as CSSProperties
                 }
                 onPointerDown={e => {
                   if (e.button !== 0) return;
@@ -4645,7 +4659,7 @@ export const PromptBar = ({
                 >
                   {open === 'at' ? (
                     <span className="inline-flex w-5 flex-none justify-center [color:color-mix(in_srgb,var(--pb-ink)_70%,transparent)]">
-                      {renderPbIcon(row.icon, 15)}
+                      {renderPbIcon(row.icon ?? PaperclipIcon, 15)}
                     </span>
                   ) : null}
                   <span className="min-w-0 shrink truncate text-[13px] font-medium">{row.name}</span>
