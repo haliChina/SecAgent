@@ -16,17 +16,19 @@ import { AuditStore } from "../audit.js";
 import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
-import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
+import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
 import { openWorkspaceFilePreview } from "./workspace-preview.js";
 import { registerCompanionIpc } from "./ipc-companions.js";
 import { registerPluginIpc } from "./ipc-plugins.js";
+import { registerOfficialIpc } from "./ipc-official.js";
+import { registerSpeechIpc } from "./ipc-speech.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
-import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices, configureTts } from "./tts.js";
+import { configureTts } from "./tts.js";
 import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
 import { SecAgentHttpServer } from "../secagent-http.js";
@@ -543,9 +545,6 @@ ipcMain.handle("sessions:diagnostic-upload", async (_event, id: string) => {
   return result;
 });
 ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openWorkspaceFilePreview(relativePath));
-function officialProvider(baseUrl: string) {
-  return { id: "sectl-official", name: "SecAgent 官方服务", preset: "custom", provider: "openai-responses" as const, apiKeyEnv: "SECTL_OFFICIAL_TOKEN", baseUrl: `${baseUrl}/v1`, endpoint: "/responses", maxTokens: 16384, models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] };
-}
 
 /** Client-facing virtual tiers served by the relay. Latency tier is deferred (回头再用). */
 const OFFICIAL_TIER_IDS = ["virtual-fast", "virtual-standard", "virtual-deep"] as const;
@@ -665,61 +664,6 @@ ipcMain.handle("settings:open-skills", async () => {
   if (error) throw new Error(error);
   return directory;
 });
-ipcMain.handle("official:status", () => { loadConfig(DEFAULT_WORKSPACE); return { loggedIn: Boolean(process.env.SECTL_OFFICIAL_TOKEN), email: process.env.SECTL_OFFICIAL_EMAIL || "" }; });
-ipcMain.handle("official:balance", async () => {
-  loadConfig(DEFAULT_WORKSPACE);
-  const token = process.env.SECTL_OFFICIAL_TOKEN;
-  const baseUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  if (!token || !baseUrl) return { points: null, balances: [], expired: false };
-  const response = await fetch(`${baseUrl}/account`, { headers: { Authorization: `Bearer ${token}` } });
-  const payload = await response.json().catch(() => ({})) as { points?: number; point_balances?: Array<{ points?: number; expires_at?: string | null }>; detail?: string };
-  if (response.status === 401) return { points: null, balances: [], expired: true };
-  if (!response.ok || typeof payload.points !== "number") throw new Error(payload.detail || "无法获取 Points 余额");
-  return { points: payload.points, balances: (payload.point_balances || []).filter((item) => typeof item.points === "number").map((item) => ({ points: item.points as number, expiresAt: item.expires_at ?? null })), expired: false };
-});
-ipcMain.handle("official:redeem", async (_event, code: string) => {
-  loadConfig(DEFAULT_WORKSPACE);
-  const token = process.env.SECTL_OFFICIAL_TOKEN;
-  const baseUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  if (!token || !baseUrl) throw new Error("尚未登录 SecAgent 官方服务");
-  const response = await fetch(`${baseUrl}/redeem`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ code }) });
-  const payload = await response.json().catch(() => ({})) as { points_added?: number; expires_at?: string | null; balance?: number; point_balances?: Array<{ points?: number; expires_at?: string | null }>; detail?: string };
-  if (!response.ok || typeof payload.points_added !== "number") throw new Error(payload.detail || "兑换失败，请稍后重试");
-  return { pointsAdded: payload.points_added, expiresAt: payload.expires_at ?? null, balance: typeof payload.balance === "number" ? payload.balance : null, balances: (payload.point_balances || []).filter((item) => typeof item.points === "number").map((item) => ({ points: item.points as number, expiresAt: item.expires_at ?? null })) };
-});
-ipcMain.handle("official:login", async (_event, email: string, password: string) => {
-  loadConfig(DEFAULT_WORKSPACE);
-  const baseUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  if (!baseUrl) throw new Error("请先在 SecAgent 代码目录 .env 配置 SECTL_OFFICIAL_API_URL");
-  const response = await fetch(`${baseUrl}/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password, platform_id: process.env.SECTL_OFFICIAL_PLATFORM_ID || "secagent", client_id: process.env.SECTL_OFFICIAL_CLIENT_ID || "secagent-desktop" }) });
-  const payload = await response.json().catch(() => ({})) as { access_token?: string; user?: { email?: string }; detail?: string };
-  if (!response.ok || !payload.access_token) throw new Error(payload.detail || "SECTL 登录失败");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_TOKEN", payload.access_token);
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_EMAIL", payload.user?.email || email);
-  const current = readSettings(DEFAULT_WORKSPACE);
-  const providers = current.providers.some((provider) => provider.id === "sectl-official") ? current.providers : [...current.providers, officialProvider(baseUrl)];
-  return saveSettings(DEFAULT_WORKSPACE, { ...current, providers });
-});
-
-async function runSectlOAuthLogin(): Promise<SectlOAuthResult> {
-  loadConfig(DEFAULT_WORKSPACE);
-  return runSectlOAuthFlow();
-}
-
-ipcMain.handle("sectl:oauth-login", () => runSectlOAuthLogin());
-ipcMain.handle("official:oauth-login", async () => {
-  loadConfig(DEFAULT_WORKSPACE);
-  const relayUrl = (process.env.SECTL_OFFICIAL_API_URL || "").replace(/\/$/, "");
-  const result = await runSectlOAuthFlow();
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_TOKEN", result.accessToken);
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_SECTL_TOKEN", "");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_USER_ID", result.userId || "");
-  writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_EMAIL", result.email || "SECTL 用户");
-  const current = readSettings(DEFAULT_WORKSPACE);
-  const providers = current.providers.some((provider) => provider.id === "sectl-official") ? current.providers : [...current.providers, officialProvider(relayUrl)];
-  return saveSettings(DEFAULT_WORKSPACE, { ...current, providers });
-});
-ipcMain.handle("official:logout", () => { loadConfig(DEFAULT_WORKSPACE); writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_TOKEN", ""); writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_SECTL_TOKEN", ""); writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_USER_ID", ""); writeWorkspaceEnv(DEFAULT_WORKSPACE, "SECTL_OFFICIAL_EMAIL", ""); return { loggedIn: false }; });
 ipcMain.handle("oobe:progress:get", () => readOobeProgress(DEFAULT_WORKSPACE));
 ipcMain.handle("oobe:progress:save", (_event, progress: OobeProgress) => {
   saveOobeProgress(DEFAULT_WORKSPACE, progress);
@@ -850,67 +794,6 @@ ipcMain.on("wake:context", (_event, payload: unknown) => {
 });
 ipcMain.handle("wake:close", () => { closeWakeWindow(); return { ok: true }; });
 ipcMain.on("wake:interactive", (_event, interactive: boolean) => { if (wakeWindow && !wakeWindow.isDestroyed()) wakeWindow.setIgnoreMouseEvents(!interactive); });
-ipcMain.handle("speech:start", async (event) => {
-  const target = wakeWindow?.webContents.id === event.sender.id ? wakeWindow : windowRef;
-  logMain("speech.start", { window: target === wakeWindow ? "wake" : "main" });
-  try {
-    const result = await startSpeech(target);
-    logMain("speech.start.ready", { window: target === wakeWindow ? "wake" : "main", provider: result.provider, fallbacks: result.fallbacks });
-    return result;
-  } catch (error) {
-    recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "start" } });
-    throw error;
-  }
-});
-ipcMain.handle("speech:stop", () => { logMain("speech.stop"); void stopSpeech(); return { ok: true }; });
-ipcMain.handle("speech:cancel", () => { logMain("speech.cancel"); cancelSpeech(); return { ok: true }; });
-ipcMain.handle("speech:chain", () => speechChain());
-ipcMain.handle("speech:test", (_event, kind: unknown) => {
-  const scope = kind === "official" || kind === "openai" || kind === "local" || kind === "bailian" || kind === "bailian-ws" ? kind : "auto";
-  return testSpeech(scope);
-});
-ipcMain.handle("voice-wake:start", (event, phrase: string) => {
-  return startVoiceWake(voiceWakeWindow?.webContents.id === event.sender.id ? voiceWakeWindow : undefined, phrase, () => {
-    // Keep the hidden microphone window alive so the listener can be resumed
-    // after the one-shot wake overlay closes.
-    stopVoiceWake();
-    void openWakeWindow().catch((error) => logMain("wake.open.failed", { error: String(error), reason: "voice" }));
-  }).catch((error) => { recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "voice-wake-start" } }); throw error; });
-});
-ipcMain.handle("voice-wake:stop", () => { stopVoiceWake(); return { ok: true }; });
-ipcMain.on("voice-wake:log", (_event, payload: unknown) => {
-  const data = payload && typeof payload === "object" ? payload : { detail: String(payload) };
-  console.info("[voice-wake] renderer", data);
-  logMain("voice-wake.renderer", data);
-});
-ipcMain.on("speech:log", (_event, payload: unknown) => {
-  const data = payload && typeof payload === "object" ? payload : { detail: String(payload) };
-  console.info("[speech] renderer", data);
-  logMain("speech.renderer", data);
-});
-ipcMain.handle("tts:synthesize", async (_event, text: string) => {
-  if (typeof text !== "string" || !text.trim()) return "";
-  const clean = text.slice(0, 1800);
-  logMain("tts.synthesize.start", { characters: clean.length });
-  try {
-    const { config } = loadConfig(DEFAULT_WORKSPACE);
-    const audio = await synthesizeSpeech(clean, config.tts);
-    const encoded = audio.toString("base64");
-    logMain("tts.synthesize.success", { bytes: audio.length, base64Characters: encoded.length, voice: config.tts?.voice, rate: config.tts?.rate });
-    return encoded;
-  } catch (error) {
-    logMain("tts.synthesize.failed", { characters: clean.length, message: error instanceof Error ? error.message : String(error) });
-    recordTelemetryFailure({ type: "speech.failed", error, context: { phase: "tts", inputLength: clean.length } });
-    throw error;
-  }
-});
-ipcMain.on("wake:tts-log", (_event, payload: unknown) => logMain("wake.tts.playback", payload));
-// TTS diagnostics: connectivity probe, active fallback chain, installed SAPI voices.
-ipcMain.handle("tts:test", (_event, kind?: string) => testTts(kind as never));
-ipcMain.handle("tts:chain", () => ttsChain());
-ipcMain.handle("tts:voices", () => listWindowsVoices());
-// Fetch an OpenAI-compatible provider's model catalogue (GET {base}/models),
-// e.g. https://api.xiaomimimo.com/v1/models — feeds the settings dropdowns.
 ipcMain.handle("models:fetch", async (_event, request: { baseUrl?: string; apiKey?: string; apiKeyEnv?: string }) => {
   const apiKey = (request.apiKey && request.apiKey.trim()) || (request.apiKeyEnv ? process.env[request.apiKeyEnv] || "" : "");
   if (!request.baseUrl?.trim()) return { ok: false, message: "请填写 Base URL（例如 https://api.xiaomimimo.com/v1）", models: [] };
@@ -918,8 +801,6 @@ ipcMain.handle("models:fetch", async (_event, request: { baseUrl?: string; apiKe
   const { fetchProviderModels } = await import("../models/fetch-models.js");
   return fetchProviderModels({ baseUrl: request.baseUrl, apiKey, timeoutMs: 15_000 });
 });
-ipcMain.on("speech:audio", (_event, samples: Float32Array) => sendSpeechAudio(samples));
-ipcMain.on("voice-wake:audio", (_event, samples: Float32Array) => sendVoiceWakeAudio(samples));
 ipcMain.handle("sessions:stop", (_event, id: string) => {
   const controller = activeSessionRuns.get(id);
   if (!controller) return { ok: true, stopped: false };
@@ -1106,6 +987,8 @@ app.whenReady().then(async () => {
 async function startApplication(): Promise<void> {
   registerCompanionIpc(() => settingsWindow || windowRef);
   registerPluginIpc({ getPluginManager: () => pluginManager, getMarketplace: () => marketplace, getWindow: () => settingsWindow || windowRef });
+  registerOfficialIpc();
+  registerSpeechIpc({ getWakeWindow: () => wakeWindow, getVoiceWakeWindow: () => voiceWakeWindow, openWakeWindow });
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
   // Apply the persisted ASR preference before any speech session can start.
