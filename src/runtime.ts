@@ -10,6 +10,7 @@ import type { LoadedSkill } from "./skills.js";
 import { callPiTool, piTools, readImageFile } from "./pi-tools.js";
 import { PluginManager } from "./plugin-manager.js";
 import type { ResolvedPluginPreRule } from "./plugin-manager.js";
+import type { ActivityKind, ActivityReason } from "./activity.js";
 import { summarizeToolResult } from "./tool-content.js";
 import { useConfiguredModel, resolveVisionAgentConfig } from "./config.js";
 import { VISION_SYSTEM_PROMPT } from "./system-prompt.js";
@@ -92,8 +93,35 @@ export class SecAgentRuntime {
     this.guard = normalizeToolGuardSettings(config.guard);
     this.confirmToolCall = options.confirmToolCall;
   }
-  async run(input: string, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule } = {}): Promise<RunResult> {
+  async run(input: string, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule; sessionId?: string } = {}): Promise<RunResult> {
     signal?.throwIfAborted();
+    const sessionId = state.sessionId || "";
+    this.activity("turn_started", sessionId, this.config.agent.model);
+    try {
+      const result = await this.runTurn(input, reasoningEffort, conversation, signal, state);
+      this.activity("turn_completed", sessionId);
+      return result;
+    } catch (error) {
+      // 中断与真实失败要分开：伴生 UI 对「用户自己停掉了」和「出错了」反应不同。
+      if (signal?.aborted || isAbortError(error)) this.activity("turn_blocked", sessionId, undefined, "aborted");
+      else this.activity("turn_failed", sessionId, undefined, "error");
+      throw error;
+    }
+  }
+
+  /**
+   * 活动事件派发：只送 kind / 会话 id / 无内容 label，绝不把提示词、参数、
+   * 结果或异常原文带给插件（见 src/activity.ts 的契约）。
+   */
+  private activity(kind: ActivityKind, sessionId: string, label?: string, reason?: ActivityReason): void {
+    try {
+      this.plugins?.emitActivity({ kind, sessionId, at: Date.now(), label, reason });
+    } catch { /* 订阅者异常不得影响 Agent 主流程 */ }
+  }
+
+  private async runTurn(input: string, reasoningEffort: ReasoningEffort, conversation: ConversationMessage[] | undefined, signal: AbortSignal | undefined, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule; sessionId?: string }): Promise<RunResult> {
+    signal?.throwIfAborted();
+    const sessionId = state.sessionId || "";
     const rule = await this.plugins?.matchRule(input);
     if (rule) {
       this.emit("plugin.rule/match", { pluginId: rule.pluginId, ruleName: rule.ruleName, input, decision: rule.decision });
@@ -116,7 +144,7 @@ export class SecAgentRuntime {
     if (preRule) {
       this.emit("secagent.pre-rule/match", { pluginId: preRule.pluginId, name: preRule.name, tool: preRule.toolKey, arguments: preRule.arguments });
       try {
-        const result = await this.callTool(input, preRule.toolKey, preRule.arguments);
+        const result = await this.callTool(input, preRule.toolKey, preRule.arguments, undefined, sessionId);
         const message = preRule.render ? await preRule.render(result) : this.renderPreRuleResult(result);
         this.emit("secagent.pre-rule/result", { pluginId: preRule.pluginId, name: preRule.name, tool: preRule.toolKey, result: summarizeToolResult(result) });
         return { kind: "completed", message: message || this.renderPreRuleResult(result) };
@@ -150,7 +178,7 @@ export class SecAgentRuntime {
     this.emit("secagent.skills/auto-load", prepared.loaded.map((skill) => ({ name: skill.name, path: skill.path })));
     this.emit("model.agent.request", { provider: this.config.agent.provider, model: this.config.agent.model, baseUrl: this.config.agent.baseUrl, instruction: input });
     this.toolEvidence = [];
-    const { message, usedFallbacks } = await this.runWithFallback(input, tools, (key, args) => this.callTool(input, key, args, hiddenTools), reasoningEffort, prepared.conversation, signal);
+    const { message, usedFallbacks } = await this.runWithFallback(input, tools, (key, args) => this.callTool(input, key, args, hiddenTools, sessionId), reasoningEffort, prepared.conversation, signal);
     this.emit("model.agent.result", { message });
     const hallucination = this.config.hallucination?.enabled === false ? undefined : detectHallucination(message, { toolCalls: this.toolEvidence, runCompleted: true });
     if (hallucination?.score) this.emit("model.hallucination/flagged", { score: hallucination.score, signals: hallucination.signals });
@@ -250,22 +278,28 @@ export class SecAgentRuntime {
    * Guarded tool-call entry point: sensitive operations pause for user
    * confirmation (Codex-style) and every outcome feeds hallucination evidence.
    */
-  private async callTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>): Promise<unknown> {
+  private async callTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>, sessionId = ""): Promise<unknown> {
     const decision = checkToolCall({ tool: key, arguments: args }, this.guard);
     if (decision.action === "confirm") {
+      this.activity("approval_requested", sessionId, key);
       const approved = this.confirmToolCall ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason }) : false;
+      this.activity("approval_resolved", sessionId, key);
       if (!approved) {
         this.toolEvidence.push({ name: key, ok: false });
         this.emit("secagent.tools/rejected", { name: key, reason: decision.reason });
         throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${decision.reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
       }
     }
+    this.activity("tool_started", sessionId, key);
     try {
       const result = await this.executeGuardedTool(request, key, args, hiddenTools);
       this.toolEvidence.push({ name: key, ok: true });
+      this.activity("tool_finished", sessionId, key);
       return result;
     } catch (error) {
       this.toolEvidence.push({ name: key, ok: false });
+      // 工具失败也要收尾，否则伴生 UI 会永远停在 running。
+      this.activity("tool_finished", sessionId, key);
       throw error;
     }
   }

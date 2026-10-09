@@ -21,7 +21,7 @@ SecAgent 插件是可移植的 zip 包，包内包含 JavaScript、JSON、Skill 
 }
 ```
 
-工具插件通常声明 `agent.tools`；提供 Skill 时声明 `agent.skills`；向 Agent 注入提示词时声明 `agent.prompts`；注册前置规则时声明 `agent.rules`；访问第三方 HTTP 服务时声明 `network.http`。
+工具插件通常声明 `agent.tools`；提供 Skill 时声明 `agent.skills`；向 Agent 注入提示词时声明 `agent.prompts`；注册前置规则时声明 `agent.rules`；订阅 Agent 活动事件时声明 `agent.activity`；访问第三方 HTTP 服务时声明 `network.http`。
 
 ## 入口 API
 
@@ -108,3 +108,50 @@ HTTP 服务只绑定 loopback 不是完整鉴权。生产实现应增加随机�
 声明 `agent.overlay` 权限的插件可以使用 `api.createOverlay({ url, width, height, transparent?, alwaysOnTop?, clickThrough? })` 创建桌面浮窗（如桌面宠物）。`url` 仅允许插件本地 loopback 服务（`http://127.0.0.1/*`）；宽高为 64~1600 的整数；三个开关默认全为 true。返回句柄 `{ show(), hide(), close(), setBounds() }`。
 
 安全模式对齐 SVG 预览：窗口使用无 Node Integration + 沙盒渲染进程 + `contextIsolation`，禁止弹窗与标题伪装，禁止导航到非 loopback 地址；点击穿透默认开启，渲染页通过预置的 `window.__secagentOverlay.setIgnoreMouseEvents(ignore)` / `move(dx, dy)` 桥接临时接管鼠标（桥接只作用于发送者自己的窗口）。插件停用/卸载时宿主自动关闭其 overlay。CLI 等无窗口环境调用会抛错，插件应自行降级（如用系统浏览器打开页面）。
+
+## 活动事件（Agent Activity）
+
+声明 `agent.activity` 权限的插件可以订阅 Agent 正在做什么，用来驱动桌面宠物、状态灯、通知这类伴生界面，而不必依赖模型「自觉」去调插件工具——工具驱动天然会漏。
+
+```js
+const stop = api.onActivity((event) => {
+  // event = { kind, sessionId, at, label?, reason? }
+});
+// ... 之后
+stop();
+```
+
+事件类型与派生阶段：
+
+| `kind` | `label` | `api.getActivity().phase` |
+| --- | --- | --- |
+| `turn_started` | 模型名 | `thinking` |
+| `tool_started` | 工具 key | `running` |
+| `tool_finished` | 工具 key | `thinking` |
+| `approval_requested` | 工具 key | `waiting` |
+| `approval_resolved` | 工具 key | `running` |
+| `turn_completed` | — | `done` |
+| `turn_failed` | —（`reason: "error"`） | `failed` |
+| `turn_blocked` | —（`reason: "aborted"`） | `waiting` |
+
+`tool_finished` 回到 `thinking` 而不是停在 `running`：工具返回后模型还要继续推理。`turn_blocked` 覆盖用户中断等非失败终止，伴生 UI 应与 `turn_failed` 区别对待。
+
+**用户拒绝审批时同样会派发 `approval_resolved`**（语义上「已处理完」），随后 `callTool` 抛错、`run` 派发 `turn_failed`。所以拒绝的完整序列是 `approval_requested → approval_resolved → turn_failed`，伴生 UI 最终会落到失败态——如果需要区分同意/拒绝，得等事件契约增加字段，当前无法从事件本身判断。
+
+**无内容投影。** 事件只有 `kind` / `sessionId` / `at` / `label` / `reason` 五个字段：没有用户提示词、工具参数、工具结果、模型输出和审批内容，`label` 只放工具名或模型名。宿主在派发前会剔除其余字段、剥掉控制字符并截断 `label`。`reason` 是分类而非错误原文。
+
+**只读、不消费。** 派发不消耗事件，多个插件可以同时订阅同一份活动，互不抢事件。
+
+**晚订阅补齐。** 浮窗可能在回合进行到一半才打开，订阅会错过之前的事件。`api.getActivity()` 返回 `{ phase, last }` 快照，在 `activate` 里先读一次即可知道当前状态；终态 30 秒后 `phase` 自动回落 `idle`。
+
+```js
+export async function activate(api) {
+  const snapshot = api.getActivity();          // 补齐错过的历史
+  render(snapshot.phase);
+  api.onActivity((event) => render(derive(event)));
+}
+```
+
+插件停用/卸载时订阅自动解除，与 overlay 同一套生命周期。单个订阅者抛错不会影响其他订阅者，也不影响 Agent 主流程。事件对象是冻结的，插件改不动自己收到的事件。
+
+**快照是全局一份，不按会话分区**：多会话交错时 `getActivity()` 是 last-writer-wins，晚订阅的窗口可能拿到另一个会话的阶段。这是已知取舍——事件自带 `sessionId`，需要严格隔离时应订阅并按 `sessionId` 自行过滤，不要依赖快照。`onActivity` 与 `getActivity` 都要求 `agent.activity` 权限。
