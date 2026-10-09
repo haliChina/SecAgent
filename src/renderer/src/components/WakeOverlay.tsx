@@ -1,3 +1,4 @@
+import { ACCENT, ACCENT_DEEP, ACCENT_SKY, ACCENT_PALE } from "./ui/parts/theme.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { TraceEvent } from "../constants.js";
@@ -463,9 +464,9 @@ const submitTranscript = async () => {
       <defs>
         <linearGradient id="wake-edge-gradient" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
           {/* R32：彩虹渐变改蓝色系流光（全局配色收敛白蓝黑）。 */}
-          <stop offset="0%" stopColor="#1D4ED8" /><stop offset="16%" stopColor="#2563EB" />
-          <stop offset="30%" stopColor="#60A5FA" /><stop offset="48%" stopColor="#93C5FD" />
-          <stop offset="66%" stopColor="#60A5FA" /><stop offset="80%" stopColor="#2563EB" /><stop offset="100%" stopColor="#1D4ED8" />
+          <stop offset="0%" stopColor={ACCENT_DEEP} /><stop offset="16%" stopColor={ACCENT} />
+          <stop offset="30%" stopColor={ACCENT_SKY} /><stop offset="48%" stopColor={ACCENT_PALE} />
+          <stop offset="66%" stopColor={ACCENT_SKY} /><stop offset="80%" stopColor={ACCENT} /><stop offset="100%" stopColor={ACCENT_DEEP} />
           <animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="20s" repeatCount="indefinite" />
         </linearGradient>
         {/* Keep the full-screen glow visually smooth without allocating a

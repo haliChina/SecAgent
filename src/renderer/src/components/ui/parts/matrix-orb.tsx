@@ -18,6 +18,7 @@
  *
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
+import { ACCENT } from "./theme.js";
 import { Fragment, createContext, isValidElement, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
@@ -145,7 +146,7 @@ function useDevicePixelRatio(): number {
   );
 }
 
-export function MatrixOrb({ size = 240, state = "idle", level, color = "#2563EB", dots = 11, stream, labels }: {
+export function MatrixOrb({ size = 240, state = "idle", level, color = ACCENT, dots = 11, stream, labels }: {
   size?: number;
   state?: OrbState;
   level?: number;

@@ -18,6 +18,7 @@
  *
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
+import { ACCENT } from "./theme.js";
 import { Fragment, createContext, isValidElement, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
@@ -99,7 +100,8 @@ export function HookSidebar({ activeId, items, onSelect }: {
   onSelect: (id: string) => void;
 }) {
   // 应用适配：active 轨颜色取主题 accent 蓝（原版默认 #FC4C01）
-  const color = "#2563EB";
+  /* P2：取主题色板（= :root --accent）。 */
+  const color = ACCENT;
   const dashed = true;
   const listRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);

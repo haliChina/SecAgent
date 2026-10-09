@@ -1,3 +1,4 @@
+import { ACCENT, ACCENT_DEEP } from "./ui/parts/theme.js";
 import { useEffect, useRef, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
 import mermaid from "mermaid";
@@ -128,8 +129,8 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
   const rectangleX = Number(plot.rectangleX ?? 1);
   const width = Math.PI * radius;
   const stripWidth = width / slices;
-  const sectorColor = typeof plot.sectorColor === "string" ? plot.sectorColor : "#2563eb";
-  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : "#2563EB";
+  const sectorColor = typeof plot.sectorColor === "string" ? plot.sectorColor : ACCENT;
+  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : ACCENT;
   const sectors = Array.from({ length: slices }, (_, index) => {
     const start = (index / slices) * Math.PI * 2;
     const end = ((index + 1) / slices) * Math.PI * 2;
@@ -145,7 +146,7 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
     // The alternating colors show the interleaving while every strip keeps
     // the same height r, so the resulting rectangle has dimensions πr × r.
     const points: Array<[number, number]> = [[x0, -radius / 2], [x1, -radius / 2], [x1, radius / 2], [x0, radius / 2]];
-    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : "#1D4ED8"} fillOpacity={.42} />;
+    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : ACCENT_DEEP} fillOpacity={.42} />;
   });
   return <>
     {sectors}

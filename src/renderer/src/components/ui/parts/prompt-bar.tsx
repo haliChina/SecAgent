@@ -18,6 +18,7 @@
  *
  * 交互状态同时用文字/形状表达；触屏目标 ≥44px；动画尊重 prefers-reduced-motion。
  */
+import { ACCENT } from "./theme.js";
 import { Fragment, createContext, isValidElement, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
@@ -265,7 +266,7 @@ export const PromptBar = ({
   background = '#27272a',
   color = '#f5f5f5',
   menuBackground = '#323236',
-  sparkColor = '#2563EB',
+  sparkColor = ACCENT,
   sparkBoost = 1,
   width = 400,
   radius = 16,

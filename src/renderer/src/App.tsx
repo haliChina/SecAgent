@@ -1,3 +1,4 @@
+import { ACCENT } from "./components/ui/parts/theme.js";
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { LoaderCircle, Volume2 } from "lucide-react";
@@ -472,7 +473,7 @@ export function App() {
   const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
   const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
-  const orbAccent = runningTool ? "#2563EB" : undefined;
+  const orbAccent = runningTool ? ACCENT : undefined;
   const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
   // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
   const scrollSections = useMemo(() => {
@@ -997,7 +998,7 @@ export function App() {
             background="#FFFFFF"
             color="#1B2430"
             menuBackground="#FFFFFF"
-            sparkColor="#2563EB"
+            sparkColor={ACCENT}
             width={2000}
             radius={15}
             maxRows={5}

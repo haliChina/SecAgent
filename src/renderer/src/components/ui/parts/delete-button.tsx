@@ -21,6 +21,7 @@
 import { Fragment, createContext, isValidElement, memo, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type Ref, type RefObject } from "react";
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
+import { ACCENT } from "./theme.js";
 import type { LucideIcon } from "lucide-react";
 import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon, ChevronDownIcon, PaperclipIcon, CalendarIcon, ChartLineIcon, FileIcon, GlobeIcon, MailIcon, PlusIcon, SparklesIcon, CheckIcon, ShieldIcon, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, EllipsisIcon, SquareIcon, ArrowRightIcon, CircleAlertIcon } from "lucide-react";
 
@@ -67,8 +68,8 @@ const DB_SURFACE = "bg-[#F4F4F9] dark:bg-[#262626]";
 const DB_RECESS = "bg-[#E7E7EF] dark:bg-[#1B1B1B]";
 const DB_GLYPH = "text-[#868593] dark:text-[#9B9AA7]";
 const DB_FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-[#868593]";
-/* R32：真源品牌橙 #FF5F2E → 应用主题蓝（全局配色收敛白蓝黑）。 */
-const DB_ACCENT = "#2563EB";
+/* R32：真源品牌橙 #FF5F2E → 应用主题蓝；P2：值改由色板提供。 */
+const DB_ACCENT = ACCENT;
 
 const DB_LIFT =
   "shadow-[0_0.5px_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08),inset_0_0.5px_0_rgba(255,255,255,0.9)] dark:shadow-[0_0.5px_1px_rgba(0,0,0,0.35),0_1.5px_4px_rgba(0,0,0,0.3),inset_0_0.5px_0_rgba(255,255,255,0.05)]";
