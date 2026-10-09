@@ -3,6 +3,20 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R30 · 2026-10-09）
+
+### R29.1 包实测：HookSidebar 仍无样式 — 完成 ✓（CI 全绿 8bdae2c）
+- ✓ 根因实锤：styles.css 267 行旧版 fixed 全高窄条规则
+  .settings-shell:not(.oobe-shell) .settings-nav（specificity 0-3-0）
+  一直压过 R24 卡片化 [data-slot=hook-sidebar]（0-2-0）→ 卡片样式从未
+  生效。R28 只删了 254 行区规则，漏了这条 :not(.oobe-shell) 变体
+- ✓ 删 267 旧窄条 / 268 button width（重复）/ 284 错误 960px 回退 /
+  191 两列网格隐患（钩线依赖垂直堆叠+offsetTop）
+- ✓ shell 让位 padding-left 268→246px（卡片右缘 210+36 间距，内容更宽）
+- ✓ 安装包已交付：SecAgent-Setup-20261009-035741-8bdae2c8e512.exe
+- ☐ 装机验证：设置页左侧为圆角卡片（top76/左22/宽188/边框/内滚），
+  钩线跟随选中项、悬停灰轨正常
+
 ## 本轮（R29.1 · 2026-10-09）
 
 ### R29 包实测：max 状态切模型后 effort 滑杆拉不动 — 完成 ✓（CI 全绿 224b26d）
