@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, screen, session, shell, Tray } from "electron";
 import * as Sentry from "@sentry/electron/main";
-import { execFile, spawn, spawnSync } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
 import { isIPv4 } from "node:net";
@@ -19,6 +19,9 @@ import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
 import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
+import { logMain } from "./main-log.js";
+import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
+import { createCompanionExecutor, withCompanionInstallLock } from "./companion-bridge.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices, configureTts } from "./tts.js";
@@ -29,7 +32,6 @@ import { ClassIslandInstaller } from "../classisland.js";
 import { SecRandomInstaller } from "../secrandom.js";
 import { IccceInstaller } from "../iccce.js";
 import { ClassWidgetsInstaller } from "../classwidgets.js";
-import { getWindowsProcessElevation, WindowsCompanionExecutor } from "../companion-package.js";
 import { SecAgentHttpServer } from "../secagent-http.js";
 import { Models } from "@opencode-ai/models";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "../wake-hotkey.js";
@@ -117,8 +119,6 @@ const activeSessionRuns = new Map<string, AbortController>();
 // to the shared proxy.
 const MARKETPLACE_UPDATE_INTERVAL_MS = 10 * 60 * 1000;
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
-const AUTO_START_ARG = "--autostart";
-const AUTO_START_ARGS = [AUTO_START_ARG];
 const execFileAsync = promisify(execFile);
 let marketplaceUpdateTimer: NodeJS.Timeout | undefined;
 let updateCheckTimer: NodeJS.Timeout | undefined;
@@ -135,136 +135,6 @@ function captureSafeException(error: unknown): Error {
 function recordTelemetryFailure(failure: TelemetryFailure): void {
   telemetry?.recordFailure(failure);
   if (SENTRY_DSN && telemetry?.isEnabled()) Sentry.captureException(captureSafeException(failure.error || failure.type));
-}
-
-function isAutostartLaunch(): boolean {
-  return process.argv.includes(AUTO_START_ARG);
-}
-
-const LINUX_AUTOSTART_DESKTOP_FILE = "secagent-autostart.desktop";
-
-function autostartExecutablePath(): string {
-  // Inside an AppImage, process.execPath is the transient /tmp/.mount_* mount;
-  // APPIMAGE points at the durable file the user actually launched.
-  if (process.platform === "linux" && process.env.APPIMAGE) return process.env.APPIMAGE;
-  return process.execPath;
-}
-
-function linuxAutostartFilePath(): string {
-  const configHome = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
-  return path.join(configHome, "autostart", LINUX_AUTOSTART_DESKTOP_FILE);
-}
-
-function readAutostart(): boolean {
-  try {
-    if (process.platform === "linux") return fs.existsSync(linuxAutostartFilePath());
-    // Elevated autostart is a scheduled task; the plain fallback is the
-    // HKCU Run key (also what the installer writes on first install).
-    if (windowsAutostartTaskExists()) return true;
-    const loginItem = app.getLoginItemSettings({ path: autostartExecutablePath(), args: AUTO_START_ARGS });
-    // executableWillLaunchAtLogin also recognizes entries created by older
-    // installers that did not include the current argument list.
-    return loginItem.openAtLogin || loginItem.executableWillLaunchAtLogin;
-  } catch (error) {
-    logMain("autostart.read.failed", { error: error instanceof Error ? error.message : String(error) });
-    return false;
-  }
-}
-
-const WINDOWS_AUTOSTART_TASK_NAME = "SecAgent Autostart";
-const AUTOSTART_RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-
-function runSchtasks(args: string[]): { status: number; stdout: string } {
-  const result = spawnSync("schtasks.exe", args, { encoding: "utf8", windowsHide: true, timeout: 15_000 });
-  return { status: result.status ?? -1, stdout: `${result.stdout || ""}` };
-}
-
-function windowsAutostartTaskExists(): boolean {
-  // status 1 = task does not exist; anything else (or a throw) is treated as
-  // "unknown" and reported as absent so settings show the fallback state.
-  return runSchtasks(["/Query", "/TN", WINDOWS_AUTOSTART_TASK_NAME]).status === 0;
-}
-
-function createElevatedAutostartTask(): boolean {
-  // /RL HIGHEST launches SecAgent with the admin token, so later in-app
-  // updates inherit it and never trigger another UAC.
-  const create = runSchtasks(["/Create", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/TR", `"${autostartExecutablePath()} ${AUTO_START_ARG}"`, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"]);
-  if (create.status === 0) return true;
-  logMain("autostart.task.create.failed", { status: create.status, stdout: create.stdout.slice(0, 300) });
-  return false;
-}
-
-function removeAutostartTask(): void {
-  runSchtasks(["/Delete", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/F"]);
-}
-
-/** Runs one schtasks command inside an elevated PowerShell (one UAC prompt).
- *  Returns false when the user declines the prompt or the command fails. */
-async function runSchtasksElevated(args: string[]): Promise<boolean> {
-  const quoted = args.map((a) => (a.includes(" ") || a.includes('"') ? `'${a.replaceAll("'", "''").replaceAll('"', '`"')}'` : a)).join(" ");
-  const script = `Start-Process -FilePath schtasks.exe -ArgumentList '${quoted.replaceAll("'", "''")}' -Verb RunAs -Wait -WindowStyle Hidden -PassThru | ForEach-Object { exit $_.ExitCode }`;
-  try {
-    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: 120_000 });
-    return true;
-  } catch (error) {
-    logMain("autostart.elevated.failed", { error: error instanceof Error ? error.message : String(error), args: args[0] });
-    return false;
-  }
-}
-
-function writeAutostart(enabled: boolean): void {
-  if (process.platform === "linux") {
-    // Write the XDG autostart entry directly: Electron's Linux login-item
-    // helper records process.execPath, which is a transient path for AppImages.
-    const entry = linuxAutostartFilePath();
-    if (!enabled) { fs.rmSync(entry, { force: true }); return; }
-    fs.mkdirSync(path.dirname(entry), { recursive: true });
-    fs.writeFileSync(entry, `[Desktop Entry]\nType=Application\nName=SecAgent\nExec=${JSON.stringify(autostartExecutablePath())} ${AUTO_START_ARG}\nTerminal=false\n`, "utf8");
-    return;
-  }
-  if (!enabled) {
-    logMain("autostart.disable.begin", { taskExists: windowsAutostartTaskExists() });
-    removeAutostartTask();
-    // also clear the plain fallback / installer-written Run key
-    app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
-    logMain("autostart.disable.done", { taskExists: windowsAutostartTaskExists() });
-    return;
-  }
-  const autostartTaskArgs = ["/Create", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/TR", `"${autostartExecutablePath()} ${AUTO_START_ARG}"`, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"];
-  logMain("autostart.enable.begin", { elevated: getWindowsProcessElevationSync(), exe: autostartExecutablePath() });
-  const create = runSchtasks(autostartTaskArgs);
-  if (create.status === 0 && windowsAutostartTaskExists()) {
-    logMain("autostart.task.created.direct");
-    // task in place; make sure no stale Run-key entry also starts the app
-    app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
-    return;
-  }
-  logMain("autostart.task.create.failed", { status: create.status, stdout: create.stdout.slice(0, 300) });
-  // Could not create the task directly (non-elevated): try once via UAC, and
-  // fall back to a plain Run-key autostart when the user declines.
-  void (async () => {
-    const elevated = await runSchtasksElevated(autostartTaskArgs);
-    if (elevated && windowsAutostartTaskExists()) {
-      logMain("autostart.task.created.elevated");
-      app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
-      return;
-    }
-    logMain("autostart.elevated.declined", { elevatedRan: elevated });
-    app.setLoginItemSettings({ openAtLogin: true, path: autostartExecutablePath(), args: AUTO_START_ARGS });
-    logMain("autostart.fallback.runkey");
-  })();
-}
-
-/** Sync elevation probe (registry read, no spawn). reg.exe exits 0 for
- *  admins (HKU\S-1-5-20 is admin-readable) and 1 for standard users. */
-function getWindowsProcessElevationSync(): boolean {
-  if (process.platform !== "win32") return false;
-  try {
-    const probe = spawnSync("reg.exe", ["Query", "HKU\\S-1-5-20"], { windowsHide: true, timeout: 5_000 });
-    return (probe.status ?? 1) === 0;
-  } catch {
-    return false;
-  }
 }
 
 function launchWindowsInstaller(installerPath: string): void {
@@ -314,52 +184,6 @@ function installFileRendererAssetFallback(): void {
     } catch { /* Let Chromium report the original request if it cannot be parsed. */ }
     callback({});
   });
-}
-
-function logMain(stage: string, data: unknown = {}): void {
-  const logDir = path.join(DEFAULT_WORKSPACE, "logs");
-  fs.mkdirSync(logDir, { recursive: true });
-  const line = JSON.stringify({ at: new Date().toISOString(), stage, data }) + "\n";
-  fs.appendFileSync(path.join(logDir, "electron-main.jsonl"), line, "utf8");
-  if (stage.startsWith("companion.")) fs.appendFileSync(path.join(logDir, "companion-install.jsonl"), line, "utf8");
-}
-
-async function createCompanionExecutor(): Promise<WindowsCompanionExecutor | undefined> {
-  if (process.platform !== "win32") return undefined;
-  const elevation = await getWindowsProcessElevation(logMain);
-  // An administrator-launched SecAgent already has permission to write the
-  // protected companion directories. Reusing that token avoids a second UAC
-  // worker and lets restarted companions keep the same privilege level.
-  if (elevation === true) {
-    logMain("companion.executor.same-token", { elevated: true });
-    return undefined;
-  }
-  // The executor logs its own startup stages ("elevated.start.*", "elevated.ready")
-  // unprefixed; route them under "companion." so they land in
-  // companion-install.jsonl next to the operations they explain.
-  const executor = new WindowsCompanionExecutor((stage, data) => logMain(stage.startsWith("companion.") ? stage : `companion.${stage}`, data));
-  logMain("companion.executor.created", { elevated: elevation === false ? false : "unknown" });
-  return executor;
-}
-
-// A batch install and a manually clicked install can arrive through different
-// IPC calls. They must not close/restart the same companion concurrently: that
-// creates duplicate UAC workers, singleton dialogs and competing package scans.
-let companionInstallQueue: Promise<void> = Promise.resolve();
-function withCompanionInstallLock<T>(label: string, operation: () => Promise<T>): Promise<T> {
-  const queuedAt = Date.now();
-  logMain("companion.install.queue.wait", { label });
-  const run = companionInstallQueue.then(async () => {
-    const startedAt = Date.now();
-    logMain("companion.install.queue.begin", { label, waitMs: startedAt - queuedAt });
-    try {
-      return await operation();
-    } finally {
-      logMain("companion.install.queue.end", { label, durationMs: Date.now() - startedAt });
-    }
-  });
-  companionInstallQueue = run.then(() => undefined, () => undefined);
-  return run;
 }
 
 process.on("uncaughtException", (error) => {
