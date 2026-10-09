@@ -16,7 +16,7 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: "src/electron/preload.ts",
+        input: { preload: "src/electron/preload.ts", "overlay-preload": "src/electron/overlay-preload.ts" },
         output: { format: "cjs", entryFileNames: "[name].cjs" }
       }
     }

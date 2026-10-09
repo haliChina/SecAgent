@@ -8,6 +8,7 @@ import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
 import { normalizeResilienceSettings } from "./resilience.js";
 import { normalizeToolGuardSettings } from "./tool-guard.js";
+import { normalizeModelBudgetSettings } from "./model-budget.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
 
 export const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
@@ -296,6 +297,7 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
   raw.speech = normalizeSpeechSettings(raw.speech);
   raw.resilience = normalizeResilienceSettings(raw.resilience);
   raw.guard = normalizeToolGuardSettings(raw.guard);
+  raw.budget = normalizeModelBudgetSettings(raw.budget);
   raw.hallucination = { enabled: raw.hallucination?.enabled !== false };
   for (const model of raw.agent.models ?? []) validateModelProfile(model, errors);
   if (raw.agent.models?.length) {
@@ -437,6 +439,7 @@ export interface SettingsPayload {
   customModelMode?: boolean;
   resilience?: import("./resilience.js").ResilienceSettings;
   guard?: import("./tool-guard.js").ToolGuardSettings;
+  budget?: import("./model-budget.js").ModelBudgetSettings;
   hallucinationEnabled?: boolean;
 }
 
@@ -457,7 +460,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), hallucinationEnabled: config.hallucination?.enabled !== false };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -595,6 +598,7 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   raw.defaults = { modelId: payload.defaultModelId || undefined, reasoningEffort: payload.defaultReasoningEffort || undefined, customModelMode: Boolean(payload.customModelMode), autostart: payload.autostart === true, autostartHidden: payload.autostartHidden !== false, visionModelId: payload.visionModelId || undefined };
   raw.resilience = normalizeResilienceSettings(payload.resilience);
   raw.guard = normalizeToolGuardSettings(payload.guard);
+  raw.budget = normalizeModelBudgetSettings(payload.budget);
   raw.hallucination = { enabled: payload.hallucinationEnabled !== false };
   delete (raw as SecAgentConfig & { policy?: unknown }).policy;
   fs.writeFileSync(file, YAML.stringify(raw), "utf8");

@@ -243,3 +243,84 @@ test("loads an Agent Plugin package with nested archive root, skills, and MCP me
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+function overlayTestZip(permissions: string[]): { workspace: string; archivePath: string } {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-overlay-"));
+  const archivePath = path.join(workspace, "overlay-test.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  archive.addFile("secagent-plugin.json", Buffer.from(JSON.stringify({ apiVersion: 1, id: "overlay-test", name: "Overlay test", version: "1.0.0", main: "main.mjs", permissions })));
+  archive.addFile("main.mjs", Buffer.from(`
+export function activate(api) { globalThis.__overlayTestApi = api; }
+`));
+  archive.writeZip(archivePath);
+  return { workspace, archivePath };
+}
+
+test("overlay: 未声明 agent.overlay 权限时拒绝", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { createOverlay(input: unknown): Promise<unknown> } }).__overlayTestApi;
+    await assert.rejects(
+      () => api.createOverlay({ url: "http://127.0.0.1:1/", width: 200, height: 200 }),
+      /未声明权限/
+    );
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("overlay: 无 Electron 环境时提示不支持", async () => {
+  const { workspace, archivePath } = overlayTestZip(["agent.overlay"]);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { createOverlay(input: unknown): Promise<unknown> } }).__overlayTestApi;
+    await assert.rejects(
+      () => api.createOverlay({ url: "http://127.0.0.1:1/", width: 200, height: 200 }),
+      /不支持 overlay/
+    );
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("overlay: 参数校验 + 停用时自动关闭", async () => {
+  const { workspace, archivePath } = overlayTestZip(["agent.overlay"]);
+  const seen: string[] = [];
+  const closed: string[] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, async (req) => {
+    seen.push(`${req.pluginId}:${req.url}`);
+    return {
+      show: async () => {},
+      hide: async () => {},
+      close: async () => { closed.push(req.pluginId); },
+      setBounds: async () => {}
+    };
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { createOverlay(input: unknown): Promise<unknown> } }).__overlayTestApi;
+    await assert.rejects(() => api.createOverlay({ url: "https://evil.com/x", width: 200, height: 200 }), /本地/);
+    await assert.rejects(() => api.createOverlay({ url: "http://127.0.0.1:1/", width: 10, height: 200 }), /64~1600/);
+    await assert.rejects(() => api.createOverlay({ url: "not-a-url", width: 200, height: 200 }), /URL 无效/);
+    const handle = (await api.createOverlay({ url: "http://127.0.0.1:1234/?token=abc", width: 200, height: 200 })) as {
+      show(): Promise<void>; hide(): Promise<void>; close(): Promise<void>; setBounds(b: unknown): Promise<void>;
+    };
+    assert.equal(typeof handle.show, "function");
+    assert.equal(typeof handle.setBounds, "function");
+    assert.deepEqual(seen, ["overlay-test:http://127.0.0.1:1234/?token=abc"]);
+    // 停用插件 → overlay 自动关闭
+    await manager.setEnabled("overlay-test", false);
+    assert.deepEqual(closed, ["overlay-test"]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

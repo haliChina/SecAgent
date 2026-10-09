@@ -6,9 +6,12 @@ import AdmZip from "adm-zip";
 import YAML from "yaml";
 import type { LoadedSkill, SkillAutoLoadPattern } from "./skills.js";
 import type { PluginStatus, PluginToolDefinition } from "./types.js";
+import { isTerminal, phaseOf, sanitizeActivityEvent, type ActivityEvent, type ActivityHandler, type ActivitySnapshot } from "./activity.js";
 
 const API_VERSION = 1;
 const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
+/** 终态后快照阶段保持的时长；过后回落 idle。 */
+const ACTIVITY_TERMINAL_TTL_MS = 30_000;
 
 type PluginFormat = "secagent" | "agent";
 
@@ -44,7 +47,7 @@ interface PluginManifest {
 }
 interface InstalledPlugin { id: string; version: string; enabled: boolean }
 interface PluginStateFile { plugins: InstalledPlugin[] }
-interface ActivePlugin { manifest: PluginManifest; root: string; state: PluginStatus["state"]; message?: string; tools: Map<string, { definition: PluginToolDefinition; call: (args: Record<string, unknown>) => Promise<unknown> }>; skills: Map<string, { file: string; autoLoadPattern?: SkillAutoLoadPattern }>; mcpServers: Map<string, PluginMcpServer>; prompts: Map<string, PluginPromptProvider>; preRules: Map<string, PluginPreRuleMatcher>; rules: Map<string, { pattern: { source: string; flags: string }; handle: PluginRuleHandler }>; settingsHandlers?: Map<string, (action: string, args: Record<string, unknown>) => Promise<unknown>>; dispose?: () => void | Promise<void> }
+interface ActivePlugin { manifest: PluginManifest; root: string; state: PluginStatus["state"]; message?: string; tools: Map<string, { definition: PluginToolDefinition; call: (args: Record<string, unknown>) => Promise<unknown> }>; skills: Map<string, { file: string; autoLoadPattern?: SkillAutoLoadPattern }>; mcpServers: Map<string, PluginMcpServer>; prompts: Map<string, PluginPromptProvider>; preRules: Map<string, PluginPreRuleMatcher>; rules: Map<string, { pattern: { source: string; flags: string }; handle: PluginRuleHandler }>; activityHandlers: Set<ActivityHandler>; settingsHandlers?: Map<string, (action: string, args: Record<string, unknown>) => Promise<unknown>>; dispose?: () => void | Promise<void> }
 
 function isAgentPluginName(value: string): boolean {
   return value.length >= 1 && value.length <= 64 && /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/.test(value) && !value.includes("--") && !value.includes("..");
@@ -88,6 +91,36 @@ export interface SvgPreviewRequest {
 
 export type SvgPreviewHandler = (request: SvgPreviewRequest) => Promise<boolean>;
 
+/** 插件 overlay 浮窗（如桌面宠物）的创建参数。 */
+export interface OverlayCreateOptions {
+  /** 仅允许 http://127.0.0.1/* 或 http://localhost/*（插件本地服务） */
+  url: string;
+  /** 逻辑宽度，64~1600 */
+  width: number;
+  /** 逻辑高度，64~1600 */
+  height: number;
+  /** 透明背景，默认 true */
+  transparent?: boolean;
+  /** 窗口置顶，默认 true */
+  alwaysOnTop?: boolean;
+  /** 鼠标点击穿透（仅内容主动接管时捕获），默认 true */
+  clickThrough?: boolean;
+}
+
+export interface PluginOverlayHandle {
+  show(): Promise<void>;
+  hide(): Promise<void>;
+  close(): Promise<void>;
+  setBounds(bounds: { x?: number; y?: number; width?: number; height?: number }): Promise<void>;
+}
+
+export interface OverlayRequest extends OverlayCreateOptions {
+  pluginId: string;
+}
+
+/** Electron 主进程实现：创建隔离的 overlay 窗口。CLI 等无窗口环境不提供。 */
+export type OverlayHandler = (request: OverlayRequest) => Promise<PluginOverlayHandle>;
+
 export interface PluginHostApi {
   registerTool(definition: Omit<PluginToolDefinition, "key"> & { name: string }, call: (args: Record<string, unknown>) => Promise<unknown>): void;
   unregisterTool(name: string): void;
@@ -108,6 +141,25 @@ export interface PluginHostApi {
   /** Persist plugin-scoped preferences. The host stores this outside the workspace business databases. */
   setConfig(config: Record<string, unknown>): void;
   openSvgPreview(input: { svg: string; title?: string; fileName?: string; openPreview?: boolean }): Promise<{ path: string; relativePath: string; bytes: number; previewOpened: boolean; previewError?: string }>;
+  /**
+   * 创建插件 overlay 浮窗（透明、置顶、可点击穿透）。
+   * 需要权限 `agent.overlay`；URL 仅允许插件本地 loopback 服务。
+   * 插件停用/卸载时宿主自动关闭其 overlay。
+   */
+  createOverlay(input: OverlayCreateOptions): Promise<PluginOverlayHandle>;
+  /**
+   * 订阅 Agent 活动事件（回合/工具/审批/完成/失败）。
+   * 事件是无内容投影：只有 kind/sessionId/at/label/reason，
+   * 不含用户提示词、工具参数、工具结果与模型输出。
+   * 返回退订函数；插件停用/卸载时宿主也会自动解除全部订阅。
+   * 需要 `agent.activity` 权限。
+   */
+  onActivity(handler: ActivityHandler): () => void;
+  /**
+   * 当前活动快照，供「晚于事件发生的订阅者」补齐状态（如桌宠浮窗在回合中途才打开）。
+   * 只读、可多消费者同时观察，派发不消费事件。
+   */
+  getActivity(): ActivitySnapshot;
   setStatus(message: string, state?: "ready" | "error"): void;
   fetch(url: string, init?: RequestInit): Promise<Response>;
 }
@@ -123,6 +175,12 @@ export class PluginManager {
   private readonly dataRoot: string;
   private readonly statePath: string;
   private active = new Map<string, ActivePlugin>();
+  private overlays = new Map<string, Set<PluginOverlayHandle>>();
+  /** 最近一次活动事件（所有插件共享同一份只读快照）。 */
+  private activityLast: ActivityEvent | null = null;
+  private activityPhase: ActivitySnapshot["phase"] = "idle";
+  /** 最近一次终态事件的时刻；用于让快照阶段在 TTL 后回落 idle。 */
+  private activityTerminalAt = 0;
   private state: PluginStateFile = { plugins: [] };
   private listeners = new Set<() => void>();
 
@@ -130,7 +188,8 @@ export class PluginManager {
     getSession: () => Promise<{ accessToken: string; userId?: string; email?: string; name?: string } | null>;
     oauthLogin: () => Promise<{ accessToken: string; userId?: string; email?: string; name?: string }>;
   } = { getSession: async () => null, oauthLogin: async () => { throw new Error("SECTL OAuth login unavailable"); } },
-  private readonly previewHandler?: SvgPreviewHandler) {
+  private readonly previewHandler?: SvgPreviewHandler,
+  private readonly overlayHandler?: OverlayHandler) {
     this.installedRoot = path.join(workspace, "plugins", "installed");
     this.runtimeRoot = path.join(workspace, ".secagent-runtime", "plugins");
     this.configRoot = path.join(workspace, "plugins", "config");
@@ -147,6 +206,35 @@ export class PluginManager {
 
   onChanged(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
   private changed(): void { for (const listener of this.listeners) listener(); }
+
+  /**
+   * 派发一次活动事件给所有已订阅的插件。
+   * 事件是只读投影、不消费：多个插件同时订阅不会互相抢事件。
+   * 单个订阅者抛错不影响其他订阅者，也不影响 Agent 主流程。
+   */
+  emitActivity(input: ActivityEvent): ActivityEvent {
+    const event = sanitizeActivityEvent(input);
+    this.activityLast = event;
+    this.activityPhase = phaseOf(event.kind);
+    if (isTerminal(event.kind)) this.activityTerminalAt = event.at;
+    for (const [, plugin] of this.active) {
+      for (const handler of [...plugin.activityHandlers]) {
+        try { handler(event); } catch { /* 订阅者异常不得影响 Agent 与其他插件 */ }
+      }
+    }
+    return event;
+  }
+
+  /**
+   * 活动快照。**全局一份，不按会话分区**：多会话交错时是 last-writer-wins，
+   * 晚订阅的伴生窗口可能拿到另一个会话的阶段。这是已知取舍——事件自带 sessionId
+   * 可自行过滤，需要严格隔离时应订阅并按 sessionId 过滤，而不是依赖本快照。
+   */
+  getActivity(): ActivitySnapshot {
+    // 终态之后一段时间回落为 idle：伴生 UI 不该永远停在 done/failed 上。
+    const stale = this.activityTerminalAt > 0 && Date.now() - this.activityTerminalAt > ACTIVITY_TERMINAL_TTL_MS;
+    return { phase: stale ? "idle" : this.activityPhase, last: this.activityLast };
+  }
 
   list(): PluginStatus[] {
     return this.state.plugins.map((installed) => {
@@ -322,8 +410,8 @@ export class PluginManager {
     if (!installed || this.active.has(id)) return;
     const root = path.join(this.installedRoot, installed.id, installed.version);
     const manifest = this.readManifest(root);
-    if (!manifest) { this.active.set(id, { manifest: { format: "secagent", apiVersion: API_VERSION, id, name: id, version: installed.version }, root, state: "error", message: "找不到或无法读取插件清单", tools: new Map(), skills: new Map(), mcpServers: new Map(), prompts: new Map(), preRules: new Map(), rules: new Map() }); this.changed(); return; }
-    const plugin: ActivePlugin = { manifest, root, state: "starting", tools: new Map(), skills: new Map(), mcpServers: new Map(), prompts: new Map(), preRules: new Map(), rules: new Map(), settingsHandlers: new Map() };
+    if (!manifest) { this.active.set(id, { manifest: { format: "secagent", apiVersion: API_VERSION, id, name: id, version: installed.version }, root, state: "error", message: "找不到或无法读取插件清单", tools: new Map(), skills: new Map(), mcpServers: new Map(), prompts: new Map(), preRules: new Map(), rules: new Map(), activityHandlers: new Set() }); this.changed(); return; }
+    const plugin: ActivePlugin = { manifest, root, state: "starting", tools: new Map(), skills: new Map(), mcpServers: new Map(), prompts: new Map(), preRules: new Map(), rules: new Map(), activityHandlers: new Set(), settingsHandlers: new Map() };
     this.active.set(id, plugin); this.changed();
     try {
       if (manifest.format === "agent") {
@@ -346,6 +434,16 @@ export class PluginManager {
   private async deactivate(id: string): Promise<void> {
     const plugin = this.active.get(id);
     if (!plugin) return;
+    // 先关闭该插件的 overlay 浮窗，再执行插件自身的 dispose
+    const overlays = this.overlays.get(id);
+    if (overlays) {
+      this.overlays.delete(id);
+      for (const overlay of overlays) {
+        try { await overlay.close(); } catch { /* 关闭失败不阻断停用 */ }
+      }
+    }
+    // 解除活动订阅：与 overlay 同一套生命周期，避免停用后仍被事件打到。
+    plugin.activityHandlers.clear();
     await plugin.dispose?.();
     this.active.delete(id);
     fs.rmSync(path.join(this.runtimeRoot, plugin.manifest.id, plugin.manifest.version), { recursive: true, force: true });
@@ -424,6 +522,22 @@ export class PluginManager {
         requirePermission("agent.preview");
         return this.saveSvgPreview(plugin, input);
       },
+      createOverlay: async (input) => {
+        requirePermission("agent.overlay");
+        return this.createPluginOverlay(plugin, input);
+      },
+      onActivity: (handler) => {
+        requirePermission("agent.activity");
+        if (typeof handler !== "function") throw new Error("插件活动订阅者必须是函数");
+        plugin.activityHandlers.add(handler);
+        return () => { plugin.activityHandlers.delete(handler); };
+      },
+      getActivity: () => {
+        // 快照与事件同一敏感级别：一并收权限，否则「未声明 agent.activity 的插件
+        // 走不到新代码路径」这句不成立。
+        requirePermission("agent.activity");
+        return this.getActivity();
+      },
       setStatus: (message, state = "ready") => { plugin.message = message; plugin.state = state; this.changed(); },
       fetch: async (url, init) => { requirePermission("network.http"); const parsed = new URL(url); if (parsed.protocol !== "http:" && parsed.protocol !== "https:") throw new Error("插件 HTTP 仅允许 http/https"); return fetch(url, init); }
     };
@@ -453,6 +567,56 @@ export class PluginManager {
       return { path: filePath, relativePath, bytes, previewOpened: false, previewError: error instanceof Error ? error.message : String(error) };
     }
   }
+  /** 校验 overlay 创建参数：URL 仅允许插件本地 loopback 服务，尺寸钳制。 */
+  private validateOverlayInput(input: OverlayCreateOptions): Required<OverlayCreateOptions> {
+    if (!input || typeof input !== "object") throw new Error("overlay 参数无效");
+    let url: URL;
+    try {
+      url = new URL(String(input.url));
+    } catch {
+      throw new Error("overlay URL 无效");
+    }
+    const host = url.hostname.toLowerCase();
+    if (url.protocol !== "http:" || (host !== "127.0.0.1" && host !== "localhost" && host !== "::1")) {
+      throw new Error("overlay 只允许加载插件本地服务（http://127.0.0.1/*）");
+    }
+    const width = Number(input.width);
+    const height = Number(input.height);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width < 64 || width > 1600 || height < 64 || height > 1600) {
+      throw new Error("overlay 尺寸必须为 64~1600 的整数");
+    }
+    const flag = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
+    return {
+      url: url.toString(),
+      width,
+      height,
+      transparent: flag(input.transparent, true),
+      alwaysOnTop: flag(input.alwaysOnTop, true),
+      clickThrough: flag(input.clickThrough, true)
+    };
+  }
+
+  private async createPluginOverlay(plugin: ActivePlugin, input: OverlayCreateOptions): Promise<PluginOverlayHandle> {
+    const options = this.validateOverlayInput(input);
+    if (!this.overlayHandler) throw new Error("当前运行环境不支持 overlay（需要 Electron 桌面端）");
+    const handle = await this.overlayHandler({ ...options, pluginId: plugin.manifest.id });
+    const set = this.overlays.get(plugin.manifest.id) ?? new Set<PluginOverlayHandle>();
+    set.add(handle);
+    this.overlays.set(plugin.manifest.id, set);
+    const rawClose = handle.close.bind(handle);
+    // 包装 close：从跟踪集合中移除，避免重复关闭
+    return {
+      ...handle,
+      close: async () => {
+        try {
+          await rawClose();
+        } finally {
+          set.delete(handle);
+        }
+      }
+    };
+  }
+
   private safeRelative(root: string, value: string): string { const candidate = path.resolve(root, value); if (!candidate.startsWith(`${root}${path.sep}`)) throw new Error("插件路径越界"); return candidate; }
   private assertSafeSkillTree(root: string): void {
     for (const entry of fs.readdirSync(root, { withFileTypes: true })) {

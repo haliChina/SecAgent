@@ -67,7 +67,21 @@ agent:
 - **允许一次**：仅本次放行；
 - **总是允许此类**：按「工具 + 命令头」签名记忆（如 `bash|rm`），不同命令不会误放行；签名保存在 `secagent.yaml` 的 `guard.approved`。
 
+GUI 动作（任何 `*__type` / `*__key` / `*__click` / `*__drag` 工具，例如 [SecAgent-ComputerUse](https://github.com/haliChina/SecAgent-ComputerUse)）同样受此闸门保护：键入含「支付 / 删除 / 发送 / 验证码 / rm -rf / format」等特征的文本，或按下 `alt+f4`、`ctrl+alt+delete`、`win+l` 等组合键时会要求确认；普通打字与 `ctrl+c`、`f5` 之类快捷键不受打扰。
+
 CLI 模式下通过终端 `y/N` 确认；非交互环境（管道 / CI）默认拒绝。5 分钟无响应自动拒绝。总开关位于“设置 → 系统 → 安全与检测”。
+
+## 运行预算（步数上限 + 图片历史）
+
+工具调用循环默认不设上限（读写类任务经常需要很多轮），但长任务尤其是带截图的界面操作会让上下文和费用随步数线性膨胀。`secagent.yaml` 中新增：
+
+```yaml
+budget:
+  maxToolTurns: 0        # 单轮工具调用上限，0 = 不限制；达到后要求模型收尾并停止调用
+  keepRecentImages: 2    # 上下文里保留最近几张工具返回图片，更早的替换为文字占位
+```
+
+达到 `maxToolTurns` 时，最后一轮会先提醒模型总结进展，随后停止继续调用工具并返回总结（`model.budget.stop` trace 事件）。图片裁剪对 OpenAI 兼容 / Responses / Anthropic / Gemini 四种消息形态都生效，只保留最新 N 张。四项参数也可在“设置 → 系统 → 运行预算”里调整。
 
 ## 幻觉检测
 
