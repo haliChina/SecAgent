@@ -341,7 +341,7 @@ function createLockedArchive(workspace: string, version: string, marker: string)
 /** 把 fs.rmSync 替换为对 installed/<id> 目录抛 EPERM，模拟 Windows 句柄锁死。 */
 function lockPluginDir(pluginDirInPath: string): () => void {
   const realRmSync = fs.rmSync;
-  (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmSyncOptions) => {
+  (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmOptions) => {
     if (typeof target === "string" && target.includes(pluginDirInPath)) {
       const error = new Error("EPERM: operation not permitted, unlink") as NodeJS.ErrnoException;
       error.code = "EPERM";
@@ -418,7 +418,7 @@ test("when both deletion and quarantine fail, install reports the restart guidan
     await manager.install(createLockedArchive(workspace, "1.0.0", "old"));
     const realRmSync = fs.rmSync;
     const realRenameSync = fs.renameSync;
-    (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmSyncOptions) => {
+    (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmOptions) => {
       if (typeof target === "string" && target.includes(path.join("installed", "locked-test"))) {
         const error = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
         error.code = "EPERM";
