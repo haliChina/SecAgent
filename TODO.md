@@ -3,9 +3,24 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
-## 本轮（R27 · 2026-10-09）
+## 本轮（R28 · 2026-10-09）
 
-### R26/R27 PromptBar 替换 composer — 完成 ✓（tsc 0 错误 + build 全绿）
+### R27 包（9010c1f）实测反馈修复 — 完成 ✓（CI 全绿 eeb4c49）
+- ✓ 模型菜单提供商标签溢出：行 name flex-none→shrink+truncate + 菜单 200→260px
+  （Qwen3.7-Flash-260715 不再把 FreeAlliCloud 挤出边界）
+- ✓ 设置页 HookSidebar 无样式/线条与选项叠加：根因=旧版 .settings-nav 窄条规则
+  （display:grid/width132/a 链接）无 layer 覆盖组件 Tailwind utilities；删旧规则；
+  组件侧加测量防御（零尺寸跳过+逐按钮 observe+双 rAF，修 filter 索引错位）
+- ✓ PromptBar Effort 最高动效与外框间距：根因=.composer 旧外框与 PromptBar 自带
+  外框双层嵌套；:has(.app-promptbar) 无形化 composer，附件/引用/状态补边距
+- ✓ React #130 崩溃：静态排查无果（tsc 全绿下无 undefined 组件），ErrorBoundary
+  增加 componentStack 展示+复制，下次崩溃可直接定位组件 → 待复现取栈
+- ✓ eeb4c49 CI + Build 三平台全绿；安装包已交付：
+  SecAgent-Setup-20261009-003752-eeb4c4942d1c.exe（R28 四问题修复版）
+- ☐ 图5 若复现：需用户告知触发路径
+- ☐ #130 若复现：新版崩溃页有「组件栈（定位用）」，展开复制即可定位组件
+
+### R27（上一轮）PromptBar 替换 composer — 完成 ✓（tsc 0 错误 + build 全绿）
 - ✓ Bits.tsx：PromptBar 加受控桥 props（value/onDraftChange/model/onModelChange/
   onAttachRemove/onDictateCancel），不传即真源行为；修桥 prop `model` 与真源内部
   `const model` 重名（TS2300×2+2322+2339×2+2345+18048 共 7 错）
