@@ -67,7 +67,8 @@ const DB_SURFACE = "bg-[#F4F4F9] dark:bg-[#262626]";
 const DB_RECESS = "bg-[#E7E7EF] dark:bg-[#1B1B1B]";
 const DB_GLYPH = "text-[#868593] dark:text-[#9B9AA7]";
 const DB_FOCUS = "outline-none focus-visible:ring-2 focus-visible:ring-[#868593]";
-const DB_ACCENT = "#FF5F2E";
+/* R32：真源品牌橙 #FF5F2E → 应用主题蓝（全局配色收敛白蓝黑）。 */
+const DB_ACCENT = "#2563EB";
 
 const DB_LIFT =
   "shadow-[0_0.5px_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.08),inset_0_0.5px_0_rgba(255,255,255,0.9)] dark:shadow-[0_0.5px_1px_rgba(0,0,0,0.35),0_1.5px_4px_rgba(0,0,0,0.3),inset_0_0.5px_0_rgba(255,255,255,0.05)]";

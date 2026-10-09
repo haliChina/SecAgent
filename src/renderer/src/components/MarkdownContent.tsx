@@ -129,7 +129,7 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
   const width = Math.PI * radius;
   const stripWidth = width / slices;
   const sectorColor = typeof plot.sectorColor === "string" ? plot.sectorColor : "#2563eb";
-  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : "#f59e0b";
+  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : "#2563EB";
   const sectors = Array.from({ length: slices }, (_, index) => {
     const start = (index / slices) * Math.PI * 2;
     const end = ((index + 1) / slices) * Math.PI * 2;
@@ -145,7 +145,7 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
     // The alternating colors show the interleaving while every strip keeps
     // the same height r, so the resulting rectangle has dimensions πr × r.
     const points: Array<[number, number]> = [[x0, -radius / 2], [x1, -radius / 2], [x1, radius / 2], [x0, radius / 2]];
-    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : "#d97706"} fillOpacity={.42} />;
+    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : "#1D4ED8"} fillOpacity={.42} />;
   });
   return <>
     {sectors}

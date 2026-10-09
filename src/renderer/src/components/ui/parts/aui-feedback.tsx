@@ -65,7 +65,7 @@ export function AuiGuardrailNotice({
       {...props}
     >
       <div className="flex items-center gap-2.5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-amber-500/12 text-amber-600">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[#2563EB]/10 text-[#2563EB]">
           <ShieldIcon className="size-4" />
         </span>
         <p className="text-foreground/90 text-[13.5px] font-medium">{title}</p>

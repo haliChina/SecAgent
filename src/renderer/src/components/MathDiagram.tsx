@@ -44,7 +44,7 @@ export function CylinderVolumeProof(props: CylinderVolumeProofProps) {
   return <div className={`math-diagram-block${animate ? " math-diagram-animated" : ""}`}>
     <svg className="math-diagram-svg" viewBox="0 0 1120 520" role="img" aria-label="圆柱切片交错排列成近似长方体的体积推导图">
       <defs>
-        <marker id="math-arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#ef6c00" /></marker>
+        <marker id="math-arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563EB" /></marker>
         <marker id="math-arrow-gray" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#4b5563" /></marker>
       </defs>
 
@@ -71,8 +71,8 @@ export function CylinderVolumeProof(props: CylinderVolumeProofProps) {
       {showArrow && <g className="math-diagram-transform-arrow"><path d="M390 220 H485 V188 L565 250 L485 312 V280 H390 Z" fill="#fff" stroke="#4b5563" strokeWidth="2.5" markerEnd="url(#math-arrow-gray)" /><text x="478" y="345" textAnchor="middle">切片、交错排列</text></g>}
 
       <g className="math-prism">
-        <path d={`M ${prism.x} ${prism.y} L ${prism.x + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width} ${prism.y} Z`} fill="#fff3d6" stroke="#374151" strokeWidth="2.5" />
-        <path d={`M ${prism.x + prism.width} ${prism.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prism.height + prismDepth.y} L ${prism.x + prism.width} ${prism.y + prism.height} Z`} fill="#f7e5bd" stroke="#374151" strokeWidth="2.5" />
+        <path d={`M ${prism.x} ${prism.y} L ${prism.x + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width} ${prism.y} Z`} fill="#DBEAFE" stroke="#374151" strokeWidth="2.5" />
+        <path d={`M ${prism.x + prism.width} ${prism.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prismDepth.y} L ${prism.x + prism.width + prismDepth.x} ${prism.y + prism.height + prismDepth.y} L ${prism.x + prism.width} ${prism.y + prism.height} Z`} fill="#BFDBFE" stroke="#374151" strokeWidth="2.5" />
         {Array.from({ length: slices + 1 }, (_, index) => {
           const x = prism.x + sliceWidth * index;
           return <line key={`top-slice-${index}`} x1={x} y1={prism.y} x2={x + prismDepth.x} y2={prism.y + prismDepth.y} stroke="#374151" strokeWidth="1.35" />;
@@ -84,7 +84,7 @@ export function CylinderVolumeProof(props: CylinderVolumeProofProps) {
           const topCurve = prism.y + (index % 2 === 0 ? 10 : -8);
           const bottomCurve = prism.y + prism.height + (index % 2 === 0 ? -8 : 10);
           const path = `M ${x0} ${prism.y} Q ${(x0 + x1) / 2} ${topCurve} ${x1} ${prism.y} L ${x1} ${prism.y + prism.height} Q ${(x0 + x1) / 2} ${bottomCurve} ${x0} ${prism.y + prism.height} Z`;
-          return <path key={index} d={path} fill={index % 2 === 0 ? "#fff7e6" : "#f9edcf"} stroke="#374151" strokeWidth="1.7" />;
+          return <path key={index} d={path} fill={index % 2 === 0 ? "#EFF6FF" : "#DBEAFE"} stroke="#374151" strokeWidth="1.7" />;
         })}
         {showCorrespondence && <>
           <Dimension x1={prism.x} y1={prism.y + prism.height + 37} x2={prism.x + prism.width} y2={prism.y + prism.height + 37} label="底边 ≈ πr = ½圆周长" />
@@ -102,7 +102,7 @@ function Dimension({ x1, y1, x2, y2, label, vertical = false, angle: customAngle
   const tx = (x1 + x2) / 2;
   const ty = (y1 + y2) / 2;
   return <g className="math-dimension">
-    <line x1={x1} y1={y1} x2={x2} y2={y2} markerStart="url(#math-arrow-orange)" markerEnd="url(#math-arrow-orange)" />
+    <line x1={x1} y1={y1} x2={x2} y2={y2} markerStart="url(#math-arrow-blue)" markerEnd="url(#math-arrow-blue)" />
     <text x={tx} y={ty - 8} transform={`rotate(${angle} ${tx} ${ty})`} textAnchor="middle">{label}</text>
   </g>;
 }

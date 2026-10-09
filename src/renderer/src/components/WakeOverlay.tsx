@@ -462,9 +462,10 @@ const submitTranscript = async () => {
     <svg className="wake-edge-svg" aria-hidden="true" preserveAspectRatio="none">
       <defs>
         <linearGradient id="wake-edge-gradient" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
-          <stop offset="0%" stopColor="#f86437" /><stop offset="16%" stopColor="#ffb84a" />
-          <stop offset="30%" stopColor="#f5eb66" /><stop offset="48%" stopColor="#6ddf88" />
-          <stop offset="66%" stopColor="#58b7ff" /><stop offset="80%" stopColor="#8c78ff" /><stop offset="100%" stopColor="#f86437" />
+          {/* R32：彩虹渐变改蓝色系流光（全局配色收敛白蓝黑）。 */}
+          <stop offset="0%" stopColor="#1D4ED8" /><stop offset="16%" stopColor="#2563EB" />
+          <stop offset="30%" stopColor="#60A5FA" /><stop offset="48%" stopColor="#93C5FD" />
+          <stop offset="66%" stopColor="#60A5FA" /><stop offset="80%" stopColor="#2563EB" /><stop offset="100%" stopColor="#1D4ED8" />
           <animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="20s" repeatCount="indefinite" />
         </linearGradient>
         {/* Keep the full-screen glow visually smooth without allocating a
