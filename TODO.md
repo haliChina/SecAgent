@@ -45,10 +45,84 @@ ipc-settings / windows / wake / ipc-sessions（13 个域模块）
   错写 models:list；IPC diff 抓通道漏搬；本轮 tsc 抓 5 处
 - 流程铁律：后台 tsc 必须等 EXIT= 行；搬家必须逐字对照 git 原文
 
-### P3 续（UI 阶段，基于借鉴研究）
-- TraceView 运行轨迹面板（sessions:runtime-events 数据已有）
-- 对话面板一等公民布局校准
-- session 搜索/fork/归档；主题 token 系统化
+### UI 深度研究：DSH 12 包源码 + ZCode 实测（R40）✓
+
+#### DSH 设计精髓（逐包源码级研读）
+- **三栏 AppFrame**：左栏 264-420px（默认 280，收起留 56px rail，
+  <1024px 自动收）；右栏首开 45%、记像素偏好、上限 70%；
+  **中心保护 400px**：右栏先压到 300→报告不够→占用者自己关→才压中心
+- **轨迹视图（ui-trajectory）**：turn-aware 台账 + 时序总览；分组
+  User/Assistant/Tool/嵌套 Subtool/compaction；记录检查器（token/
+  时长/输入输出/附件摘要）；长历史从尾部打开按需加载只渲染可见行；
+  流式时跟随尾部直到用户上滚；**in-flight 只显示开始标记不发明
+  已过时间（诚实原则）**
+- **工具调用树（ui-tool）**：整调用树组合；原子 call 由拥有它的
+  view 渲染（keyed slot）；未注册工具名用 generic card 兜底；
+  collapsed web_fetch 链接 http(s) 新标签开；Bash 行错误/警告色
+  保留（含 hover）；read/write/edit 显示可打开路径
+- **命令面板（ui-commands）**：composer 打 / 或 @ 开分组菜单
+  （Add: File/Goal/Plan/Feedback + Commands: Compact/Permission/
+  Model/Export）；popup 保持 composer 焦点，本地过滤、↑↓ 走行、
+  Enter/Tab 接受、Esc 返回；高亮开在当前值行——接受即确认；
+  **命令行从不静默降级为普通 prompt**
+- **审批（ui-approval）**：pending request 接管 composer；
+  Enter 批准 / Esc 拒绝；键盘指针共享一把 pending-request 锁；
+  withdrawn/replaced 不能再接受（防竞态）
+- **主题（ui-theme）**：light/dark/system 三态；文本/代码/终端
+  字号分别设置；--dsw-* token；**选中调色板在 shell 加载前应用
+  （防 FOUC 闪烁）**；第三方主题注册 alias-token 覆盖
+- **primitives**：不可信模型输出处理（丢原始 HTML、限制链接、
+  解析 ANSI 转义）；Menu 行接受 owner 快捷键；ShortcutKeys
+  unboxed 默认、暗气泡上更轻 keycap
+- **workspace**：每 Workspace 默认显示 5 个 idle 非空会话（running
+  不占配额）；Show more +5；无标题用本地化"未命名"；有计划任务
+  的 idle 会话显示 clock mark，hover 卡列出任务
+- **deliverables**：changed-files 卡（Host 行数统计）+ 点开该 turn
+  review tab；**列出/链接路径只来自记录 summary/成功 mutation/
+  显式交付，从不来自 prose（防幻觉）**
+- **sidebar**：brand 行 + New Session + Settings 底部固定；idle 时
+  隐藏滚动条且不移动浏览器行；New Session 用显式选的→当前会话的
+  →最近活跃的 Workspace
+- **plan/goal**：/plan 进入 composer chip 退出；提交的计划自动在
+  右栏打开审阅；goal 是 composer 的第二张卡（可编辑/暂停/恢复/
+  清除；持久 /goal 显示为 Command 气泡，reload 后仍可见）
+- **dockkit**：split tree of tabbed panes + 可逆操作 + planners；
+  右栏是 dockkit 第一个嵌入者
+
+#### ZCode 设计精髓（实测文 + 资料提炼）
+- **多任务并行**：同时开多个任务（修 Bug/补测试/分析）互不干扰；
+  "每个页面重构开新对话"——会话即任务
+- **Review 面板看 Diff 后合并**：改动不直接生效，Review 确认再合并
+- **内置浏览器实时预览**：任务完成后右侧自动开浏览器对比效果；
+  改 CSS 一边改一边看
+- **网页元素查找模式**：指哪改哪（类 DevTools 元素选择器）
+- **效果图先选方向**：先出多个效果图让用户挑，定方向再开工
+  （避免反复横跳浪费）
+- **验证截图对比**：每轮任务完测试时截图与预期比较
+- **用量可视化**：当日/当周用量百分比常显
+- **零配置上手**：登录即用；思考强度选择（高/中/低）
+- **工作区多样**：本地/SSH/WSL/Docker
+
+#### SecAgent 现状对照（App.tsx 1020 行）
+- 会话管理 = session-modal 对话框（DSH/ZCode 均为侧栏常驻）
+- trace-panel 已有雏形（1008 行 aside）可升级为 turn-aware 台账
+- composer 无 / 命令系统；无审批接管模式（工具确认是普通通知）
+- 改动即生效，无 Review-Diff 闸门（后端已有 b7ddbdf 确认闸门可接）
+
+#### P3 改造清单（按用户价值排序）
+1. **侧栏常驻会话**（modal→sidebar）：会话/工作区分组列表 +
+   搜索 + 底部 Settings 固定；<1024px 自动收 rail
+2. **轨迹面板升级**：turn 边界 + 记录检查器（token/时长/IO）+
+   尾部跟随/上滚停止 + in-flight 诚实标记
+3. **命令面板**：composer / 触发分组菜单（本地过滤+↑↓Enter），
+   对接现有 /compact 等命令
+4. **工具确认接管式审批**：pending 接管 composer，Enter 批/Esc 拒，
+   防 withdrawn 竞态（后端 5min 超时已有）
+5. **主题三态 + 防闪烁**：选中调色板 shell 加载前应用；文本/代码
+   字号分设；token 命名审查（去 text-ui-* 硬编码）
+6. **Review-Diff 闸门**（后端已接入确认）+ 交付物卡片（文件改动
+   列表 + 行数统计，路径只来自记录不来自 prose）
+7. 不可信输出处理：丢原始 HTML/限制链接/ANSI 解析（primitives 模式）
 
 ## 本轮（R38 · 2026-10-09）
 
