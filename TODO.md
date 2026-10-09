@@ -3,6 +3,28 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R33 · 2026-10-09）
+
+### P2 设计 token 统一 — 完成 ✓（CI 全绿 b390090）
+- ✓ Tailwind v4 @theme 增 --color-accent/--color-accent-text 映射
+  （组件可用 bg-accent/10 等主题类）
+- ✓ 新建 parts/theme.ts TS 色板（SVG/canvas 场景唯一真源）：
+  ACCENT/ACCENT_DEEP/ACCENT_SKY/ACCENT_PALE/ACCENT_MID/ACCENT_SOFT/
+  ACCENT_FAINT + ERROR_RED/OK_GREEN
+- ✓ 10 文件硬编码蓝 → 色板 import（App/MarkdownContent/MathDiagram/
+  WakeOverlay/delete-button/hook-sidebar/matrix-orb/prompt-bar/aui-feedback）
+- ✓ CSS：#2563EB 19 处 → var(--accent)；rgba(37,99,235,α) 23 处 →
+  color-mix(in srgb, var(--accent) N%, transparent)（Electron 42 支持）
+- ✓ 过程修正：首轮正则把 alpha .10 误当 10（产出 1000%/4500% 会 clamp
+  成纯色），两轮修复后百分比 8-50% 与原 alpha 逐一核对通过
+- ✓ 验收：改主题蓝只需动 :root --accent + parts/theme.ts 两处；
+  parts 目录 hex 残留仅注释
+- ✓ 安装包已交付：SecAgent-Setup-20261009-101333-b39009086d7f.exe
+- ☐ 装机验证：视觉应与 R32 完全一致（纯重构无视觉变化）；重点看
+  录音取消态辉光/插件搜索框 focus 环/唤醒边框渐变
+- ☐ P3（下轮）：逐组件真源重写（thought-line → voice-pill → …）+
+  同步删全局 CSS 对应段
+
 ## 本轮（R32 · 2026-10-09）
 
 ### 用户定调：白蓝黑配色，去橙 — 完成 ✓（CI 全绿 48308c5）
