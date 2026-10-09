@@ -89,6 +89,27 @@ ipc-settings / windows / wake / ipc-sessions（13 个域模块）
 - **dockkit**：split tree of tabbed panes + 可逆操作 + planners；
   右栏是 dockkit 第一个嵌入者
 
+#### DSH 源码级实现参考（sparse 克隆 35MB，tmp/dsh，包级深读）
+- **columns.ts（59 行，ui-layout）**：常量表 SIDEBAR 264-420/默认 280/
+  收起 56（24px 图标列 + 2×16px padding）/<1024 自动收；
+  RIGHTBAR_MIN 300 / MAX 70% 帧 / 首开 45%；CENTER_MIN 400。
+  computeColumns 纯函数：available = viewport - sidebar - 400；
+  available < 300 → 右栏整体让位为 0；中心仅当无右栏时才可能
+  突破 400 下限。**可直接移植 SecAgent（改常量即可）**
+- **boot-theme.ts（64 行，ui-theme）防 FOUC 三层**：① head CSS
+  `body{background-color}` 三态（light/dark/@media prefers）第一帧
+  前上色 ② body script 在 shell 挂载前设 `data-ds-dark-theme` 属性 +
+  text/code/terminal 三字体角色字号 px + 字体列表 CSS 变量
+  ③ `dataset.dsThemeSource` 记来源供 presenter 接管
+- **timeline.ts（ui-trajectory）诚实时长**：`if (!finite(cell.startedAt))
+  return null`——未开始的记录不算时长；duration 严格 = end-start
+- **包结构模式**：每包 src/client + module.css + index.ts，CSS Modules
+  隔离；trajectory 包 = View/Table/GroupHeader/Turn/TurnHeader/Cell/
+  Toolbar/Timeline 八组件 + duration-store/string-wrapping-store/
+  copy-codes 独立小 store
+- 仓库 273MB 全量 → sparse clone（--filter=blob:none --depth 1 +
+  sparse-checkout packages/client）仅 35MB，学习成本可控
+
 #### ZCode 设计精髓（实测文 + 资料提炼）
 - **多任务并行**：同时开多个任务（修 Bug/补测试/分析）互不干扰；
   "每个页面重构开新对话"——会话即任务
