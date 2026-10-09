@@ -3,6 +3,19 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R29 · 2026-10-09）
+
+### R28 包实测追加反馈 — 完成 ✓（CI 全绿 c190678）
+- ✓ effort 模型切换不回退：真源回退改「不超过当前档的最高档」（GLM-5 max→Qwen
+  回 high 而非掉 low）；PromptBar effortIndex 加 defaultEffort 同步 effect +
+  渲染期 safeEffortIndex 夹取（level 空白/滑杆 aria 越界根除）
+- ✓ **React #130 根因实锤**：renderPbIcon 对 undefined icon 直接 <Ico/> 渲染
+  undefined 组件——点 + 打开来源菜单即触发（真源 Source.icon 必填、应用侧未传）。
+  非法/缺失返回 null + 行兜底 PaperclipIcon
+- ✓ effort 菜单无用问号图标删除；标题/快慢标注中文化（推理强度/更快/更深入思考）
+- ✓ 安装包已交付：SecAgent-Setup-20261009-010001-c1906784fedf.exe（R29 版）
+- ☐ 装机验证：+ 按钮不再崩溃、effort 切模型正确回退显示
+
 ## 本轮（R28 · 2026-10-09）
 
 ### R27 包（9010c1f）实测反馈修复 — 完成 ✓（CI 全绿 eeb4c49）
