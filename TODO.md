@@ -29,10 +29,26 @@
 6. 【ZCode】轻量克制：侧栏底部齿轮设置入口、Cmd+K 系快捷键
    习惯——低成本高感知
 
-### B2-d main.ts 解体第四批 🔶
-- ☐ 窗口/托盘/菜单域（4 窗口 + tray + app menu + overlay 窗口组）
-- ☐ sessions/wake 域（含 settings:save 快捷键联动）
-- 目标 main.ts < 500（当前 1020，merge 后含 overlay 新代码）
+### B2 main.ts 解体 — 第四批（d1+d2）完成 ✓
+- ✓ B2-d1：windows.ts（351 行）窗口/托盘/菜单/overlay 域（ba6b151）
+- ✓ B2-d2：wake.ts（173 行）+ ipc-sessions.ts（341 行）（7ee4038）
+- ✓ **main.ts：1691 → 263 行（-84%）**，纯装配入口
+- ✓ B2 拆出 13 个域模块；81 IPC 通道全程零变化；tsc EXIT=0
+- 本轮 tsc 抓 5 处接线错（相对路径×3/import 重复×1/漏导出×1）全修
+
+### B2 全程战果（R38-R39）
+main.ts 1691 → 263 行；拆出：main-log / autostart /
+companion-bridge / workspace-preview / ipc-companions /
+main-telemetry / ipc-plugins / ipc-official / ipc-speech /
+ipc-settings / windows / wake / ipc-sessions（13 个域模块）
+- 验证网战绩：CI tsc 抓 import 归属/引用漏接；自查抓凭记忆
+  错写 models:list；IPC diff 抓通道漏搬；本轮 tsc 抓 5 处
+- 流程铁律：后台 tsc 必须等 EXIT= 行；搬家必须逐字对照 git 原文
+
+### P3 续（UI 阶段，基于借鉴研究）
+- TraceView 运行轨迹面板（sessions:runtime-events 数据已有）
+- 对话面板一等公民布局校准
+- session 搜索/fork/归档；主题 token 系统化
 
 ## 本轮（R38 · 2026-10-09）
 
