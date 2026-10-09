@@ -3,6 +3,30 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R38 · 2026-10-09）
+
+### B2 main.ts 解体 — 第三批（c1-c3）完成 ✓（Build 全绿 bc6e83c）
+- ✓ B2-c1：main-telemetry.ts（Sentry/脱敏）+ ipc-plugins.ts
+  （9 通道）；1282→1173
+- ✓ B2-c2：ipc-speech.ts（13 通道 speech/tts/voice-wake）；1118→1057
+- ✓ B2-c3：ipc-settings.ts（14 通道 models/providers/settings/
+  updates/diagnostics/shell）；1057→927
+- ✓ main.ts 累计：1691 → 927 行（-764，-45%）
+- ✓ 拆出域模块 9 个（main-log/autostart/companion-bridge/
+  workspace-preview/ipc-companions/ipc-plugins/main-telemetry/
+  ipc-official/ipc-speech/ipc-settings）
+- 本轮被验证网抓住 4 次（全部当场修复）：
+  · CI tsc：DEFAULT_WORKSPACE import 归属写错（config.js→paths.js）
+  · CI tsc：officialProvider/runSectlOAuthLogin 引用漏接
+  · 自查：models:list 凭记忆错写 Models.make()（原文 fetch 官方端点）
+  · IPC diff：models:fetch 通道漏搬
+- 流程沉淀：后台 tsc 必须等 EXIT= 退出码行（读空 log 当 0 造成
+  一次 CI 翻车）；搬运必须逐字对照 git 原文
+- ✓ 安装包交付：SecAgent-Setup-20261009-132855-bc6e83c18073.exe
+- ☐ B2-d（下轮）：窗口/托盘/菜单域 + sessions/wake 域
+  （settings:save 联动 wake 快捷键同批拆），目标 main.ts < 500
+- ☐ P3 续：delete-button/animated-counter 等组件重写
+
 ## 本轮（R37 · 2026-10-09）
 
 ### B2 main.ts 解体 — 前两批完成 ✓（CI 全绿 1f388bb）
