@@ -1,0 +1,236 @@
+﻿2026-10-09T13:03:21.4781331Z Current runner version: '2.337.0'
+2026-10-09T13:03:21.4802387Z ##[group]Runner Image Provisioner
+2026-10-09T13:03:21.4803119Z Hosted Compute Agent
+2026-10-09T13:03:21.4803835Z Version: 20261002.596
+2026-10-09T13:03:21.4804352Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-09T13:03:21.4804926Z Build Date: 2026-10-02T22:28:27Z
+2026-10-09T13:03:21.4805540Z Worker ID: {202869ce-9337-47cd-87f3-a9359a676486}
+2026-10-09T13:03:21.4806105Z Region: westus
+2026-10-09T13:03:21.4806573Z Cloud: Azure
+2026-10-09T13:03:21.4807056Z ##[endgroup]
+2026-10-09T13:03:21.4808106Z ##[group]Operating System
+2026-10-09T13:03:21.4808703Z Ubuntu
+2026-10-09T13:03:21.4809135Z 24.04.5
+2026-10-09T13:03:21.4809611Z LTS
+2026-10-09T13:03:21.4810046Z ##[endgroup]
+2026-10-09T13:03:21.4810493Z ##[group]Runner Image
+2026-10-09T13:03:21.4811027Z Image: ubuntu-24.04
+2026-10-09T13:03:21.4811485Z Version: 20261004.327.1
+2026-10-09T13:03:21.4812564Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-09T13:03:21.4813923Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-09T13:03:21.4814773Z ##[endgroup]
+2026-10-09T13:03:21.4815731Z ##[group]GITHUB_TOKEN Permissions
+2026-10-09T13:03:21.4817271Z Contents: read
+2026-10-09T13:03:21.4817756Z Metadata: read
+2026-10-09T13:03:21.4818209Z ##[endgroup]
+2026-10-09T13:03:21.4819979Z Secret source: Actions
+2026-10-09T13:03:21.4820740Z Cache mode: write
+2026-10-09T13:03:21.4821380Z Prepare workflow directory
+2026-10-09T13:03:21.5078340Z Prepare all required actions
+2026-10-09T13:03:21.5118143Z Getting action download info
+2026-10-09T13:03:21.8325156Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-09T13:03:21.9106119Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-10-09T13:03:22.1031708Z Complete job name: Typecheck, build and test
+2026-10-09T13:03:22.1625276Z ##[group]Run actions/checkout@v4
+2026-10-09T13:03:22.1625923Z with:
+2026-10-09T13:03:22.1626277Z   repository: haliChina/SecAgent
+2026-10-09T13:03:22.1629249Z   token: ***
+2026-10-09T13:03:22.1629597Z   ssh-strict: true
+2026-10-09T13:03:22.1629944Z   ssh-user: git
+2026-10-09T13:03:22.1630296Z   persist-credentials: true
+2026-10-09T13:03:22.1630678Z   clean: true
+2026-10-09T13:03:22.1631031Z   sparse-checkout-cone-mode: true
+2026-10-09T13:03:22.1631439Z   fetch-depth: 1
+2026-10-09T13:03:22.1631775Z   fetch-tags: false
+2026-10-09T13:03:22.1632121Z   show-progress: true
+2026-10-09T13:03:22.1632477Z   lfs: false
+2026-10-09T13:03:22.1632800Z   submodules: false
+2026-10-09T13:03:22.1633164Z   set-safe-directory: true
+2026-10-09T13:03:22.1633706Z   allow-unsafe-pr-checkout: false
+2026-10-09T13:03:22.1634402Z ##[endgroup]
+2026-10-09T13:03:22.2437535Z Syncing repository: haliChina/SecAgent
+2026-10-09T13:03:22.2439171Z ##[group]Getting Git version info
+2026-10-09T13:03:22.2440071Z Working directory is '/home/runner/work/SecAgent/SecAgent'
+2026-10-09T13:03:22.2441362Z [command]/usr/bin/git version
+2026-10-09T13:03:22.2500296Z git version 2.55.0
+2026-10-09T13:03:22.2527980Z ##[endgroup]
+2026-10-09T13:03:22.2548116Z Temporarily overriding HOME='/home/runner/work/_temp/2f668e57-2cc8-4e92-a90b-6ec6bb1063a3' before making global git config changes
+2026-10-09T13:03:22.2549993Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-09T13:03:22.2552167Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/SecAgent/SecAgent
+2026-10-09T13:03:22.2579176Z Deleting the contents of '/home/runner/work/SecAgent/SecAgent'
+2026-10-09T13:03:22.2584710Z ##[group]Initializing the repository
+2026-10-09T13:03:22.2587863Z [command]/usr/bin/git init /home/runner/work/SecAgent/SecAgent
+2026-10-09T13:03:22.2672177Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-09T13:03:22.2673268Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-09T13:03:22.2674493Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-09T13:03:22.2675343Z hint: call:
+2026-10-09T13:03:22.2675713Z hint:
+2026-10-09T13:03:22.2676155Z hint: 	git config --global init.defaultBranch <name>
+2026-10-09T13:03:22.2676694Z hint:
+2026-10-09T13:03:22.2677194Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-09T13:03:22.2677960Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-09T13:03:22.2678575Z hint:
+2026-10-09T13:03:22.2678947Z hint: 	git branch -m <name>
+2026-10-09T13:03:22.2679363Z hint:
+2026-10-09T13:03:22.2679881Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-09T13:03:22.2684508Z Initialized empty Git repository in /home/runner/work/SecAgent/SecAgent/.git/
+2026-10-09T13:03:22.2691956Z [command]/usr/bin/git remote add origin https://github.com/haliChina/SecAgent
+2026-10-09T13:03:22.2734836Z ##[endgroup]
+2026-10-09T13:03:22.2735795Z ##[group]Disabling automatic garbage collection
+2026-10-09T13:03:22.2738115Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-09T13:03:22.2767075Z ##[endgroup]
+2026-10-09T13:03:22.2768241Z ##[group]Setting up auth
+2026-10-09T13:03:22.2772556Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-09T13:03:22.2803755Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-09T13:03:22.3092311Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-09T13:03:22.3126554Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-09T13:03:22.3320749Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-09T13:03:22.3350060Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-09T13:03:22.3570355Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-09T13:03:22.3606438Z ##[endgroup]
+2026-10-09T13:03:22.3607152Z ##[group]Fetching the repository
+2026-10-09T13:03:22.3615095Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +1b450fde43c9d3cd1638875c24b781d801029358:refs/remotes/pull/1/merge
+2026-10-09T13:03:25.9327304Z From https://github.com/haliChina/SecAgent
+2026-10-09T13:03:25.9329398Z  * [new ref]         1b450fde43c9d3cd1638875c24b781d801029358 -> pull/1/merge
+2026-10-09T13:03:25.9334248Z ##[endgroup]
+2026-10-09T13:03:25.9335798Z ##[group]Determining the checkout info
+2026-10-09T13:03:25.9337497Z ##[endgroup]
+2026-10-09T13:03:25.9338911Z [command]/usr/bin/git sparse-checkout disable
+2026-10-09T13:03:25.9383702Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-09T13:03:25.9417777Z ##[group]Checking out the ref
+2026-10-09T13:03:25.9420384Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/1/merge
+2026-10-09T13:03:26.1354490Z Note: switching to 'refs/remotes/pull/1/merge'.
+2026-10-09T13:03:26.1355559Z 
+2026-10-09T13:03:26.1356401Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-09T13:03:26.1358297Z changes and commit them, and you can discard any commits you make in this
+2026-10-09T13:03:26.1360222Z state without impacting any branches by switching back to a branch.
+2026-10-09T13:03:26.1361371Z 
+2026-10-09T13:03:26.1362103Z If you want to create a new branch to retain commits you create, you may
+2026-10-09T13:03:26.1364084Z do so (now or later) by using -c with the switch command. Example:
+2026-10-09T13:03:26.1365195Z 
+2026-10-09T13:03:26.1365697Z   git switch -c <new-branch-name>
+2026-10-09T13:03:26.1366511Z 
+2026-10-09T13:03:26.1367870Z Or undo this operation with:
+2026-10-09T13:03:26.1368626Z 
+2026-10-09T13:03:26.1369040Z   git switch -
+2026-10-09T13:03:26.1369697Z 
+2026-10-09T13:03:26.1370624Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-09T13:03:26.1372008Z 
+2026-10-09T13:03:26.1373706Z HEAD is now at 1b450fd Merge e1da59c4c5b9bafb0641d03fdd94638d39e6f0ad into 9053ff3a2749dbf98d1f53dd217102ff1de85551
+2026-10-09T13:03:26.1380624Z ##[endgroup]
+2026-10-09T13:03:26.1419489Z [command]/usr/bin/git log -1 --format=%H
+2026-10-09T13:03:26.1443013Z 1b450fde43c9d3cd1638875c24b781d801029358
+2026-10-09T13:03:26.1766290Z ##[group]Run actions/setup-node@v4
+2026-10-09T13:03:26.1766935Z with:
+2026-10-09T13:03:26.1767497Z   node-version: 22
+2026-10-09T13:03:26.1768052Z   cache: npm
+2026-10-09T13:03:26.1768594Z   always-auth: false
+2026-10-09T13:03:26.1769153Z   check-latest: false
+2026-10-09T13:03:26.1771672Z   token: ***
+2026-10-09T13:03:26.1772237Z ##[endgroup]
+2026-10-09T13:03:26.2954773Z Found in cache @ /opt/hostedtoolcache/node/22.23.3/x64
+2026-10-09T13:03:26.2958693Z (node:2078) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-10-09T13:03:26.2960279Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-10-09T13:03:26.2962086Z ##[group]Environment details
+2026-10-09T13:03:26.6232470Z node: v22.23.3
+2026-10-09T13:03:26.6233025Z npm: 10.9.9
+2026-10-09T13:03:26.6233246Z yarn: 1.22.22
+2026-10-09T13:03:26.6234627Z ##[endgroup]
+2026-10-09T13:03:26.6247587Z [command]/opt/hostedtoolcache/node/22.23.3/x64/bin/npm config get cache
+2026-10-09T13:03:26.7151255Z /home/runner/.npm
+2026-10-09T13:03:26.9782879Z Cache hit for: node-cache-Linux-x64-npm-722ab1f8f52fab3e10431b180ab787f1ea47cc5407b59f806484fd3b4a798f5c
+2026-10-09T13:03:26.9861999Z (node:2078) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+2026-10-09T13:03:28.2613563Z Received 4194304 of 158597318 (2.6%), 4.0 MBs/sec
+2026-10-09T13:03:29.2627449Z Received 130023424 of 158597318 (82.0%), 61.9 MBs/sec
+2026-10-09T13:03:29.7124635Z Received 158597318 of 158597318 (100.0%), 61.7 MBs/sec
+2026-10-09T13:03:29.7135182Z Cache Size: ~151 MB (158597318 B)
+2026-10-09T13:03:29.7180679Z [command]/usr/bin/tar -xf /home/runner/work/_temp/f8de4469-e594-4fe8-abef-1de1080baa48/cache.tzst -P -C /home/runner/work/SecAgent/SecAgent --use-compress-program unzstd
+2026-10-09T13:03:29.9876253Z Cache restored successfully
+2026-10-09T13:03:29.9944022Z Cache restored from key: node-cache-Linux-x64-npm-722ab1f8f52fab3e10431b180ab787f1ea47cc5407b59f806484fd3b4a798f5c
+2026-10-09T13:03:30.0102066Z ##[group]Run npm ci
+2026-10-09T13:03:30.0102316Z [36;1mnpm ci[0m
+2026-10-09T13:03:30.0308400Z shell: /usr/bin/bash -e {0}
+2026-10-09T13:03:30.0308672Z ##[endgroup]
+2026-10-09T13:03:31.1122755Z npm warn ERESOLVE overriding peer dependency
+2026-10-09T13:03:31.1123671Z npm warn While resolving: use-resize-observer@9.1.0
+2026-10-09T13:03:31.1124181Z npm warn Found: react@19.2.8
+2026-10-09T13:03:31.1124480Z npm warn node_modules/react
+2026-10-09T13:03:31.1124777Z npm warn   react@"^19.2.8" from the root project
+2026-10-09T13:03:31.1125156Z npm warn   15 more (@react-three/drei, @react-three/fiber, ...)
+2026-10-09T13:03:31.1125451Z npm warn
+2026-10-09T13:03:31.1125703Z npm warn Could not resolve dependency:
+2026-10-09T13:03:31.1126048Z npm warn peer react@"16.8.0 - 18" from use-resize-observer@9.1.0
+2026-10-09T13:03:31.1126422Z npm warn node_modules/mafs/node_modules/use-resize-observer
+2026-10-09T13:03:31.1126805Z npm warn   use-resize-observer@"^9" from mafs@0.21.0
+2026-10-09T13:03:31.1127171Z npm warn   node_modules/mafs
+2026-10-09T13:03:31.1127377Z npm warn
+2026-10-09T13:03:31.1127623Z npm warn Conflicting peer dependency: react@18.3.1
+2026-10-09T13:03:31.1127896Z npm warn node_modules/react
+2026-10-09T13:03:31.1128215Z npm warn   peer react@"16.8.0 - 18" from use-resize-observer@9.1.0
+2026-10-09T13:03:31.1128921Z npm warn   node_modules/mafs/node_modules/use-resize-observer
+2026-10-09T13:03:31.1129275Z npm warn     use-resize-observer@"^9" from mafs@0.21.0
+2026-10-09T13:03:31.1129576Z npm warn     node_modules/mafs
+2026-10-09T13:03:31.1135989Z npm warn ERESOLVE overriding peer dependency
+2026-10-09T13:03:31.1137579Z npm warn While resolving: use-resize-observer@9.1.0
+2026-10-09T13:03:31.1138033Z npm warn Found: react-dom@19.2.8
+2026-10-09T13:03:31.1138412Z npm warn node_modules/react-dom
+2026-10-09T13:03:31.1138801Z npm warn   react-dom@"^19.2.8" from the root project
+2026-10-09T13:03:31.1139213Z npm warn   6 more (@react-three/drei, @react-three/fiber, framer-motion, ...)
+2026-10-09T13:03:31.1139521Z npm warn
+2026-10-09T13:03:31.1139773Z npm warn Could not resolve dependency:
+2026-10-09T13:03:31.1140133Z npm warn peer react-dom@"16.8.0 - 18" from use-resize-observer@9.1.0
+2026-10-09T13:03:31.1140531Z npm warn node_modules/mafs/node_modules/use-resize-observer
+2026-10-09T13:03:31.1140885Z npm warn   use-resize-observer@"^9" from mafs@0.21.0
+2026-10-09T13:03:31.1141161Z npm warn   node_modules/mafs
+2026-10-09T13:03:31.1141356Z npm warn
+2026-10-09T13:03:31.1141608Z npm warn Conflicting peer dependency: react-dom@18.3.1
+2026-10-09T13:03:31.1141902Z npm warn node_modules/react-dom
+2026-10-09T13:03:31.1142238Z npm warn   peer react-dom@"16.8.0 - 18" from use-resize-observer@9.1.0
+2026-10-09T13:03:31.1142638Z npm warn   node_modules/mafs/node_modules/use-resize-observer
+2026-10-09T13:03:31.1142993Z npm warn     use-resize-observer@"^9" from mafs@0.21.0
+2026-10-09T13:03:31.1143270Z npm warn     node_modules/mafs
+2026-10-09T13:03:33.6162095Z npm warn deprecated inflight@1.0.6: This module is not supported, and leaks memory. Do not use it. Check out lru-cache if you want a good and tested way to coalesce async requests by a key value, which is much more comprehensive and powerful.
+2026-10-09T13:03:33.6691958Z npm warn deprecated rimraf@2.6.3: Rimraf versions prior to v4 are no longer supported
+2026-10-09T13:03:33.7715106Z npm warn deprecated glob@7.2.3: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+2026-10-09T13:03:34.2678482Z npm warn deprecated boolean@3.2.0: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+2026-10-09T13:03:39.6801748Z 
+2026-10-09T13:03:39.6802681Z added 706 packages, and audited 707 packages in 10s
+2026-10-09T13:03:39.6803055Z 
+2026-10-09T13:03:39.6803270Z 168 packages are looking for funding
+2026-10-09T13:03:39.6804223Z   run `npm fund` for details
+2026-10-09T13:03:39.7146404Z 
+2026-10-09T13:03:39.7147024Z 26 vulnerabilities (7 low, 8 moderate, 11 high)
+2026-10-09T13:03:39.7147321Z 
+2026-10-09T13:03:39.7147558Z To address issues that do not require attention, run:
+2026-10-09T13:03:39.7147943Z   npm audit fix
+2026-10-09T13:03:39.7148120Z 
+2026-10-09T13:03:39.7148385Z To address all issues (including breaking changes), run:
+2026-10-09T13:03:39.7148790Z   npm audit fix --force
+2026-10-09T13:03:39.7148971Z 
+2026-10-09T13:03:39.7149126Z Run `npm audit` for details.
+2026-10-09T13:03:39.8011572Z ##[group]Run npm run build
+2026-10-09T13:03:39.8011816Z [36;1mnpm run build[0m
+2026-10-09T13:03:39.8079266Z shell: /usr/bin/bash -e {0}
+2026-10-09T13:03:39.8079494Z ##[endgroup]
+2026-10-09T13:03:39.8901696Z 
+2026-10-09T13:03:39.8902137Z > secagent@0.2.0 build
+2026-10-09T13:03:39.8902649Z > tsc -p tsconfig.json && electron-vite build
+2026-10-09T13:03:39.8902948Z 
+2026-10-09T13:03:47.1240868Z ##[error]src/electron/main-telemetry.ts(11,22): error TS2305: Module '"../config.js"' has no exported member 'DEFAULT_WORKSPACE'.
+2026-10-09T13:03:47.1692632Z ##[error]Process completed with exit code 2.
+2026-10-09T13:03:47.1814565Z Post job cleanup.
+2026-10-09T13:03:47.2507823Z [command]/usr/bin/git version
+2026-10-09T13:03:47.2525391Z git version 2.55.0
+2026-10-09T13:03:47.2558059Z Temporarily overriding HOME='/home/runner/work/_temp/7865f7bb-e230-4938-8b16-3f1930c0224c' before making global git config changes
+2026-10-09T13:03:47.2559203Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-09T13:03:47.2562734Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/SecAgent/SecAgent
+2026-10-09T13:03:47.2593952Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-09T13:03:47.2622378Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-09T13:03:47.2836256Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-09T13:03:47.2861839Z http.https://github.com/.extraheader
+2026-10-09T13:03:47.2870766Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-10-09T13:03:47.2900875Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-09T13:03:47.3122497Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-09T13:03:47.3155716Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-09T13:03:47.3522881Z Cleaning up orphan processes
+2026-10-09T13:03:47.3772999Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-node@v4. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

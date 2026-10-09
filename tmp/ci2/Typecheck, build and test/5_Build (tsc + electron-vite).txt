@@ -1,0 +1,10 @@
+﻿2026-10-09T13:03:39.8011560Z ##[group]Run npm run build
+2026-10-09T13:03:39.8011814Z [36;1mnpm run build[0m
+2026-10-09T13:03:39.8079256Z shell: /usr/bin/bash -e {0}
+2026-10-09T13:03:39.8079493Z ##[endgroup]
+2026-10-09T13:03:39.8901657Z 
+2026-10-09T13:03:39.8902132Z > secagent@0.2.0 build
+2026-10-09T13:03:39.8902645Z > tsc -p tsconfig.json && electron-vite build
+2026-10-09T13:03:39.8902944Z 
+2026-10-09T13:03:47.1240832Z ##[error]src/electron/main-telemetry.ts(11,22): error TS2305: Module '"../config.js"' has no exported member 'DEFAULT_WORKSPACE'.
+2026-10-09T13:03:47.1692610Z ##[error]Process completed with exit code 2.

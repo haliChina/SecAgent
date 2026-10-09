@@ -6,8 +6,9 @@
  * wake:tts-log。唤醒窗引用经访问器注入（speech 目标窗：wake 优先主窗
  * 兜底）；语音唤醒触发开屏经回调注入（不直接依赖 wake 域）。
  */
+import { DEFAULT_WORKSPACE } from "../paths.js";
 import { ipcMain, type BrowserWindow } from "electron";
-import { DEFAULT_WORKSPACE, loadConfig } from "../config.js";
+import { loadConfig } from "../config.js";
 import { cancelSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
 import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices } from "./tts.js";
 import { logMain } from "./main-log.js";

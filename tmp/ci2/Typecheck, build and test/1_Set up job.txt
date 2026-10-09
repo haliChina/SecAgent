@@ -1,0 +1,33 @@
+﻿2026-10-09T13:03:21.4780785Z Current runner version: '2.337.0'
+2026-10-09T13:03:21.4802368Z ##[group]Runner Image Provisioner
+2026-10-09T13:03:21.4803114Z Hosted Compute Agent
+2026-10-09T13:03:21.4803830Z Version: 20261002.596
+2026-10-09T13:03:21.4804348Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-09T13:03:21.4804923Z Build Date: 2026-10-02T22:28:27Z
+2026-10-09T13:03:21.4805535Z Worker ID: {202869ce-9337-47cd-87f3-a9359a676486}
+2026-10-09T13:03:21.4806102Z Region: westus
+2026-10-09T13:03:21.4806572Z Cloud: Azure
+2026-10-09T13:03:21.4807054Z ##[endgroup]
+2026-10-09T13:03:21.4808102Z ##[group]Operating System
+2026-10-09T13:03:21.4808697Z Ubuntu
+2026-10-09T13:03:21.4809130Z 24.04.5
+2026-10-09T13:03:21.4809609Z LTS
+2026-10-09T13:03:21.4810042Z ##[endgroup]
+2026-10-09T13:03:21.4810488Z ##[group]Runner Image
+2026-10-09T13:03:21.4811024Z Image: ubuntu-24.04
+2026-10-09T13:03:21.4811482Z Version: 20261004.327.1
+2026-10-09T13:03:21.4812320Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-09T13:03:21.4813917Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-09T13:03:21.4814768Z ##[endgroup]
+2026-10-09T13:03:21.4815728Z ##[group]GITHUB_TOKEN Permissions
+2026-10-09T13:03:21.4817256Z Contents: read
+2026-10-09T13:03:21.4817754Z Metadata: read
+2026-10-09T13:03:21.4818207Z ##[endgroup]
+2026-10-09T13:03:21.4819928Z Secret source: Actions
+2026-10-09T13:03:21.4820736Z Cache mode: write
+2026-10-09T13:03:21.4821377Z Prepare workflow directory
+2026-10-09T13:03:21.5078314Z Prepare all required actions
+2026-10-09T13:03:21.5118118Z Getting action download info
+2026-10-09T13:03:21.8325123Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+2026-10-09T13:03:21.9106098Z Download action repository 'actions/setup-node@v4' (SHA:49933ea5288caeca8642d1e84afbd3f7d6820020)
+2026-10-09T13:03:22.1031683Z Complete job name: Typecheck, build and test

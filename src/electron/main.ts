@@ -22,7 +22,7 @@ import { logMain } from "./main-log.js";
 import { openWorkspaceFilePreview } from "./workspace-preview.js";
 import { registerCompanionIpc } from "./ipc-companions.js";
 import { registerPluginIpc } from "./ipc-plugins.js";
-import { registerOfficialIpc } from "./ipc-official.js";
+import { officialProvider, registerOfficialIpc, runSectlOAuthLogin } from "./ipc-official.js";
 import { registerSpeechIpc } from "./ipc-speech.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";

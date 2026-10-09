@@ -8,7 +8,8 @@
 import fs from "node:fs";
 import * as Sentry from "@sentry/electron/main";
 export { Sentry };
-import { configPath, DEFAULT_WORKSPACE, DEFAULT_TELEMETRY_SETTINGS, readSettings } from "../config.js";
+import { configPath, DEFAULT_TELEMETRY_SETTINGS, readSettings } from "../config.js";
+import { DEFAULT_WORKSPACE } from "../paths.js";
 import { TelemetryClient, normalizeMessage, sanitizeStack, type TelemetryFailure } from "../telemetry.js";
 
 export const SENTRY_DSN = process.env.SENTRY_DSN?.trim() || "";

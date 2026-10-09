@@ -5,12 +5,18 @@
  * sectl:oauth-login。登录态存工作区 .env（SECTL_OFFICIAL_TOKEN 等），
  * 首次登录把官方 provider 追加进 settings.providers。
  */
+import { DEFAULT_WORKSPACE } from "../paths.js";
 import { ipcMain } from "electron";
-import { DEFAULT_WORKSPACE, loadConfig, readSettings, saveSettings, writeWorkspaceEnv } from "../config.js";
+import { loadConfig, readSettings, saveSettings, writeWorkspaceEnv } from "../config.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 
-function officialProvider(baseUrl: string) {
+export function officialProvider(baseUrl: string) {
   return { id: "sectl-official", name: "SecAgent 官方服务", preset: "custom", provider: "openai-responses" as const, apiKeyEnv: "SECTL_OFFICIAL_TOKEN", baseUrl: `${baseUrl}/v1`, endpoint: "/responses", maxTokens: 16384, models: [{ id: "deepseek-v4-flash", name: "DeepSeek V4 Flash" }] };
+}
+
+export async function runSectlOAuthLogin(): Promise<SectlOAuthResult> {
+  loadConfig(DEFAULT_WORKSPACE);
+  return runSectlOAuthFlow();
 }
 
 export function registerOfficialIpc(): void {
@@ -49,11 +55,6 @@ export function registerOfficialIpc(): void {
     const providers = current.providers.some((provider) => provider.id === "sectl-official") ? current.providers : [...current.providers, officialProvider(baseUrl)];
     return saveSettings(DEFAULT_WORKSPACE, { ...current, providers });
   });
-
-  async function runSectlOAuthLogin(): Promise<SectlOAuthResult> {
-    loadConfig(DEFAULT_WORKSPACE);
-    return runSectlOAuthFlow();
-  }
 
   ipcMain.handle("sectl:oauth-login", () => runSectlOAuthLogin());
   ipcMain.handle("official:oauth-login", async () => {

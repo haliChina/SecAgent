@@ -1,1 +1,2 @@
 npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+src/electron/main-telemetry.ts(11,22): error TS2305: Module '"../config.js"' has no exported member 'DEFAULT_WORKSPACE'.
