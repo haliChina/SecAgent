@@ -10,12 +10,14 @@ OUT = "src/companion-installer-shared.ts"
 lines = open(SRC, encoding="utf-8").read().split("\n")
 
 def fn_block(name):
-    """按函数名找 [start,end]（含签名行到闭 } 行）"""
+    """按函数名找 [start,end]（含签名行到闭 } 行）；兼容带 export 前缀"""
     start = end = None
     for i, l in enumerate(lines):
-        if re.match(rf"^(async )?function {name}\(", l):
+        m = re.match(rf"^(export )?(async )?function {name}\(", l)
+        if m:
             start = i
-            # 找到函数体的闭 }（顶格）
+            if m.group(1):
+                lines[i] = re.sub(r"^export ", "", l)  # 剥 export，组装阶段统一加回
             j = i
             while not (lines[j] == "}" and j > i):
                 j += 1
@@ -60,6 +62,9 @@ SUBS = [
      "async function fetchReleasePageMetadata(fetcher: Fetcher, now: () => number, releasePageUrl: string, repository: string, assetName: string): Promise<CompanionReleaseMetadata | undefined> {"),
     ("marketplaceRequestUrls(`${CLASSWIDGETS_RELEASE_PAGE_URL}?secagent_cache=${now()}`)",
      "marketplaceRequestUrls(`${releasePageUrl}?secagent_cache=${now()}`)"),
+    # 关键：内部调用点也要传 assetName（参数化签名后易漏，403 降级路径靠测试抓住）
+    ("releaseAssetFromExpandedPage(await assetsResponse.text())",
+     "releaseAssetFromExpandedPage(await assetsResponse.text(), assetName)"),
     ("https://github.com/${CLASSWIDGETS_PLUGIN_REPOSITORY}/releases/expanded_assets/${encodeURIComponent(tag)}?secagent_cache=${now()}",
      "https://github.com/${repository}/releases/expanded_assets/${encodeURIComponent(tag)}?secagent_cache=${now()}"),
     ("new Error(`Release 页面缺少 ${CLASSWIDGETS_PLUGIN_ASSET_NAME} 或 SHA-256`)",
@@ -116,6 +121,11 @@ for old, new in DSUBS:
     d = d.replace(old, new)
 blocks["downloadLatestCompanionPlugin"] = d
 
+# —— compareVersions：waitForInstalledPlugin 依赖（两品牌版逻辑逐字一致）——
+c = fn_block("compareClassWidgetsVersions")
+c = c.replace("function compareClassWidgetsVersions(", "function compareVersions(")
+blocks["compareVersions"] = c
+
 # —— 组装文件 ——
 header = '''/**
  * 伴随软件安装器共享内核（B1-2）。
@@ -169,7 +179,7 @@ order = ["platformPath", "normalizePath", "hashId", "defaultExists", "defaultRea
          "discoverWindowsExternalPaths", "discoverRunningProcesses",
          "escapeRegExp", "releaseTagFromPage", "releaseAssetFromExpandedPage",
          "fetchReleasePageMetadata", "parseWindowsCommandLine",
-         "waitForInstalledPlugin", "defaultVersionOf",
+         "compareVersions", "waitForInstalledPlugin", "defaultVersionOf",
          "downloadLatestCompanionPlugin",
          "defaultRequestGracefulClose", "defaultForceTerminate", "defaultIsProcessRunning"]
 

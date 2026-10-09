@@ -201,7 +201,7 @@ export async function fetchReleasePageMetadata(fetcher: Fetcher, now: () => numb
         try {
           const assetsResponse = await fetcher(assetsUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
           if (!assetsResponse.ok) { lastError = new Error(`HTTP ${assetsResponse.status}`); continue; }
-          const asset = releaseAssetFromExpandedPage(await assetsResponse.text());
+          const asset = releaseAssetFromExpandedPage(await assetsResponse.text(), assetName);
           if (asset) return { tag_name: tag, assets: [asset] };
           lastError = new Error(`Release 页面缺少 ${assetName} 或 SHA-256`);
         } catch (error) { lastError = error; }
