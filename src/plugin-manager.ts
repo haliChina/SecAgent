@@ -200,6 +200,7 @@ export class PluginManager {
   async initialize(): Promise<void> {
     fs.mkdirSync(this.installedRoot, { recursive: true });
     fs.mkdirSync(this.runtimeRoot, { recursive: true });
+    this.sweepPendingTrash();
     this.state = this.readState();
     for (const plugin of this.state.plugins.filter((item) => item.enabled)) await this.activate(plugin.id);
   }
@@ -282,7 +283,7 @@ export class PluginManager {
       zip.extractAllTo(staging, true);
       const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : "plugin.json");
       if (previous) await this.deactivate(manifest.id);
-      if (fs.existsSync(pluginRoot)) fs.rmSync(pluginRoot, { recursive: true, force: true });
+      await this.removeDirTolerant(pluginRoot, manifest.id);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.renameSync(extractedRoot, target);
       this.state.plugins = this.state.plugins.filter((item) => item.id !== manifest.id);
@@ -310,8 +311,53 @@ export class PluginManager {
     await this.deactivate(id);
     this.state.plugins = this.state.plugins.filter((item) => item.id !== id);
     this.saveState();
-    fs.rmSync(path.join(this.installedRoot, id), { recursive: true, force: true });
+    await this.removeDirTolerant(path.join(this.installedRoot, id), id);
     this.changed();
+  }
+
+  /**
+   * Windows 容错移除插件目录。旧版本插件的原生模块（如 koffi 的 .node）在
+   * deactivate 后仍映射在本进程内——Node 无法卸载已加载的原生插件，
+   * rmSync 会 EPERM（实机：0.5.3 → 0.5.4 升级报 Permission denied）。
+   * 策略：先小步重试（杀毒/索引的瞬态句柄）；仍失败则把整个目录改名
+   * 隔离到 installed/.trash-<id>-<uuid>——LoadLibrary 以 FILE_SHARE_DELETE
+   * 打开模块，**改名可行、删除不可行**——下次启动时在任何插件加载前清扫。
+   */
+  private async removeDirTolerant(dir: string, pluginId: string): Promise<void> {
+    if (!fs.existsSync(dir)) return;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        fs.rmSync(dir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        lastError = error;
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY" && code !== "ENOTEMPTY") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+    const trash = path.join(this.installedRoot, `.trash-${pluginId}-${crypto.randomUUID()}`);
+    try {
+      fs.renameSync(dir, trash);
+    } catch (renameError) {
+      throw new Error(
+        `无法移除旧插件目录（文件被占用，通常是旧版本插件仍在运行）。` +
+          `请完全退出 SecAgent 后重新打开，再安装一次。` +
+          `原始错误：${lastError instanceof Error ? lastError.message : String(lastError)}；` +
+          `改名隔离也失败：${renameError instanceof Error ? renameError.message : String(renameError)}`
+      );
+    }
+  }
+
+  /** 启动时清扫上一轮改名隔离的插件目录——此刻没有任何插件被加载，句柄必然已释放。 */
+  private sweepPendingTrash(): void {
+    try {
+      for (const entry of fs.readdirSync(this.installedRoot)) {
+        if (!entry.startsWith(".trash-")) continue;
+        try { fs.rmSync(path.join(this.installedRoot, entry), { recursive: true, force: true }); } catch { /* 仍被占用就留给下次启动 */ }
+      }
+    } catch { /* installedRoot 不可读：忽略 */ }
   }
 
   async reload(id: string): Promise<void> { await this.deactivate(id); await this.activate(id); }
