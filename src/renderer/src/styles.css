@@ -188,7 +188,9 @@ button:focus:not(:focus-visible) { outline: none; }
 .oobe-header { max-width: 720px; margin: 12vh auto 26px; }.oobe-header h1 { margin: 7px 0 9px; font-size: 32px; }.oobe-header > p:not(.eyebrow) { max-width: 560px; margin: 0 0 22px; color: var(--text-3); font-size: 15px; line-height: 1.6; }.oobe-intro { max-width: 720px; display: grid; gap: 5px; margin: 0 auto 28px; padding: 14px 16px; border: 1px solid var(--accent-border); border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13px; line-height: 1.5; }.oobe-intro strong { color: var(--accent-text); font-size: 13px; }.oobe-shell > .settings-section { max-width: 720px; }.oobe-shell > .settings-section:nth-of-type(2) { display: none; }.oobe-shell > .settings-section:first-of-type .section-title > .secondary-button { display: none; }.oobe-shell > .settings-section:first-of-type .settings-card { border-color: var(--accent-border); box-shadow: 0 8px 26px rgba(37, 99, 235,.08); }.oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(2), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(6), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(8), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(9) { display: none; }
 @media (max-height: 620px) { .workspace { min-height: 430px; } .messages { padding-top: 55px; } }
 .settings-layout { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 30px; max-width: 1000px; margin: 0 auto; min-width: 640px; }.settings-nav { align-self: start; }.settings-content .settings-section { max-width: none; margin: 0; }.model-list, .skill-list { display: grid; gap: 9px; }.model-list-item { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 68px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); box-shadow: 0 2px 8px rgba(0,0,0,.03); }.model-list-item > div:first-child { min-width: 0; display: grid; gap: 5px; }.model-list-item strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.model-list-item span { overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }.item-actions { display: flex; flex: 0 0 auto; gap: 8px; }.skill-list-item { padding: 15px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }.skill-list-item p { margin: 7px 0; color: var(--text-2); font-size: 13px; }.skill-list-item small { display: block; overflow: hidden; color: var(--text-3); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }.empty-list { color: var(--text-3); font-size: 13px; }.settings-modal-backdrop { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 24px; background: rgba(0,0,0,.22); }.settings-modal { width: min(720px, 100%); max-height: 90vh; overflow: auto; padding: 22px; border: 1px solid  var(--line-strong); border-radius: 16px; background: var(--bg-2); box-shadow: 0 18px 60px rgba(0,0,0,.2); }.settings-modal .session-modal-header { margin-bottom: 20px; }.settings-modal .form-grid { gap: 14px 16px; }.wide-field { grid-column: 1 / -1; }.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 22px; }
-@media (max-width: 720px) { .settings-shell { padding: 64px 20px 48px; }.settings-layout { grid-template-columns: 1fr; gap: 20px; }.settings-nav { display: grid; grid-template-columns: repeat(2, 1fr); }.form-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; } }
+@media (max-width: 720px) { .settings-shell { padding: 64px 20px 48px; }.settings-layout { grid-template-columns: 1fr; gap: 20px; }.form-grid { grid-template-columns: 1fr; }.wide-field { grid-column: auto; } }
+/* R30：旧版 .settings-nav 两列网格规则已删（钩线导航依赖垂直堆叠 + offsetTop
+   测量，网格化会让线与选项错位叠加）。设置窗口 minWidth 820 本就够不到此断点。 */
 
 html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hidden; background: transparent; }
 .wake-root { position: fixed; inset: 0; overflow: hidden; background: transparent; color: var(--text-1); pointer-events: none; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
@@ -253,19 +255,26 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .wake-agent-content .execution-summary { margin: 0 0 4px; max-width: 680px; }
 .wake-error { max-width: min(760px, calc(100vw - 50px)); padding: 8px 12px; border-radius: 10px; background: rgba(61,22,22,.92); color: #F87171; font-size: 13px; }
 .settings-help { margin: 12px 0 0; color: var(--text-2); font-size: 12px; }
-/* R28 清理：旧版 .settings-nav 窄条/a 链接规则已删（HooksSidebar 用 button + Tailwind）。
-   .settings-nav 现役规则见下方 254 行 fixed 侧栏，布局交给组件 Tailwind flex 类。 */
+/* R28+R30 清理：旧版 .settings-nav 全部布局规则已删（fixed 窄条/两列网格/
+   a 链接/button 宽度）。HookSidebar 布局完全交给组件 Tailwind flex 类 +
+   927 行区 [data-slot="hook-sidebar"] 卡片化规则。 */
 .plugin-state { margin-left: 8px; color: var(--text-3); font-size: 12px; font-weight: 400; }.plugin-state.ready, .plugin-message.ready, mark.ready { color: #4ADE80; }.plugin-state.error, .plugin-message.error, mark.error { color: #F87171; }.plugin-meta, .plugin-message, .plugin-empty, .plugin-page p { color: var(--text-3); font-size: 13px; }.plugin-toggle { color: var(--text-2); font-size: 12px; }.plugin-page { margin-top: 15px; padding: 13px; border-radius: 8px; background: var(--accent-soft); }.plugin-page h3 { margin: 0 0 4px; font-size: 14px; }.plugin-page p { margin: 5px 0; }.plugin-page mark { padding: 2px 5px; border-radius: 4px; background: rgba(74,222,128,.15); }
 
 /* Settings uses one active panel at a time with the navigation kept in a left rail. */
-.settings-shell:not(.oobe-shell) { padding-left: 268px; }
+/* R30：旧版 fixed 全高窄条规则（specificity 0-3-0）压过 R24 卡片化
+   [data-slot="hook-sidebar"]（0-2-0），卡片样式从未生效——这就是「无样式」
+   的根因。删除后由下方 927 行区卡片化规则接管（top76/left22/宽188/圆角14）。
+   让位同步收窄：22+188+36 间距 = 246px。 */
+.settings-shell:not(.oobe-shell) { padding-left: 246px; }
 .settings-shell.windows-settings { padding-top: 64px; }
 .settings-shell.has-window-title::before { content: ""; position: fixed; z-index: 2; top: 0; right: 0; left: 0; height: 57px; -webkit-app-region: drag; }
 .settings-shell.windows-settings::before { right: max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
 .settings-shell:not(.oobe-shell) .settings-section:not(.settings-section-active) { display: none; }
 .settings-shell:not(.oobe-shell) .settings-window-title { z-index: 4; }
-.settings-shell:not(.oobe-shell) .settings-nav { position: fixed; z-index: 3; top: 0; bottom: 0; left: 0; box-sizing: border-box; width: 220px; padding: 80px 20px 16px; border: 0; border-radius: 0; background: var(--bg-2); box-shadow: 6px 0 16px rgba(0,0,0,.08); }
-.settings-shell:not(.oobe-shell) .settings-nav button { width: 100%; }
+/* R30：旧版 .settings-shell:not(.oobe-shell) .settings-nav fixed 全高窄条规则
+   已删——它 specificity(0-3-0) 高于 R24 卡片化 [data-slot="hook-sidebar"](0-2-0)，
+   一直压制卡片样式（用户看到的「无样式」即此）。同删 button width 规则
+   （927 行区 [data-slot=hook-sidebar-item] 已覆盖）。 */
 .settings-nav-divider { grid-column: 1 / -1; height: 1px; margin: 12px 4px; background: var(--line); }
 .settings-empty-card { display: grid; place-items: center; min-height: 92px; color: var(--text-3); font-size: 13px; }
 .settings-shell:not(.oobe-shell) .settings-error,
@@ -281,7 +290,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 @media (max-width: 960px) {
   .settings-shell:not(.oobe-shell) { padding-left: 20px; }
-  .settings-shell:not(.oobe-shell) .settings-nav { position: static; width: auto; padding: 8px; background: transparent; box-shadow: none; }
+  /* R30：旧窄条的 static 回退已删——R24 卡片化自带 960px 响应式
+     （下方 953 行区：static + margin auto + max-width 1000px）。 */
 }
 
 /* Plugin manager follows ClassIsland's list-detail settings pattern. */
