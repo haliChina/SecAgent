@@ -20,18 +20,14 @@ import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRe
 import { cancelSpeech, configureSpeech, sendSpeechAudio, sendVoiceWakeAudio, speechChain, startSpeech, startVoiceWake, stopSpeech, stopVoiceWake, testSpeech } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
+import { openWorkspaceFilePreview } from "./workspace-preview.js";
+import { registerCompanionIpc } from "./ipc-companions.js";
 import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
-import { createCompanionExecutor, withCompanionInstallLock } from "./companion-bridge.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { synthesizeSpeech, testTts, ttsChain, listWindowsVoices, configureTts } from "./tts.js";
 import { PluginManager, type SvgPreviewRequest } from "../plugin-manager.js";
 import { MarketplaceClient, type MarketplaceVersion } from "../marketplace.js";
-import { detectCompanionApps } from "../companion-apps.js";
-import { ClassIslandInstaller } from "../classisland.js";
-import { SecRandomInstaller } from "../secrandom.js";
-import { IccceInstaller } from "../iccce.js";
-import { ClassWidgetsInstaller } from "../classwidgets.js";
 import { SecAgentHttpServer } from "../secagent-http.js";
 import { Models } from "@opencode-ai/models";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "../wake-hotkey.js";
@@ -109,10 +105,6 @@ let activeWakeShortcut: string | undefined;
 let activeWakeContext: { sessionId?: string; modelId?: string; reasoningEffort?: ReasoningEffort } = {};
 let wakeAbortController: AbortController | undefined;
 const marketplace = new MarketplaceClient();
-const classIslandInstaller = new ClassIslandInstaller({ log: logMain });
-const secRandomInstaller = new SecRandomInstaller({ log: logMain });
-const iccceInstaller = new IccceInstaller({ log: logMain });
-const classWidgetsInstaller = new ClassWidgetsInstaller({ log: logMain });
 const activeSessionRuns = new Map<string, AbortController>();
 // Plugin updates hot-swap as soon as they download, but the poll itself only
 // reads the signed index (one request), so a 10-minute cadence stays friendly
@@ -235,64 +227,6 @@ function installWindowShortcuts(window: BrowserWindow): void {
 }
 
 function rendererPath(): string { return path.join(__dirname, "../renderer/index.html"); }
-
-function workspaceFilePath(relativePath: string): string {
-  const normalized = relativePath.replaceAll("\\", "/");
-  if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) throw new Error("预览文件路径必须是工作区内的相对路径");
-  const root = path.resolve(DEFAULT_WORKSPACE);
-  const filePath = path.resolve(root, normalized);
-  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) throw new Error("预览文件必须位于当前工作区内");
-  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`找不到工作区文件：${normalized}`);
-  const extension = path.extname(filePath).toLowerCase();
-  if (![".html", ".htm", ".svg", ".md", ".markdown"].includes(extension)) throw new Error("只支持预览 HTML、SVG 和 Markdown 文件");
-  return filePath;
-}
-
-function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
-
-async function openWorkspaceFilePreview(relativePath: string): Promise<{ ok: true }> {
-  const filePath = workspaceFilePath(relativePath);
-  const extension = path.extname(filePath).toLowerCase();
-  const previewWindow = new BrowserWindow({ width: 1080, height: 820, minWidth: 640, minHeight: 480, title: path.basename(filePath), backgroundColor: "#fff", autoHideMenuBar: true, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
-  previewWindow.on("page-title-updated", (event) => event.preventDefault());
-  previewWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  let server: ReturnType<typeof createServer> | undefined;
-  try {
-    if (extension === ".html" || extension === ".htm") {
-      const root = path.resolve(DEFAULT_WORKSPACE);
-      server = createServer((request, response) => {
-        try {
-          const requested = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname);
-          const target = path.resolve(root, `.${requested}`);
-          if (target !== root && !target.startsWith(`${root}${path.sep}`) || !fs.existsSync(target) || !fs.statSync(target).isFile()) { response.writeHead(404); response.end("Not found"); return; }
-          const mimeByExtension: Record<string, string> = { ".html": "text/html", ".htm": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".woff": "font/woff", ".woff2": "font/woff2" };
-          const mime = mimeByExtension[path.extname(target).toLowerCase()] || "application/octet-stream";
-          response.writeHead(200, { "Content-Type": `${mime}; charset=utf-8` }); fs.createReadStream(target).pipe(response);
-        } catch { response.writeHead(400); response.end("Bad request"); }
-      });
-      await new Promise<void>((resolve, reject) => { server!.once("error", reject); server!.listen(0, "127.0.0.1", resolve); });
-      const address = server.address();
-      if (!address || typeof address === "string") throw new Error("无法启动本地预览服务器");
-      const urlPath = "/" + path.relative(root, filePath).split(path.sep).map(encodeURIComponent).join("/");
-      await previewWindow.loadURL(`http://127.0.0.1:${address.port}${urlPath}`);
-    } else if (extension === ".svg") {
-      await previewWindow.loadFile(filePath);
-    } else {
-      const markdown = escapeHtml(fs.readFileSync(filePath, "utf8"));
-      await previewWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<html><head><meta charset="utf-8"><style>body{font:15px/1.7 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 24px;color:#222}pre{white-space:pre-wrap}</style></head><body><pre>${markdown}</pre></body></html>`)}`);
-    }
-    previewWindow.setTitle(path.basename(filePath));
-    if (!previewWindow.isDestroyed()) previewWindow.show();
-    previewWindow.on("closed", () => server?.close());
-    return { ok: true };
-  } catch (error) {
-    server?.close();
-    if (!previewWindow.isDestroyed()) previewWindow.close();
-    throw error;
-  }
-}
 
 function sendToAppWindows(channel: string, payload: unknown): void {
   for (const target of [windowRef, settingsWindow, wakeWindow, voiceWakeWindow]) {
@@ -896,174 +830,6 @@ ipcMain.handle("plugins:update", async (_event, id: string) => {
     throw error;
   }
 });
-ipcMain.handle("apps:detect", () => detectCompanionApps());
-ipcMain.handle("classisland:detect", async () => {
-  const candidates = await classIslandInstaller.detect();
-  logMain("companion.classisland.detect", { candidates: candidates.map((candidate) => ({ id: candidate.id, executablePath: candidate.executablePath, dataRoot: candidate.dataRoot, pluginPackagesPath: candidate.pluginPackagesPath, version: candidate.version, installedPluginVersion: candidate.installedPluginVersion, pluginHealthy: candidate.pluginHealthy, isRunning: candidate.isRunning, pid: candidate.pid, processIds: candidate.processIds, compatible: candidate.compatible, source: candidate.source })) });
-  return candidates;
-});
-ipcMain.handle("classisland:pick", async () => {
-  const result = await dialog.showOpenDialog(settingsWindow || windowRef!, {
-    properties: ["openFile"],
-    filters: process.platform === "win32" ? [{ name: "ClassIsland", extensions: ["exe"] }] : undefined
-  });
-  if (result.canceled || !result.filePaths[0]) return undefined;
-  return classIslandInstaller.inspect(result.filePaths[0]);
-});
-ipcMain.handle("classisland:install", async (event, targetIds: unknown) => {
-  if (!Array.isArray(targetIds) || targetIds.some((item) => typeof item !== "string")) throw new Error("ClassIsland 安装目标无效");
-  return withCompanionInstallLock("classisland", async () => {
-    const executor = await createCompanionExecutor();
-    try {
-      return await classIslandInstaller.install(targetIds, (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send("classisland:progress", progress);
-      }, executor);
-    } finally {
-      await executor?.close();
-    }
-  });
-});
-ipcMain.handle("secrandom:detect", async () => {
-  const candidates = await secRandomInstaller.detect();
-  logMain("companion.secrandom.detect", { candidates: candidates.map((candidate) => ({ id: candidate.id, executablePath: candidate.executablePath, dataRoot: candidate.dataRoot, pluginPackagesPath: candidate.pluginPackagesPath, version: candidate.version, installedPluginVersion: candidate.installedPluginVersion, isRunning: candidate.isRunning, compatible: candidate.compatible, source: candidate.source })) });
-  return candidates;
-});
-ipcMain.handle("secrandom:pick", async () => {
-  const result = await dialog.showOpenDialog(settingsWindow || windowRef!, {
-    properties: ["openFile"],
-    filters: process.platform === "win32" ? [{ name: "SecRandom", extensions: ["exe"] }] : undefined
-  });
-  if (result.canceled || !result.filePaths[0]) return undefined;
-  return secRandomInstaller.inspect(result.filePaths[0]);
-});
-ipcMain.handle("secrandom:install", async (event, targetIds: unknown) => {
-  if (!Array.isArray(targetIds) || targetIds.some((item) => typeof item !== "string")) throw new Error("SecRandom 安装目标无效");
-  return withCompanionInstallLock("secrandom", async () => {
-    const executor = await createCompanionExecutor();
-    try {
-      return await secRandomInstaller.install(targetIds, (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send("secrandom:progress", progress);
-      }, executor);
-    } finally {
-      await executor?.close();
-    }
-  });
-});
-ipcMain.handle("iccce:detect", async () => {
-  const candidates = await iccceInstaller.detect();
-  logMain("companion.iccce.detect", { candidates: candidates.map((candidate) => ({ id: candidate.id, executablePath: candidate.executablePath, rootPath: candidate.rootPath, pluginPackagesPath: candidate.pluginPackagesPath, pluginsPath: candidate.pluginsPath, version: candidate.version, installedPluginVersion: candidate.installedPluginVersion, pluginHealthy: candidate.pluginHealthy, isRunning: candidate.isRunning, compatible: candidate.compatible, source: candidate.source })) });
-  return candidates;
-});
-ipcMain.handle("iccce:pick", async () => {
-  const result = await dialog.showOpenDialog(settingsWindow || windowRef!, {
-    properties: ["openFile"],
-    filters: process.platform === "win32" ? [{ name: "ICC-CE", extensions: ["exe"] }] : undefined
-  });
-  if (result.canceled || !result.filePaths[0]) return undefined;
-  return iccceInstaller.inspect(result.filePaths[0]);
-});
-ipcMain.handle("iccce:install", async (event, targetIds: unknown) => {
-  if (!Array.isArray(targetIds) || targetIds.some((item) => typeof item !== "string")) throw new Error("ICC-CE 安装目标无效");
-  return withCompanionInstallLock("iccce", async () => {
-    const executor = await createCompanionExecutor();
-    try {
-      return await iccceInstaller.install(targetIds, (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send("iccce:progress", progress);
-      }, executor);
-    } finally {
-      await executor?.close();
-    }
-  });
-});
-ipcMain.handle("cw:detect", async () => {
-  const candidates = await classWidgetsInstaller.detect();
-  logMain("companion.classwidgets.detect", { candidates: candidates.map((candidate) => ({ id: candidate.id, executablePath: candidate.executablePath, pluginsPath: candidate.pluginsPath, version: candidate.version, installedPluginVersion: candidate.installedPluginVersion, isRunning: candidate.isRunning, pid: candidate.pid, processIds: candidate.processIds, compatible: candidate.compatible, source: candidate.source })) });
-  return candidates;
-});
-ipcMain.handle("cw:pick", async () => {
-  const result = await dialog.showOpenDialog(settingsWindow || windowRef!, {
-    properties: ["openFile"],
-    filters: process.platform === "win32" ? [{ name: "Class Widgets", extensions: ["exe"] }] : undefined
-  });
-  if (result.canceled || !result.filePaths[0]) return undefined;
-  return classWidgetsInstaller.inspect(result.filePaths[0]);
-});
-ipcMain.handle("cw:install", async (event, targetIds: unknown) => {
-  if (!Array.isArray(targetIds) || targetIds.some((item) => typeof item !== "string")) throw new Error("Class Widgets 安装目标无效");
-  return withCompanionInstallLock("classwidgets", async () => {
-    const executor = await createCompanionExecutor();
-    try {
-      return await classWidgetsInstaller.install(targetIds, (progress) => {
-        if (!event.sender.isDestroyed()) event.sender.send("cw:progress", progress);
-      }, executor);
-    } finally {
-      await executor?.close();
-    }
-  });
-});
-ipcMain.handle("companions:install-all", async (event, payload: unknown) => {
-  if (!payload || typeof payload !== "object") throw new Error("联动插件安装目标无效");
-  const input = payload as Record<string, unknown>;
-  const readIds = (key: string): string[] => {
-    const value = input[key];
-    if (value === undefined) return [];
-    if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) throw new Error(`${key} 安装目标无效`);
-    return value;
-  };
-  const classIslandIds = readIds("classIsland");
-  const secRandomIds = readIds("secRandom");
-  const iccceIds = readIds("iccce");
-  const cwIds = readIds("cw");
-  const sendProgress = (channel: string) => (progress: unknown) => {
-    if (!event.sender.isDestroyed()) event.sender.send(channel, progress);
-  };
-  const failureResults = (targetIds: string[], error: unknown) => targetIds.map((targetId) => ({
-    targetId,
-    ok: false,
-    action: "failed" as const,
-    message: error instanceof Error ? error.message : String(error)
-  }));
-  return withCompanionInstallLock("batch", async () => {
-    const executor = await createCompanionExecutor();
-    logMain("companion.batch.begin", { classIslandIds, secRandomIds, iccceIds, cwIds, elevatedExecutor: Boolean(executor) });
-    try {
-      // The four installers run concurrently: each has its own download/
-      // package/decompress phases, and the long "waiting for the host app to
-      // come back" health polls overlap instead of adding up. The shared
-      // elevated worker serialises the actually-privileged file operations
-      // through its request directory, so one UAC still covers everything.
-      const runInstaller = async (label: string, ids: string[], install: () => Promise<unknown[]>): Promise<unknown[]> => {
-        if (!ids.length) return [];
-        try { return await install(); }
-        catch (error) {
-          logMain(`companion.batch.${label}.failed`, { error: error instanceof Error ? error.message : String(error) });
-          return failureResults(ids, error);
-        }
-      };
-      const [classIsland, secRandom, iccce, cw] = await Promise.all([
-        runInstaller("classisland", classIslandIds, () => classIslandInstaller.install(classIslandIds, sendProgress("classisland:progress"), executor)),
-        runInstaller("secrandom", secRandomIds, () => secRandomInstaller.install(secRandomIds, sendProgress("secrandom:progress"), executor)),
-        runInstaller("iccce", iccceIds, () => iccceInstaller.install(iccceIds, sendProgress("iccce:progress"), executor)),
-        runInstaller("classwidgets", cwIds, () => classWidgetsInstaller.install(cwIds, sendProgress("cw:progress"), executor))
-      ]);
-      const allResults = [...classIsland, ...secRandom, ...iccce, ...cw];
-      const failed = allResults.filter((item) => !item || (item as { ok?: unknown }).ok !== true);
-      logMain(failed.length ? "companion.batch.completed-with-failures" : "companion.batch.success", {
-        classIsland: classIsland.length,
-        secRandom: secRandom.length,
-        iccce: iccce.length,
-        cw: cw.length,
-        ok: allResults.length - failed.length,
-        failed: failed.length,
-        failedTargets: failed.map((item) => (item as { targetId?: unknown }).targetId).filter((item): item is string => typeof item === "string")
-      });
-      return { classIsland, secRandom, iccce, cw };
-    } finally {
-      await executor?.close();
-      logMain("companion.batch.end", { classIslandIds, secRandomIds, iccceIds, cwIds });
-    }
-  });
-});
 ipcMain.handle("oobe:progress:get", () => readOobeProgress(DEFAULT_WORKSPACE));
 ipcMain.handle("oobe:progress:save", (_event, progress: OobeProgress) => {
   saveOobeProgress(DEFAULT_WORKSPACE, progress);
@@ -1448,6 +1214,7 @@ app.whenReady().then(async () => {
   await startApplication();
 });
 async function startApplication(): Promise<void> {
+  registerCompanionIpc(() => settingsWindow || windowRef);
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
   // Apply the persisted ASR preference before any speech session can start.
