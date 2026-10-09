@@ -75,16 +75,3 @@ export interface TtsSettings {
   bailian?: BailianTtsSettings;
 }
 
-export const DEFAULT_TTS_SETTINGS: TtsSettings = {
-  provider: "edge",
-  chain: ["edge", "windows"],
-  voice: "zh-CN-XiaoxiaoNeural",
-  rate: "+0%"
-};
-
-export const TTS_PROVIDER_LABELS: Record<TtsProviderKind, string> = {
-  edge: "Edge TTS（免费在线）",
-  windows: "Windows 系统朗读（SAPI，离线）",
-  mimo: "小米 MiMo TTS（云端）",
-  bailian: "阿里云百炼 CosyVoice（云端）"
-};

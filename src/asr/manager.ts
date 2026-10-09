@@ -184,7 +184,3 @@ export class AsrManager {
   }
 }
 
-/** Convenience wrapper matching the legacy `startSpeech` result shape. */
-export function isRemoteAsrEvent(event: AsrEvent): boolean {
-  return event.type === "ready" || event.type === "partial" || event.type === "final";
-}

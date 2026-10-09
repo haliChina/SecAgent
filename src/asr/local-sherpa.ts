@@ -142,7 +142,3 @@ export class LocalSherpaAsrProvider implements AsrProvider {
   }
 }
 
-// Keep the exported helper name used by older callers (wake window diagnostics).
-export function isLocalAsrAvailable(provider: LocalSherpaAsrProvider): boolean {
-  return provider.isConfigured();
-}

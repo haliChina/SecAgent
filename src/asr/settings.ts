@@ -167,10 +167,6 @@ export const ASR_OPENAI_PRESETS: readonly AsrOpenAiPreset[] = [
   }
 ];
 
-export function findAsrPreset(id: string | undefined): AsrOpenAiPreset | undefined {
-  return ASR_OPENAI_PRESETS.find((preset) => preset.id === (id || "custom"));
-}
-
 export function isAsrProviderKind(value: unknown): value is AsrProviderKind {
   return value === "auto" || value === "official" || value === "openai" || value === "local" || value === "bailian" || value === "bailian-ws" || value === "mimo" || value === "local-pro";
 }

@@ -153,8 +153,6 @@ export async function listWindowsVoices(): Promise<Array<{ id: string; label: st
 
 /* ------------------------------------------------------------------ mimo -- */
 
-export const MIMO_TTS_VOICES = ["mimo_default", "冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean"] as const;
-
 export interface MimoTtsProviderOptions {
   getSettings(): MimoTtsSettings | undefined;
   getApiKey(name: string): string | undefined;

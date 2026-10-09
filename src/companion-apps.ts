@@ -12,10 +12,6 @@ export interface DetectedCompanionApp extends CompanionAppSpec {
 
 export { COMPANION_CATALOG, COMPANION_PLUGIN_IDS } from "./companion-catalog.js";
 
-export function companionCatalog(): CompanionAppSpec[] {
-  return COMPANION_CATALOG.map((item) => ({ ...item }));
-}
-
 export function detectCompanionApps(options: {
   home?: string;
   env?: NodeJS.ProcessEnv;
