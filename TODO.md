@@ -3,6 +3,22 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R37 · 2026-10-09）
+
+### B2 main.ts 解体 — 前两批完成 ✓（CI 全绿 1f388bb）
+- ✓ B2-a：main-log.ts（logMain 双流日志）/autostart.ts（三平台自启动）/
+  companion-bridge.ts（UAC 提权桥+安装串行锁）拆出 + 死代码
+  createElevatedAutostartTask 清除；1691→1515
+- ✓ B2-b：workspace-preview.ts（文件预览窗）/ipc-companions.ts
+  （14 通道域模块，窗口访问器注入）；1515→1283
+- ✓ 验收纪律：IPC 通道清单 diff = 零（70 handle + 9 on）每批验证；
+  tsc 全量 0 错误；纯搬家零逻辑改动
+- ✓ CI 全绿（tsc + 24 测试文件 + 冒烟）
+- ☐ B2-c（下轮）：窗口/托盘/菜单域 + sessions 域（含 wake 复合体）
+  + speech/tts/official/settings/oobe/updates 域分批拆出，
+  目标 main.ts < 500 行装配入口
+- ☐ Build 三平台 + 交付安装包（B2 全部完成后）
+
 ## 本轮（R36 · 2026-10-09）
 
 ### B1-2 四安装器统一到共享内核 — 完成 ✓（CI 全绿 7acb6d1）
