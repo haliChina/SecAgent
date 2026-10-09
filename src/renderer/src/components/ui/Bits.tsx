@@ -4251,15 +4251,19 @@ export const PromptBar = ({
     const i = efforts.indexOf(defaultEffort);
     return i >= 0 ? i : Math.max(0, Math.floor((efforts.length - 1) / 2));
   });
-  /* R29：模型切换会改变档位列表（GLM-5 系有 max，Qwen/豆包只到 high，glm-4.x
-     仅 high）。真源把回退后的档位经 defaultEffort 传回，这里跟随同步；列表不
-     含当前标签时夹取旧 index 到新范围——否则 level 空白、滑杆圆点/aria 越界。
-     （efforts 是外部每次渲染的 .map 新数组，effect 频跑但 set 相等值即跳过。） */
+  /* R29：模型切换会改变档位列表（GLM-5 系有 max，Qwen/豆包只到 high，官方单档）。
+     R29.1 修正：efforts 是外部每次渲染 .map 出的新数组，effect 每次渲染都会跑；
+     必须区分「外部真实变化（模型切换/回退）」与「拖动后 onEffortChange 的回声」，
+     否则 stale 的 defaultEffort 会把滑杆反复拽回旧位置（表现为拉不动）。 */
+  const lastSyncedEffort = useRef(defaultEffort);
   useEffect(() => {
+    const external = lastSyncedEffort.current !== defaultEffort;
+    if (external) lastSyncedEffort.current = defaultEffort;
     const found = efforts.indexOf(defaultEffort);
-    if (found >= 0) {
+    if (external && found >= 0) {
       if (found !== effortIndex) setEffortIndex(found);
-    } else {
+    } else if (found < 0 || effortIndex > efforts.length - 1) {
+      // 外部值不在列表（切换间隙）或列表收缩导致越界：只夹取，不回跳
       const clamped = Math.max(0, Math.min(effortIndex, efforts.length - 1));
       if (clamped !== effortIndex) setEffortIndex(clamped);
     }
@@ -4442,7 +4446,12 @@ export const PromptBar = ({
 
   const setEffort = (i: number) => {
     const next = Math.max(0, Math.min(efforts.length - 1, i));
-    if (next === effortIndex) return;
+    if (next === safeEffortIndex) {
+      /* R29.1：effortIndex 可能残留切换前的越界值（如 7 档模型的 6），
+         与夹取值相等时顺手归一化，避免吞掉合法拖动。 */
+      if (effortIndex !== next) setEffortIndex(next);
+      return;
+    }
     setEffortIndex(next);
     latest.current.onEffortChange?.(efforts[next]);
   };
@@ -4596,6 +4605,15 @@ export const PromptBar = ({
                 <span className="[color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">推理强度</span>
                 <span className="font-medium">{level}</span>
               </div>
+              {efforts.length <= 1 ? (
+                /* R29.1：单档模型（官方服务/固定档）没有可调空间——滑杆
+                   round(k*(len-1)) 恒 0，之前渲染成可拖滑杆但永远拉不动，
+                   用户以为坏了。改为静态说明行，明确「不可调」。 */
+                <div className="mt-2 flex h-[22px] items-center justify-center rounded-[11px] text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)] [background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)]">
+                  该模型固定为「{level}」，不支持调节
+                </div>
+              ) : (
+              <>
               <div className="mt-3 flex justify-between text-[12px] leading-4 [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
                 <span>更快</span>
                 <span>更深入思考</span>
@@ -4635,6 +4653,8 @@ export const PromptBar = ({
                 ))}
                 <span className="absolute -top-[3px] -ml-[7px] h-7 w-3.5 rounded-[7px] shadow-[0_2px_6px_rgba(0,0,0,0.25)] [left:var(--pb-effort-x)] [background:var(--pb-ink)] [transition:left_220ms_cubic-bezier(0.23,1,0.32,1),background-color_300ms_ease] group-data-[max]:[background:var(--pb-spark)] motion-reduce:[transition:background-color_300ms_ease]" />
               </div>
+              </>
+              )}
             </>
           ) : (
             <>
