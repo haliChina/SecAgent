@@ -3,6 +3,28 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R36 · 2026-10-09）
+
+### B1-2 四安装器统一到共享内核 — 完成 ✓（CI 全绿 7acb6d1）
+- ✓ 新增 companion-installer-shared.ts（392 行）：22+ 个四文件逐字/
+  仅差常量的函数机械提取（gen-shared.py 可重跑复核），参数化注入
+  （进程 exe 名/注册表匹配模式/release 资产名/下载 spec 六字段）
+- ✓ 四安装器迁移（每件一提交，测试契约保行为）：
+  · classwidgets 813→476（-337）
+  · secrandom 852→666（-186；保留 win-only 版本查询/固定 tag 链）
+  · classisland 943→598（-345；保留双 exe runtime 进程判断）
+  · iccce 1094→894（-200 保守版；保留进程发现 PS 脚本差异/
+    日志诊断 15 特有函数）
+- ✓ 四安装器 3702 → 2634 行（-1068，-29%）；测试 36/36 全绿
+- ✓ 两个被测试网抓住的真 bug：
+  · shared 降级链漏传 assetName（classisland 403 用例暴露——
+    classwidgets 无该路径覆盖故试点时侥幸全绿）
+  · CI tsc 抓到 7 个类型错误（TDZ 顺序/TPhase 泛型/残留 5 参/
+    漏 import——esbuild 只查语法不查类型，本地验证盲区已补 tsc）
+- ✓ 安装包已交付：SecAgent-Setup-20261009-121717-7acb6d1bf2ac.exe
+- ☐ B2（下轮）：main.ts 解体（1691 行 70 IPC 通道按域分组）
+- ☐ P3 续：delete-button/animated-counter 等组件重写
+
 ## 本轮（R34 · 2026-10-09）
 
 ### 用户扩权：UX 及后端一并重写 — P3 首批 + 后端 B0/B1-1 完成 ✓
