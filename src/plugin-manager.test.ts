@@ -135,6 +135,88 @@ test("installing a newer version replaces the active plugin", async () => {
   }
 });
 
+/** 模拟 Windows 行为：目录内含进程已加载的 .node 原生模块时，rmSync 抛 EPERM。 */
+function lockDirectory(dir: string): () => void {
+  const original = fs.rmSync;
+  (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options?: fs.RmOptions) => {
+    if (typeof target === "string" && target.startsWith(dir)) {
+      throw Object.assign(new Error(`EPERM: 模拟已加载的原生模块锁定 ${target}`), { code: "EPERM" });
+    }
+    return original(target, options);
+  }) as typeof fs.rmSync;
+  return () => { (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = original; };
+}
+
+function versionedMarkerArchive(workspace: string, id: string, version: string, marker: string): string {
+  const archivePath = path.join(workspace, `${id}-${version}.zip`);
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  archive.addFile("secagent-plugin.json", Buffer.from(JSON.stringify({ apiVersion: 1, id, name: "Lock test", version, main: "main.mjs", permissions: ["agent.prompts"] })));
+  archive.addFile("main.mjs", Buffer.from(`export function activate(api) { api.registerPrompt("marker", () => "${marker}"); }`));
+  archive.writeZip(archivePath);
+  return archivePath;
+}
+
+test("升级被进程锁定的旧版本：不得半删除旧目录，且安装必须成功（找不到主入口的根因）", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-upgrade-"));
+  const oldVersionDir = path.join(workspace, "plugins", "installed", "locked-upgrade", "1.0.0");
+  const newVersionDir = path.join(workspace, "plugins", "installed", "locked-upgrade", "1.1.0");
+  const unlock = lockDirectory(oldVersionDir);
+  try {
+    const manager = new PluginManager(workspace);
+    await manager.initialize();
+    await manager.install(versionedMarkerArchive(workspace, "locked-upgrade", "1.0.0", "old"));
+    assert.equal((await manager.getPromptContributions())[0].text, "old");
+    // 旧版本"正在运行"（koffi.node 已加载、目录被锁）时直接装新版本
+    await manager.install(versionedMarkerArchive(workspace, "locked-upgrade", "1.1.0", "new"));
+    assert.equal(manager.list()[0].version, "1.1.0");
+    assert.equal((await manager.getPromptContributions())[0].text, "new");
+    // 关键断言：旧目录必须保持完整——绝不允许出现"main.mjs 已删、清单还在"的半删除状态
+    assert.equal(fs.existsSync(path.join(oldVersionDir, "main.mjs")), true);
+    assert.equal(fs.existsSync(path.join(oldVersionDir, "secagent-plugin.json")), true);
+    await manager.shutdown();
+    unlock();
+    // 重启：启动期清理移除孤儿旧版本（此时无模块加载，删除必成），新版本继续可用
+    const restarted = new PluginManager(workspace);
+    await restarted.initialize();
+    assert.equal(fs.existsSync(oldVersionDir), false);
+    assert.equal(fs.existsSync(path.join(newVersionDir, "main.mjs")), true);
+    assert.equal((await restarted.getPromptContributions())[0].text, "new");
+    await restarted.shutdown();
+  } finally {
+    unlock();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("同版本重装被锁目录：改名隔离而不是失败，重启后清理隔离目录", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-reinstall-"));
+  const versionDir = path.join(workspace, "plugins", "installed", "locked-reinstall", "1.0.0");
+  const pluginDir = path.dirname(versionDir);
+  const unlock = lockDirectory(versionDir);
+  try {
+    const manager = new PluginManager(workspace);
+    await manager.initialize();
+    await manager.install(versionedMarkerArchive(workspace, "locked-reinstall", "1.0.0", "first"));
+    // 同版本重装：目标目录被锁（进程已加载其中的 .node）
+    await manager.install(versionedMarkerArchive(workspace, "locked-reinstall", "1.0.0", "second"));
+    assert.equal((await manager.getPromptContributions())[0].text, "second");
+    // 被锁目录被改名隔离为 .trash-*，新内容就位
+    const quarantined = fs.readdirSync(pluginDir).filter((name) => name.startsWith(".trash-"));
+    assert.equal(quarantined.length, 1);
+    assert.equal(fs.existsSync(path.join(versionDir, "main.mjs")), true);
+    await manager.shutdown();
+    unlock();
+    const restarted = new PluginManager(workspace);
+    await restarted.initialize();
+    assert.equal(fs.readdirSync(pluginDir).filter((name) => name.startsWith(".trash-")).length, 0);
+    assert.equal((await restarted.getPromptContributions())[0].text, "second");
+    await restarted.shutdown();
+  } finally {
+    unlock();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("plugin SVG preview writes a workspace artifact and invokes the preview handler", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-preview-"));
   const archivePath = path.join(workspace, "preview-test.zip");
