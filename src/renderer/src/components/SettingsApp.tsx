@@ -21,26 +21,7 @@ const settingsNavItems: Array<{ id: string; label: string; dividerBefore?: boole
   { id: "settings-mcp", label: "MCP 服务" },
   { id: "settings-plugins", label: "插件" }
 ];
-import { DEFAULT_WAKE_HOTKEY, displayWakeHotkey, wakeHotkeyFromKeyboardEvent } from "../../../wake-hotkey.js";
-
-function WakeHotkeyField({ value, platform, onChange }: { value: string; platform: NodeJS.Platform; onChange: (value: string) => void }) {
-  const [capturing, setCapturing] = useState(false);
-  return <div className="wake-hotkey-field">
-    <label>全局快捷键<input readOnly value={capturing ? "请按下快捷键..." : displayWakeHotkey(value, platform)} onFocus={() => setCapturing(true)} onBlur={() => setCapturing(false)} onKeyDown={(event) => { event.preventDefault(); const hotkey = wakeHotkeyFromKeyboardEvent(event.nativeEvent); if (hotkey) { onChange(hotkey); setCapturing(false); } }} /></label>
-    <button type="button" className="secondary-button" onClick={() => onChange(DEFAULT_WAKE_HOTKEY)}>恢复默认</button>
-  </div>;
-}
-
-function updateReleaseLabel(release: UpdateRelease | undefined, channel: UpdateChannel): string {
-  if (release?.releaseType === "alpha") return "内测版";
-  if (release?.releaseType === "beta") return "测试版";
-  return channel === "preview" ? "预览版" : "稳定版";
-}
-
-function formatUpdateBytes(value: number): string {
-  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-}
+import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
 
 export function SettingsApp() {
   const bridge = window.secagent;
