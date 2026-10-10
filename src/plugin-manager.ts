@@ -318,20 +318,25 @@ export class PluginManager {
       zip.extractAllTo(staging, true);
       const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : "plugin.json");
       if (previous) await this.deactivate(manifest.id);
-      // 升级时不再删除整个插件目录：旧版本里的原生模块（如 koffi.node）可能仍被本进程加载，
-      // Windows 无法删除已加载的 .node——rmSync 会删到一半抛 EPERM，留下「清单还在、
-      // main.mjs 已没了」的残目录（实机症状即"找不到主入口：main.mjs"）。
-      // 旧版本目录留给下次启动的 sweepStalePluginDirs 清理（彼时无模块加载，删除必成）。
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      if (fs.existsSync(target)) {
-        // 同版本重装：目标目录同样可能锁着，删不掉就改名隔离，同样交给启动清理。
-        try {
-          fs.rmSync(target, { recursive: true, force: true });
-        } catch {
-          fs.renameSync(target, path.join(path.dirname(target), `.trash-${crypto.randomUUID()}`));
+      try {
+        // 升级时不再删除整个旧插件目录：旧版本里的原生模块（如 koffi.node）可能仍被
+        // 本进程加载，Windows 无法删除已加载的 .node——rmSync 删到一半抛 EPERM，
+        // 留下「清单还在、main.mjs 已没了」的残目录（实机症状即“找不到主入口：main.mjs”）。
+        // 旧版本目录留给下次启动的 sweepStalePluginDirs 清理（彼时无模块加载，删除必成）。
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        if (fs.existsSync(target)) {
+          // 同版本重装：目标目录同样可能锁着，容错移除（小步重试 + 改名隔离），交给启动清理。
+          await this.removeDirTolerant(target, manifest.id);
         }
+        fs.renameSync(extractedRoot, target);
+      } catch (error) {
+        // 安装在中途失败（如目录被锁且隔离也失败）：此刻插件已停用，状态里仍是
+        // 旧版本——尽力把旧版本重新激活，避免服务中断到下次重启。
+        if (previous?.enabled) {
+          try { await this.activate(manifest.id); } catch { /* 旧目录已残缺则保持停用，等待用户重试 */ }
+        }
+        throw error;
       }
-      fs.renameSync(extractedRoot, target);
       this.state.plugins = this.state.plugins.filter((item) => item.id !== manifest.id);
       this.state.plugins.push({ id: manifest.id, version: manifest.version, enabled: previous?.enabled ?? true });
       this.saveState();
@@ -358,16 +363,46 @@ export class PluginManager {
     this.state.plugins = this.state.plugins.filter((item) => item.id !== id);
     this.saveState();
     // 与 install 同理：插件目录里的原生模块可能仍被本进程加载（Windows 删不掉）。
-    // 删不掉就改名隔离，交给下次启动的 sweepStalePluginDirs 清理。
-    const pluginRoot = path.join(this.installedRoot, id);
-    if (fs.existsSync(pluginRoot)) {
+    // 容错移除：小步重试 + 改名隔离到 .trash-<id>-<uuid>，交给启动清扫。
+    await this.removeDirTolerant(path.join(this.installedRoot, id), id);
+    this.changed();
+  }
+
+  /**
+   * Windows 容错移除插件目录。旧版本插件的原生模块（如 koffi 的 .node）在
+   * deactivate 后仍映射在本进程内——Node 无法卸载已加载的原生插件，
+   * rmSync 会 EPERM（实机：0.5.3 → 0.5.4 升级报 Permission denied）。
+   * 策略：先小步重试（杀毒/索引的瞬态句柄）；仍失败则把整个目录改名
+   * 隔离到**同级目录**的 .trash-<id>-<uuid>——LoadLibrary 以 FILE_SHARE_DELETE
+   * 打开模块，**改名可行、删除不可行**。卸载时隔离目录落在 installed/ 下，
+   * 同版本重装时落在插件目录内；两处的 .trash-* 都由启动清扫处理
+   * （彼时尚无插件激活、无原生模块加载，删除不会被文件锁阻断）。
+   */
+  private async removeDirTolerant(dir: string, pluginId: string): Promise<void> {
+    if (!fs.existsSync(dir)) return;
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        fs.rmSync(pluginRoot, { recursive: true, force: true });
-      } catch {
-        try { fs.renameSync(pluginRoot, path.join(this.installedRoot, `.trash-${id}-${crypto.randomUUID()}`)); } catch { /* 留待用户手动删除 */ }
+        fs.rmSync(dir, { recursive: true, force: true });
+        return;
+      } catch (error) {
+        lastError = error;
+        const code = (error as NodeJS.ErrnoException)?.code;
+        if (code !== "EPERM" && code !== "EACCES" && code !== "EBUSY" && code !== "ENOTEMPTY") throw error;
+        await new Promise((resolve) => setTimeout(resolve, 200));
       }
     }
-    this.changed();
+    const trash = path.join(path.dirname(dir), `.trash-${pluginId}-${crypto.randomUUID()}`);
+    try {
+      fs.renameSync(dir, trash);
+    } catch (renameError) {
+      throw new Error(
+        `无法移除旧插件目录（文件被占用，通常是旧版本插件仍在运行）。` +
+          `请完全退出 SecAgent 后重新打开，再安装一次。` +
+          `原始错误：${lastError instanceof Error ? lastError.message : String(lastError)}；` +
+          `改名隔离也失败：${renameError instanceof Error ? renameError.message : String(renameError)}`
+      );
+    }
   }
 
   async reload(id: string): Promise<void> { await this.deactivate(id); await this.activate(id); }
