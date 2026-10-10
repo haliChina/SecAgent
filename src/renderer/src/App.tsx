@@ -20,6 +20,7 @@ import { selectionInElement, copyText, UserQuotedContent } from "./components/Me
 import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
 import { TracePanel } from "./components/TracePanel.js";
 import { DeliverableCard } from "./components/DeliverableCard.js";
+import { SessionSidebar } from "./components/SessionSidebar.js";
 import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
 type VoiceInputMode = "streaming" | "hold";
@@ -35,8 +36,6 @@ export function App() {
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [sessionMenuDismissed, setSessionMenuDismissed] = useState(false);
-  const [allSessionsOpen, setAllSessionsOpen] = useState(false);
   const [session, setSession] = useState<SessionData | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -875,34 +874,8 @@ export function App() {
   return <main className="app-shell">
     <header className={`topbar ${bridge.platform === "darwin" ? "macos" : ""}`}>
       <button className="brand" type="button" aria-label="打开设置" onDoubleClick={() => { void bridge.openSettings(); }}><span>SecAgent</span></button>
-      <div className={`session-menu ${bridge.platform !== "darwin" ? "windows" : ""}`}>
-        <div className={`session-options ${sessionMenuDismissed ? "dismissed" : ""}`} onMouseEnter={() => setSessionMenuDismissed(false)}>
-          <button className="session-trigger" aria-label="选择历史会话"><img className="session-chevron" src="/session-chevron.svg" alt="" /> <span>{session?.meta.title || "问候"}</span></button>
-          <div className="session-list" role="menu">
-            {sessions.filter((item) => item.id !== session?.meta.id).slice(0, 10).map((item) => <button className="session-option" role="menuitem" key={item.id} onClick={() => { setSessionMenuDismissed(true); void changeSession(item.id); }}>{item.title}</button>)}
-            <button className="session-option all-sessions-option" role="menuitem" onClick={() => { setSessionMenuDismissed(true); setAllSessionsOpen(true); }}>全部会话...</button>
-          </div>
-        </div>
-        <button className="new-session-button" type="button" aria-label="新建会话" title="新建会话" onClick={() => void createSession()}>+</button>
-      </div>
-    </header>
-    {allSessionsOpen && <div className="session-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAllSessionsOpen(false); }}>
-      <section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="all-sessions-title">
-        <div className="session-modal-header"><div><p className="eyebrow">SECAGENT</p><h2 id="all-sessions-title">全部会话</h2></div><button className="modal-close" type="button" aria-label="关闭" onClick={() => setAllSessionsOpen(false)}>×</button></div>
-        <div className="all-session-list">
-          {sessions.length === 0 && <p className="all-session-empty">还没有会话</p>}
-          {sessions.map((item) => <div className={`all-session-item ${item.id === session?.meta.id ? "active" : ""}`} key={item.id}>
-            <div className="all-session-info">
-              <button className="all-session-title" type="button" onClick={() => { setAllSessionsOpen(false); void changeSession(item.id); }}>{item.title}</button>
-              {item.preview && <p className="all-session-preview">{item.preview}</p>}
-            </div>
-            <time>{new Date(item.updatedAt).toLocaleString()}</time>
-            <DeleteButton ariaLabel={`删除会话 ${item.title}`} onConfirm={() => void deleteSession(item.id)} />
-          </div>)}
-        </div>
-        <button className="modal-new-session" type="button" onClick={() => { setAllSessionsOpen(false); void createSession(); }}>+ 新建会话</button>
-      </section>
-    </div>}
+</header>
+
     {messageMenu && <div className="message-context-menu" role="menu" style={{ left: messageMenu.x, top: messageMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {messageMenu.role !== "user" && <button type="button" role="menuitem" onClick={() => { const item = messageMenu; setMessageMenu(null); if (speakingMessageId === item.messageId) stopReading(); else void readMessage(item.messageId, item.text); }}>{speakingMessageId === messageMenu.messageId ? "停止朗读" : "朗读"}</button>}
       <button type="button" role="menuitem" onClick={() => { const text = messageMenu.selection || messageMenu.text; setMessageMenu(null); void copyText(text); }}>复制</button>
@@ -916,6 +889,7 @@ export function App() {
       </section>
     </div>}
     <section className="workspace">
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" />}
         <div className="messages" ref={messagesRef}>
@@ -942,7 +916,6 @@ export function App() {
             sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
             commands={[
               { key: "new-session", name: "/new", description: "新建会话", group: "会话" },
-              { key: "sessions", name: "/sessions", description: "切换到其他会话", group: "会话" },
               { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
               { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
               { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
@@ -950,7 +923,6 @@ export function App() {
             ]}
             onCommandPick={(key) => {
               if (key === "new-session") void createSession();
-              else if (key === "sessions") setAllSessionsOpen(true);
               else if (key === "stop") { if (sending) void stop(); }
               else if (key === "read") {
                 const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
