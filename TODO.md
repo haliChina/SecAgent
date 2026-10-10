@@ -3,6 +3,41 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R50 · 2026-10-10）
+
+### 构建验证 ✓（补 R47-R49 最大盲区）
+- electron-vite build EXIT=0：三轮 CSS 手术（session-sidebar/
+  deliverable-card/settings-rail/data-theme=dark/glass-*）全部通过
+  Lightning CSS 实编译；theme-boot.js 进产物
+- tsc 不查 CSS——这是 47-49 轮纯扫描器验证后的首次实编译确认
+
+### 回退提示独立成行 + 全仓 emoji 清零 ✓（用户新约定）
+- **根因修复**：session-run.ts 原把 `\n\n> ⚙️ 模型稳定性：…` 拼接进
+  finalMessage（混入对话内容）→ 改 fallbackNotice 独立字段：
+  · session-store.ts：SessionMessage.fallbackNotice + appendMessage
+    第 9 尾参 + 持久化（照 hallucination 字段模式）
+  · App.tsx：消息尾单独一行 p.fallback-notice（role=status），
+    细线 + 小字克制样式（DSH/widget-style 反 AI 味守则）
+  · 2 用例：独立字段不混 content / 不传时向后兼容
+- **emoji 清零**（rg 多区间复扫确认 0）：session-run ⚙️（随上项）、
+  ErrorBoundary「已复制 ✓」、SettingsApp 注释 ⚠️、delete-button 注释 ✓、
+  index.ts CLI ⚠ → [敏感操作确认] 方括号标记
+
+### 验收
+- build EXIT=0；tsc EXIT=0；测试 266 项 265 过 0 挂；双扫描器绿
+- 过程插曲：pkill -f "node .*tsc" 模式文本命中自身 cmdline 导致
+  shell 自杀（"Killed" 来源）——改用 run-tsc.sh 内部 pkill 或
+  字符类技巧 `.[t]sc`；另两次 ~85 分钟 OSS 挂载停顿假死，重启即恢复
+
+### 反 AI 味审计（量化，未动手——下轮取舍）
+- 参照源已定：DSH（tmp/dsh，12 包 R40 已研读；克制工程感：语义
+  token/focus-ring/28px 图标钮/无装饰）+ widget-style.md
+  （无 emoji/阴影/渐变/装饰图标/粗边框）
+- 现状违规清单：backdrop-filter 3 处 / box-shadow 35 处 / 渐变 8 处 /
+  AuroraBackdrop 空态背景 / 语音条 0 0 20px 发光
+- 处理建议：composer 毛玻璃保留（真实层次需要），删 AuroraBackdrop
+  与 cancel 发光；box-shadow 分级收敛到 elevation token
+
 ## 本轮（R49 · 2026-10-10）
 
 ### UI P3-5 主题三态 + 防闪烁 ✓（f8c8ea1）
