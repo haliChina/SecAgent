@@ -139,6 +139,8 @@ export interface SecAgentConfig {
   budget?: import("./model-budget.js").ModelBudgetSettings;
   /** Hallucination warning strip for final answers. */
   hallucination?: { enabled?: boolean };
+  /** UI theme tri-state (P3-5): light / dark / system. Invalid values fall back to light. */
+  theme?: "light" | "dark" | "system";
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */

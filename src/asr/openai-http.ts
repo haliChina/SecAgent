@@ -15,7 +15,7 @@ const PARTIAL_FLUSH_MS = 3_000;
 const MIN_CHUNK_MS = 900;
 const CONNECT_TIMEOUT_MS = 12_000;
 
-export interface OpenAiAsrOptions {
+interface OpenAiAsrOptions {
   /** Current provider settings (re-read on each start). */
   getSettings: () => OpenAiAsrSettings | undefined;
   /** Resolves the API key for an env var name (usually process.env). */

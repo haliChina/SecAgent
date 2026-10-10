@@ -5,10 +5,10 @@ import { compareVersions, marketplaceRequestUrls, DEFAULT_MARKETPLACE_PROXY_URL 
 import { OFFICIAL_UPDATE_PUBLIC_KEY as EMBEDDED_UPDATE_PUBLIC_KEY } from "./update-public-key.js";
 import type { UpdateChannel, UpdateRelease, UpdateRequestAttempt } from "./types.js";
 
-export const UPDATE_REPOSITORY = "SECTL/SecAgent";
-export const UPDATE_API_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=100`;
-export const UPDATE_METADATA_URL = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY}/refs/heads/master/updates.json`;
-export const UPDATE_METADATA_SCHEMA_VERSION = 1;
+const UPDATE_REPOSITORY = "SECTL/SecAgent";
+const UPDATE_API_URL = `https://api.github.com/repos/${UPDATE_REPOSITORY}/releases?per_page=100`;
+const UPDATE_METADATA_URL = `https://raw.githubusercontent.com/${UPDATE_REPOSITORY}/refs/heads/master/updates.json`;
+const UPDATE_METADATA_SCHEMA_VERSION = 1;
 
 type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -58,7 +58,7 @@ export interface UpdateRequestHooks {
   timeoutMs?: Partial<UpdateRequestTimeouts>;
 }
 
-export class UpdateRequestError extends Error {
+class UpdateRequestError extends Error {
   constructor(
     message: string,
     public readonly attempts: UpdateRequestAttempt[],
@@ -89,12 +89,12 @@ export interface PendingUpdate {
   verifiedSha256?: string;
 }
 
-export interface DownloadProgress {
+interface DownloadProgress {
   downloadedBytes: number;
   totalBytes?: number;
 }
 
-export interface DownloadedUpdate {
+interface DownloadedUpdate {
   pending: PendingUpdate;
   bytes: number;
 }
@@ -105,14 +105,14 @@ const UPDATE_HEADER_TIMEOUT_MS = 12_000;
 /** Installers stream for minutes; bound the silence between chunks, not the total transfer. */
 const UPDATE_BODY_IDLE_TIMEOUT_MS = 60_000;
 
-export interface UpdateRequestTimeouts {
+interface UpdateRequestTimeouts {
   /** Deadline for receiving response headers on each route. */
   headerMs: number;
   /** Maximum silence between body chunks while consuming an installer download. */
   bodyIdleMs: number;
 }
 
-export const UPDATE_REQUEST_TIMEOUTS: UpdateRequestTimeouts = { headerMs: UPDATE_HEADER_TIMEOUT_MS, bodyIdleMs: UPDATE_BODY_IDLE_TIMEOUT_MS };
+const UPDATE_REQUEST_TIMEOUTS: UpdateRequestTimeouts = { headerMs: UPDATE_HEADER_TIMEOUT_MS, bodyIdleMs: UPDATE_BODY_IDLE_TIMEOUT_MS };
 
 function resolveRequestTimeouts(hooks: UpdateRequestHooks): UpdateRequestTimeouts {
   return { ...UPDATE_REQUEST_TIMEOUTS, ...hooks.timeoutMs };

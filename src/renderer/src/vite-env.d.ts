@@ -1,8 +1,8 @@
-interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string }
+interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string }
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }
-interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean }
+interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> }; fallbackNotice?: string }
 interface SessionData { meta: SessionMeta; messages: SessionMessage[] }
 interface SessionRuntimeEvent { sessionId: string; sequence: number; at: string; stage: string; data: unknown }
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -30,7 +30,7 @@ interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
 interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean }
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system" }
 interface SkillSummary { name: string; description: string; path: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }

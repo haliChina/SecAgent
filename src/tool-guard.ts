@@ -15,8 +15,6 @@ export interface ToolGuardSettings {
   approved: string[];
 }
 
-export const DEFAULT_TOOL_GUARD: ToolGuardSettings = { enabled: true, approved: [] };
-
 export function normalizeToolGuardSettings(raw: unknown): ToolGuardSettings {
   const input = (raw && typeof raw === "object" ? raw : {}) as { enabled?: unknown; approved?: unknown };
   const approved = Array.isArray(input.approved) ? input.approved.filter((item): item is string => typeof item === "string") : [];

@@ -36,10 +36,6 @@ export function normalizeWakeHotkey(value: unknown): string {
   return `${MODIFIER_ORDER.filter((modifier) => modifiers.includes(modifier)).join("+")}+${key}`;
 }
 
-export function isValidWakeHotkey(value: unknown): value is string {
-  try { normalizeWakeHotkey(value); return true; } catch { return false; }
-}
-
 export function displayWakeHotkey(value: string, platform: NodeJS.Platform): string {
   const normalized = normalizeWakeHotkey(value);
   if (platform !== "darwin") return normalized.replaceAll("+", " ");

@@ -1,3 +1,4 @@
+import { ACCENT, ACCENT_DEEP, ACCENT_SKY, ACCENT_PALE } from "./ui/parts/theme.js";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { TraceEvent } from "../constants.js";
@@ -183,7 +184,17 @@ export function WakeOverlay() {
     rawAnswerRef.current = raw;
     const tagMatch = raw.match(/<tts\b([^>]*)>/i);
     const tagStart = tagMatch?.index ?? -1;
-    if (tagStart < 0) return;
+    if (tagStart < 0) {
+      // 兜底：模型未输出 <tts> 标签时，完成态整段朗读（否则唤醒回答静音）
+      if (final) {
+        const whole = markdownToSpeech(raw);
+        if (whole) {
+          enqueueTts(whole);
+          wakeTtsScheduledRef.current = whole;
+        }
+      }
+      return;
+    }
     const attributes = tagMatch?.[1] || "";
     listenAfterTtsRef.current = /\blisten_after\s*=\s*["']true["']/i.test(attributes);
     const start = tagStart + tagMatch![0].length;
@@ -228,7 +239,9 @@ export function WakeOverlay() {
     setRecording(false);
   };
 
-  const submitTranscript = async () => {
+  const playAckBeep = () => { try { const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext; if (!Ctx) return; const ctx = new Ctx(); const now = ctx.currentTime; [880, 1318].forEach((freq, i) => { const osc = ctx.createOscillator(); const gain = ctx.createGain(); osc.frequency.value = freq; osc.type = "sine"; gain.gain.setValueAtTime(0.0001, now + i * 0.13); gain.gain.exponentialRampToValueAtTime(0.12, now + i * 0.13 + 0.02); gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.13 + 0.12); osc.connect(gain).connect(ctx.destination); osc.start(now + i * 0.13); osc.stop(now + i * 0.13 + 0.14); }); window.setTimeout(() => void ctx.close(), 700); } catch { /* 提示音失败不影响主流程 */ } };
+
+const submitTranscript = async () => {
     if (submittingRef.current) return;
     const currentText = transcriptRef.current.trim();
     if (!currentText || !sessionId) return;
@@ -450,9 +463,10 @@ export function WakeOverlay() {
     <svg className="wake-edge-svg" aria-hidden="true" preserveAspectRatio="none">
       <defs>
         <linearGradient id="wake-edge-gradient" x1="0" y1="0" x2="1" y2="0" gradientUnits="objectBoundingBox">
-          <stop offset="0%" stopColor="#f86437" /><stop offset="16%" stopColor="#ffb84a" />
-          <stop offset="30%" stopColor="#f5eb66" /><stop offset="48%" stopColor="#6ddf88" />
-          <stop offset="66%" stopColor="#58b7ff" /><stop offset="80%" stopColor="#8c78ff" /><stop offset="100%" stopColor="#f86437" />
+          {/* R32：彩虹渐变改蓝色系流光（全局配色收敛白蓝黑）。 */}
+          <stop offset="0%" stopColor={ACCENT_DEEP} /><stop offset="16%" stopColor={ACCENT} />
+          <stop offset="30%" stopColor={ACCENT_SKY} /><stop offset="48%" stopColor={ACCENT_PALE} />
+          <stop offset="66%" stopColor={ACCENT_SKY} /><stop offset="80%" stopColor={ACCENT} /><stop offset="100%" stopColor={ACCENT_DEEP} />
           <animateTransform attributeName="gradientTransform" type="rotate" from="0 .5 .5" to="360 .5 .5" dur="20s" repeatCount="indefinite" />
         </linearGradient>
         {/* Keep the full-screen glow visually smooth without allocating a
@@ -476,7 +490,7 @@ export function WakeOverlay() {
               ? <MarkdownContent>{finalAnswerText}</MarkdownContent>
               : streamingAnswer || ttsPreview
                 ? <MarkdownContent>{streamingAnswer || ttsPreview}</MarkdownContent>
-                : "···"}
+                : <span className="wake-thinking" role="status" aria-label="正在思考"><span className="wake-thinking-dot" /><span className="wake-thinking-dot" /><span className="wake-thinking-dot" /><span className="wake-thinking-text">正在思考…</span></span>}
           </div>
         </div>
       </div>}

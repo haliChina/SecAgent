@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { compareVersions, describeDownloadAttempt, marketplaceRequestUrls, type DownloadAttemptLogger } from "./marketplace.js";
 import { closeHostProcesses, enumerateHostProcesses, installCompanionPackage, startCompanionProcessWithSameElevation, type CompanionExecutor, type CompanionLogger, type CompanionPackageSpec, type HostProcessFilter, type HostProcessInfo } from "./companion-package.js";
+import { defaultCommandRunner, defaultExists, defaultForceTerminate, defaultIsProcessRunning, defaultReadFile, defaultRequestGracefulClose, discoverRunningProcesses, discoverWindowsExternalPaths, hashId, normalizePath, parseJsonList, parseWindowsCommandLine, platformPath, quotePowerShell, type CommandRunner, type DiscoveredProcess, type Fetcher, type PathApi, type SupportedPlatform, waitForInstalledPlugin } from "./companion-installer-shared.js";
 
 export const SECRANDOM_PLUGIN_REPOSITORY = "SECTL/SecRandom-SecAgent-Plugin";
 export const SECRANDOM_PLUGIN_ID = "secrandom.secagent";
@@ -29,11 +30,6 @@ const SECRANDOM_PLUGIN_ENTRANCE_PATTERN = /^entranceAssembly\s*:\s*["']?([^"'\r\
 const WINDOWS_SECRANDOM_EXE = "SecRandom.Desktop.exe";
 const WINDOWS_SECRANDOM_LAUNCHER = "SecRandomLauncher.exe";
 const MAX_SECRANDOM_PLUGIN_BYTES = 100 * 1024 * 1024;
-
-type SupportedPlatform = NodeJS.Platform;
-type PathApi = typeof path.win32;
-type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
-type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export interface SecRandomInstallCandidate {
   id: string;
@@ -72,12 +68,7 @@ export interface SecRandomInstallProgress {
   message?: string;
 }
 
-export interface SecRandomRunningProcess {
-  executablePath: string;
-  pid: number;
-  commandLine?: string;
-  version?: string;
-}
+export type SecRandomRunningProcess = DiscoveredProcess;
 
 export interface SecRandomDiscoveryOptions {
   platform?: SupportedPlatform;
@@ -135,149 +126,6 @@ interface ReleaseMetadata {
 }
 
 const execFileAsync = promisify(execFile);
-
-function platformPath(platform: SupportedPlatform): PathApi {
-  return platform === "win32" ? path.win32 : path.posix;
-}
-
-function normalizePath(value: string, platform: SupportedPlatform): string {
-  const api = platformPath(platform);
-  const normalized = api.normalize(value);
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function hashId(executablePath: string, dataRoot: string, platform: SupportedPlatform): string {
-  return crypto.createHash("sha256").update(`${normalizePath(executablePath, platform)}\0${normalizePath(dataRoot, platform)}`).digest("hex").slice(0, 20);
-}
-
-function defaultExists(candidate: string): boolean {
-  try { return fs.existsSync(candidate); } catch { return false; }
-}
-
-function defaultReadFile(filePath: string): string {
-  return fs.readFileSync(filePath, "utf8");
-}
-
-function defaultCommandRunner(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 2 * 1024 * 1024 }).then((result) => ({ stdout: result.stdout, stderr: result.stderr }));
-}
-
-function quotePowerShell(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function parseJsonList(output: string): string[] {
-  if (!output.trim()) return [];
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string");
-    return typeof parsed === "string" ? [parsed] : [];
-  } catch {
-    return [];
-  }
-}
-
-async function discoverWindowsExternalPaths(commandRunner: CommandRunner, env: NodeJS.ProcessEnv): Promise<string[]> {
-  const registryScript = String.raw`
-$keys = @(
-  'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-  'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-)
-$result = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
-  Where-Object { $_.DisplayName -like '*SecRandom*' } |
-  ForEach-Object { @($_.InstallLocation, ($_.DisplayIcon -replace ',\d+$', '')) } |
-  Where-Object { $_ -and $_.ToString().Trim() }
-@($result) | ConvertTo-Json -Compress
-`;
-  const shortcutRoots = [
-    path.win32.join(env.APPDATA || "", "Microsoft", "Windows", "Start Menu", "Programs"),
-    path.win32.join(env.ProgramData || "C:\\ProgramData", "Microsoft", "Windows", "Start Menu", "Programs"),
-    path.win32.join(env.USERPROFILE || "", "Desktop")
-  ];
-  const shortcutScript = String.raw`
-$roots = @(${shortcutRoots.map(quotePowerShell).join(",")})
-$shell = New-Object -ComObject WScript.Shell
-$result = Get-ChildItem -Path $roots -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue |
-  ForEach-Object {
-    try {
-      $shortcut = $shell.CreateShortcut($_.FullName)
-      if ($shortcut.TargetPath -match '(?i)SecRandom') { $shortcut.TargetPath }
-    } catch { }
-  }
-@($result) | ConvertTo-Json -Compress
-`;
-  const paths: string[] = [];
-  try {
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", registryScript]);
-    paths.push(...parseJsonList(result.stdout));
-  } catch { /* Registry access is best effort. */ }
-  try {
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", shortcutScript]);
-    paths.push(...parseJsonList(result.stdout));
-  } catch { /* Shortcut access is best effort. */ }
-  return paths;
-}
-
-async function discoverRunningProcesses(platform: SupportedPlatform, commandRunner: CommandRunner): Promise<SecRandomRunningProcess[]> {
-  if (platform !== "win32") return [];
-  const script = String.raw`
-Get-CimInstance Win32_Process |
-  Where-Object { $_.Name -ieq 'SecRandom.Desktop.exe' -or $_.Name -ieq 'secrandom.exe' } |
-  ForEach-Object {
-    $version = $null
-    try { $version = (Get-Item -LiteralPath $_.ExecutablePath).VersionInfo.ProductVersion } catch { }
-    [pscustomobject]@{
-      executablePath = if ($_.ExecutablePath) { [string]$_.ExecutablePath } else { [string]$_.Name }
-      pid = [int]$_.ProcessId
-      commandLine = $_.CommandLine
-      version = $version
-    }
-  } | ConvertTo-Json -Compress
-`;
-  try {
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    if (!result.stdout.trim()) return [];
-    const raw = JSON.parse(result.stdout) as unknown;
-    const items = Array.isArray(raw) ? raw : [raw];
-    return items.flatMap((item) => {
-      if (!item || typeof item !== "object") return [];
-      const record = item as Record<string, unknown>;
-      if (typeof record.executablePath !== "string" || typeof record.pid !== "number") return [];
-      return [{ executablePath: record.executablePath, pid: record.pid, ...(typeof record.commandLine === "string" ? { commandLine: record.commandLine } : {}), ...(typeof record.version === "string" ? { version: record.version } : {}) }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function parseWindowsCommandLine(commandLine: string | undefined): string[] {
-  if (!commandLine?.trim()) return [];
-  const args: string[] = [];
-  let current = "";
-  let quoted = false;
-  let slashCount = 0;
-  const pushSlashes = (count: number) => { current += "\\".repeat(count); };
-  for (let index = 0; index < commandLine.length; index++) {
-    const char = commandLine[index];
-    if (char === "\\") { slashCount++; continue; }
-    if (char === '"') {
-      pushSlashes(Math.floor(slashCount / 2));
-      if (slashCount % 2 === 1) current += '"';
-      else quoted = !quoted;
-      slashCount = 0;
-      continue;
-    }
-    pushSlashes(slashCount);
-    slashCount = 0;
-    if (/\s/.test(char) && !quoted) {
-      if (current) { args.push(current); current = ""; }
-    } else current += char;
-  }
-  pushSlashes(slashCount);
-  if (current) args.push(current);
-  return args;
-}
 
 function localAppData(platform: SupportedPlatform, home: string, env: NodeJS.ProcessEnv, api: PathApi): string {
   if (platform === "win32") return env.LOCALAPPDATA || api.join(home, "AppData", "Local");
@@ -388,21 +236,6 @@ async function waitForSecRandomHealth(fetcher: Fetcher, timeoutMs = 45_000, poll
   }
 }
 
-async function waitForInstalledPlugin(
-  readVersion: () => string | undefined,
-  expectedVersion: string,
-  timeoutMs = 15_000,
-  pollMs = 250
-): Promise<string | undefined> {
-  const deadline = Date.now() + timeoutMs;
-  while (true) {
-    const current = readVersion();
-    if (current && compareVersions(current, expectedVersion) >= 0) return current;
-    if (Date.now() >= deadline) return undefined;
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-}
-
 async function defaultVersionOf(executablePath: string, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<string | undefined> {
   if (platform !== "win32") return undefined;
   const script = `$item = Get-Item -LiteralPath ${quotePowerShell(executablePath)}; $item.VersionInfo.ProductVersion`;
@@ -470,8 +303,11 @@ export async function discoverSecRandomInstallations(options: SecRandomDiscovery
   const readFile = options.readFile || defaultReadFile;
   const commandRunner = options.commandRunner || defaultCommandRunner;
   const fetcher = options.fetcher;
-  const running = options.runningProcesses || await discoverRunningProcesses(platform, commandRunner);
-  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env) : [];
+  const running = options.runningProcesses || await discoverRunningProcesses(platform, commandRunner, ["SecRandom.Desktop.exe", "secrandom.exe"]);
+  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env, {
+      displayNameFilter: "-like '*SecRandom*'",
+      targetPathPattern: "(?i)SecRandom"
+    }) : [];
   const inputPaths = [
     ...staticExecutablePaths(platform, home, env),
     ...(options.executablePaths || []),
@@ -640,29 +476,6 @@ async function downloadLatestSecRandomPlugin(fetcher: Fetcher, now: () => number
     }
   }
   throw new Error(`下载 SecRandom 插件失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
-}
-
-async function defaultRequestGracefulClose(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<boolean> {
-  if (platform === "win32") {
-    const script = `$process = Get-Process -Id ${pid} -ErrorAction Stop; [bool]$process.CloseMainWindow()`;
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return result.stdout.trim().toLowerCase() !== "false";
-  }
-  process.kill(pid, "SIGTERM");
-  return true;
-}
-
-async function defaultForceTerminate(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<void> {
-  if (platform === "win32") {
-    const script = `Stop-Process -Id ${pid} -Force -ErrorAction Stop`;
-    await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return;
-  }
-  process.kill(pid, "SIGKILL");
-}
-
-async function defaultIsProcessRunning(pid: number): Promise<boolean> {
-  try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
 export class SecRandomInstaller {

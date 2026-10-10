@@ -15,7 +15,7 @@ const RECOGNIZER_DIR = "sherpa-onnx-streaming-zipformer-zh-14M-2023-02-23";
 type Recognizer = ReturnType<typeof import("sherpa-onnx")["createOnlineRecognizer"]>;
 type RecognizerStream = ReturnType<Recognizer["createStream"]>;
 
-export interface LocalAsrOptions {
+interface LocalAsrOptions {
   /** Additional directories to search for the bundled `models/` folder. */
   extraRoots?: string[];
   log?: (message: string) => void;
@@ -142,7 +142,3 @@ export class LocalSherpaAsrProvider implements AsrProvider {
   }
 }
 
-// Keep the exported helper name used by older callers (wake window diagnostics).
-export function isLocalAsrAvailable(provider: LocalSherpaAsrProvider): boolean {
-  return provider.isConfigured();
-}

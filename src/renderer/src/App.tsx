@@ -1,7 +1,9 @@
+import { ACCENT } from "./components/ui/parts/theme.js";
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
-import { ArrowUp, LoaderCircle, Square, Volume2 } from "lucide-react";
+import { LoaderCircle, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
+import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
 import { VoiceWakeListener } from "./components/VoiceWakeListener.js";
 import { MessageActivities } from "./components/MessageActivities.js";
@@ -9,41 +11,17 @@ import { AttachmentStrip } from "./components/AttachmentStrip.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
-import { reasoningEffortLabels, traceLabel } from "./constants.js";
+import { reasoningEffortLabels } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
-import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel } from "./utils.js";
+import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
-import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
-
-function selectionInElement(element: HTMLElement): string {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || !selection.rangeCount) return "";
-  const range = selection.getRangeAt(0);
-  if (!element.contains(range.commonAncestorContainer)) return "";
-  return selection.toString().trim();
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = text;
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
-}
-
-function UserQuotedContent({ content }: { content: string }) {
-  const parsed = parseQuotedUserMessage(content);
-  if (!parsed.quote) return <>{content}</>;
-  return <>
-    <blockquote className="message-quote">{parsed.quote}</blockquote>
-    {parsed.body ? parsed.body : null}
-  </>;
-}
+import { buildQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { selectionInElement, copyText, UserQuotedContent } from "./components/MessageQuoted.js";
+import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
+import { TracePanel } from "./components/TracePanel.js";
+import { DeliverableCard } from "./components/DeliverableCard.js";
+import { SessionSidebar } from "./components/SessionSidebar.js";
+import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
 type VoiceInputMode = "streaming" | "hold";
 type VoiceDropAction = "send" | "cancel" | "edit";
@@ -52,22 +30,18 @@ type PendingVoiceSend = { messageId: string; sessionId: string };
 export function App() {
   const bridge = window.secagent;
   const route = new URLSearchParams(window.location.search);
-  if (route.has("settings")) return <SettingsApp />;
+  if (route.has("settings")) return <WindowErrorBoundary crashTitle="设置页遇到错误" windowTitle="SecAgent设置"><SettingsApp /></WindowErrorBoundary>;
   if (route.has("wake")) return <WakeOverlay />;
   if (route.has("voice-wake")) return <VoiceWakeListener />;
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [sessionMenuDismissed, setSessionMenuDismissed] = useState(false);
-  const [allSessionsOpen, setAllSessionsOpen] = useState(false);
   const [session, setSession] = useState<SessionData | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<ChatAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState("");
   const [composerDragging, setComposerDragging] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelSubmenu, setModelSubmenu] = useState<"model" | "effort" | null>(null);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
@@ -75,6 +49,8 @@ export function App() {
   const [finishing, setFinishing] = useState(false);
   const [recording, setRecording] = useState(false);
   const [speechProcessing, setSpeechProcessing] = useState(false);
+  /** ASR 采集流的 React 侧句柄（audioRef 是 ref 不触发渲染；仅用于喂给状态球取电平）。 */
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [voicePendingSend, setVoicePendingSend] = useState(false);
   const [speechMode, setSpeechMode] = useState<VoiceInputMode | null>(null);
   const [voiceDropZone, setVoiceDropZone] = useState<VoiceDropAction>("send");
@@ -92,7 +68,11 @@ export function App() {
   const answerScrollPhase = useRef<"follow-bottom" | "settling" | "locked">("follow-bottom");
   const answerScrollLockTimer = useRef<number | undefined>(undefined);
   const answerStartScrollPending = useRef(false);
-  const modelMenuEnd = useRef<HTMLDivElement>(null);
+  /* R27 PromptBar 桥：onAttach 必须返回 Promise，但文件选择器是回调式——
+     pendingAttachResolveRef 暂存 resolve，input change 后由 addImageFiles 兑现；
+     pendingDictationResolveRef 同理暂存听写 promise，finishVoiceInput 收尾时兑现。 */
+  const pendingAttachResolveRef = useRef<((names: string[]) => void) | null>(null);
+  const pendingDictationResolveRef = useRef<((text: string) => void) | null>(null);
   // Official tiers first, then custom models clustered by provider so the
   // submenu can render a labelled group header per provider. The relay's
   // virtual-vision model is a vision-tool backend only, never a main model.
@@ -118,7 +98,14 @@ export function App() {
     bridge.setWakeContext({ sessionId: session?.meta.id, modelId: selectedModelId || undefined, reasoningEffort: customModelMode ? reasoningEffort : defaultEffort });
   }, [bridge, session?.meta.id, selectedModelId, reasoningEffort, defaultEffort, customModelMode]);
   useEffect(() => {
-    if (!reasoningEfforts.includes(reasoningEffort)) setReasoningEffort(reasoningEfforts[0] || "high");
+    if (!reasoningEfforts.includes(reasoningEffort)) {
+      // R29：模型切换档位收缩时（如 GLM-5 的 max → Qwen 只到 high），
+      // 回退到新列表中不超过当前档位的最高档，而不是直接掉到最低档。
+      const rank: Record<ReasoningEffort, number> = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+      const current = rank[reasoningEffort];
+      const fallback = [...reasoningEfforts].sort((a, b) => rank[a] - rank[b]).filter((candidate) => rank[candidate] <= current).pop();
+      setReasoningEffort(fallback ?? reasoningEfforts[0] ?? "high");
+    }
   }, [reasoningEffort, reasoningEfforts]);
   const initializing = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -317,13 +304,6 @@ export function App() {
     setToolConfirmation(null);
   };
 
-  useEffect(() => {
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!modelMenuEnd.current?.contains(event.target as Node)) { setModelMenuOpen(false); setModelSubmenu(null); }
-    };
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, []);
 
   useEffect(() => {
     const closeMenu = () => setMessageMenu(null);
@@ -417,7 +397,6 @@ export function App() {
       console.debug("[SecAgent scroll] completed-answer-start", { targetScrollTop: target, scrollTop: messages.scrollTop });
     });
   }, [finishing]);
-  const timelineTrace = useMemo(() => activeTrace.filter((item) => item.stage !== "model.output.delta"), [activeTrace]);
   const executionSeconds = useMemo(() => {
     const start = activeTrace.find((item) => item.stage === "user.request");
     const end = [...activeTrace].reverse().find((item) => item.stage === "assistant.response" || item.stage === "runtime.error");
@@ -462,6 +441,25 @@ export function App() {
     return "tool";
   }, [activeTrace]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
+  // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
+  const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
+  // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
+  const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
+  const orbAccent = runningTool ? ACCENT : undefined;
+  const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
+  // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
+  const scrollSections = useMemo(() => {
+    if (!session?.messages.length) return [] as Array<{ id: string; label: string }>;
+    const seen = new Set<string>();
+    const sections: Array<{ id: string; label: string }> = [];
+    for (const message of session.messages) {
+      const id = daySeparatorId(message.createdAt);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      sections.push({ id, label: daySeparatorLabel(message.createdAt) });
+    }
+    return sections;
+  }, [session?.messages]);
   const changeSession = async (id: string) => {
     if (!bridge) return;
     const [next, runtimeEvents] = await Promise.all([bridge.getSession(id), bridge.getRuntimeEvents(id)]);
@@ -511,6 +509,14 @@ export function App() {
       setAttachments((current) => [...current, ...valid].slice(0, 4));
       setDraft((current) => current || "\u200b");
       setAttachmentError(tooLarge.length ? "部分图片因大小限制未添加" : "");
+    }
+    // R27：兑现 PromptBar onAttach 的挂起 resolve（无论接受多少张都结束等待；
+    // 文件选择器被取消时 input 不触发 change，promise 悬置——仅浪费一次
+    // 监听位，无副作用）。
+    const attachResolve = pendingAttachResolveRef.current;
+    if (attachResolve) {
+      pendingAttachResolveRef.current = null;
+      attachResolve(valid.map((item) => item.name));
     }
   };
   const handlePaste = (event: ReactClipboardEvent<HTMLElement>) => {
@@ -580,6 +586,7 @@ export function App() {
   const closeAudioCapture = async () => {
     const audio = audioRef.current;
     audioRef.current = undefined;
+    setMicStream(null);
     audio?.processor.disconnect();
     audio?.source.disconnect();
     audio?.stream.getTracks().forEach((track) => track.stop());
@@ -649,6 +656,7 @@ export function App() {
       source.connect(processor);
       processor.connect(context.destination);
       audioRef.current = { context, stream, source, processor };
+      setMicStream(stream);
       logSpeech("capture.ready", { mode, contextState: context.state, sampleRate: context.sampleRate, tracks: stream.getAudioTracks().length });
       if (speechSession.stopRequested) await closeAudioCapture();
       return true;
@@ -665,6 +673,25 @@ export function App() {
     }
   };
 
+  /* R27 PromptBar 听写桥：流式识别的实时文稿由 onSpeechEvent 写入 draft
+     （受控同步进 PromptBar 输入框），所以 dictation promise 恒以空串收场，
+     只负责让 PromptBar 的 listening 态在收尾时正确熄灭。 */
+  const releaseDictation = () => {
+    const resolve = pendingDictationResolveRef.current;
+    if (!resolve) return;
+    pendingDictationResolveRef.current = null;
+    resolve("");
+  };
+  const startPromptDictation = () => new Promise<string>((resolve) => {
+    if (recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) { resolve(""); return; }
+    pendingDictationResolveRef.current = resolve;
+    void startVoiceInput("streaming").then((started) => { if (!started) { pendingDictationResolveRef.current = null; resolve(""); } });
+  });
+  const cancelPromptDictation = () => {
+    releaseDictation();
+    if (recordingRef.current) void finishVoiceInput("send");
+  };
+
   const finishVoiceInput = async (action: VoiceDropAction) => {
     const speechSession = speechSessionRef.current;
     if (!speechSession || speechSession.stopRequested || !session) return;
@@ -675,6 +702,7 @@ export function App() {
     if (action === "cancel") {
       try { await bridge.cancelSpeech(); } catch { /* Ignore cleanup failures. */ }
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setRecordingState(false);
       setSpeechProcessing(false);
       setSpeechMode(null);
@@ -764,6 +792,7 @@ export function App() {
       if (speechSession.timeout !== undefined) window.clearTimeout(speechSession.timeout);
       if (speechSession.settleTimer !== undefined) window.clearTimeout(speechSession.settleTimer);
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setSpeechProcessing(false);
       setSpeechMode(null);
       setVoiceDropZone("send");
@@ -826,11 +855,6 @@ export function App() {
       else void finishVoiceInput("cancel");
     }
   };
-  const handleMicClick = () => {
-    if (speechProcessing || sending || voicePendingSendRef.current || !session) return;
-    if (recordingRef.current) void finishVoiceInput("send");
-    else void startVoiceInput("streaming");
-  };
 
   useEffect(() => {
     const cancelOnEscape = (event: KeyboardEvent) => {
@@ -844,37 +868,14 @@ export function App() {
   }, [recording, speechProcessing]);
 
   if (!bridge) {
-    return <main className="app-shell"><section className="connection-error"><h1>SecAgent 桌面桥接未加载</h1><p>请退出应用后重新运行 <code>pnpm dev</code>。若仍出现此提示，请检查 Electron 的 preload 启动日志。</p></section></main>;
+    return <main className="app-shell"><AuiErrorState title="SecAgent 桌面桥接未加载" detail="请退出应用后重新运行 pnpm dev。若仍出现此提示，请检查 Electron 的 preload 启动日志。" /></main>;
   }
 
   return <main className="app-shell">
     <header className={`topbar ${bridge.platform === "darwin" ? "macos" : ""}`}>
       <button className="brand" type="button" aria-label="打开设置" onDoubleClick={() => { void bridge.openSettings(); }}><span>SecAgent</span></button>
-      <div className={`session-menu ${bridge.platform !== "darwin" ? "windows" : ""}`}>
-        <div className={`session-options ${sessionMenuDismissed ? "dismissed" : ""}`} onMouseEnter={() => setSessionMenuDismissed(false)}>
-          <button className="session-trigger" aria-label="选择历史会话"><img className="session-chevron" src="/session-chevron.svg" alt="" /> <span>{session?.meta.title || "问候"}</span></button>
-          <div className="session-list" role="menu">
-            {sessions.filter((item) => item.id !== session?.meta.id).slice(0, 10).map((item) => <button className="session-option" role="menuitem" key={item.id} onClick={() => { setSessionMenuDismissed(true); void changeSession(item.id); }}>{item.title}</button>)}
-            <button className="session-option all-sessions-option" role="menuitem" onClick={() => { setSessionMenuDismissed(true); setAllSessionsOpen(true); }}>全部会话...</button>
-          </div>
-        </div>
-        <button className="new-session-button" type="button" aria-label="新建会话" title="新建会话" onClick={() => void createSession()}>+</button>
-      </div>
-    </header>
-    {allSessionsOpen && <div className="session-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAllSessionsOpen(false); }}>
-      <section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="all-sessions-title">
-        <div className="session-modal-header"><div><p className="eyebrow">SECAGENT</p><h2 id="all-sessions-title">全部会话</h2></div><button className="modal-close" type="button" aria-label="关闭" onClick={() => setAllSessionsOpen(false)}>×</button></div>
-        <div className="all-session-list">
-          {sessions.length === 0 && <p className="all-session-empty">还没有会话</p>}
-          {sessions.map((item) => <div className={`all-session-item ${item.id === session?.meta.id ? "active" : ""}`} key={item.id}>
-            <button className="all-session-title" type="button" onClick={() => { setAllSessionsOpen(false); void changeSession(item.id); }}>{item.title}</button>
-            <time>{new Date(item.updatedAt).toLocaleString()}</time>
-            <button className="delete-session-button" type="button" aria-label={`删除会话 ${item.title}`} onClick={() => { if (window.confirm(`确定删除会话“${item.title}”吗？`)) void deleteSession(item.id); }}>删除</button>
-          </div>)}
-        </div>
-        <button className="modal-new-session" type="button" onClick={() => { setAllSessionsOpen(false); void createSession(); }}>+ 新建会话</button>
-      </section>
-    </div>}
+</header>
+
     {messageMenu && <div className="message-context-menu" role="menu" style={{ left: messageMenu.x, top: messageMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {messageMenu.role !== "user" && <button type="button" role="menuitem" onClick={() => { const item = messageMenu; setMessageMenu(null); if (speakingMessageId === item.messageId) stopReading(); else void readMessage(item.messageId, item.text); }}>{speakingMessageId === messageMenu.messageId ? "停止朗读" : "朗读"}</button>}
       <button type="button" role="menuitem" onClick={() => { const text = messageMenu.selection || messageMenu.text; setMessageMenu(null); void copyText(text); }}>复制</button>
@@ -888,66 +889,74 @@ export function App() {
       </section>
     </div>}
     <section className="workspace">
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
+        {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" />}
         <div className="messages" ref={messagesRef}>
-          {session?.messages.length === 0 && <div className="empty-state"><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
-          {session?.messages.map((message) => {
+          {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb size={200} state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session?.messages.map((message, index) => {
+            const previous = index > 0 ? session.messages[index - 1] : undefined;
+            const dayLabel = daySeparatorLabel(message.createdAt);
             const activities = message.activities?.length ? message.activities : message.toolCalls?.length ? message.toolCalls.map((call) => ({ kind: "tool" as const, ...call })) : message.id === latestAssistantId ? traceActivities : [];
             const reading = speakingMessageId === message.id;
             const visibleContent = message.role === "assistant" ? stripWorkspaceFilesMarkup(message.content) : message.content;
-            return <article className={`message ${message.role}`} key={message.id}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div></div></article>;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}</div>{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</article></Fragment>;
           })}
-          {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
+          {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><ThoughtLine label={activeStepKind === "tool" ? "正在调用工具" : "正在思考"} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
           <div />
         </div>
-        {toolConfirmation && <div className="tool-confirmation-overlay" role="dialog" aria-modal="true" aria-label="敏感操作确认">
-          <div className="tool-confirmation-card">
-            <h3>模型请求执行敏感操作</h3>
-            <p className="tool-confirmation-reason">{toolConfirmation.reason}</p>
-            <div className="tool-confirmation-detail"><strong>{toolConfirmation.tool}</strong><pre>{JSON.stringify(toolConfirmation.arguments, null, 2).slice(0, 2000)}</pre></div>
-            <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
-            <div className="tool-confirmation-actions">
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(false)}>拒绝</button>
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(true, true)}>总是允许此类</button>
-              <button type="button" className="primary-button" onClick={() => resolveToolConfirmation(true)}>允许一次</button>
-            </div>
-          </div>
-        </div>}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y） */}<MatrixOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
-          </div> : <><div className="composer-actions"><button type="button" className="icon-button" aria-label="添加图片" onClick={() => fileInputRef.current?.click()} onPointerDown={(event) => event.stopPropagation()}><img className="composer-icon" src="/image-icon.svg" alt="" /></button><button type="button" className={`icon-button mic-button ${recording ? "recording" : ""}`} aria-label={recording ? "停止语音输入" : "语音输入"} aria-pressed={recording} disabled={voicePendingSend} onClick={handleMicClick}><img className="composer-icon" src="/mic-icon.svg" alt="" /></button></div>
-          <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !event.currentTarget.readOnly) { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder={speechMode === "streaming" && recording ? speechStatus || "正在聆听…" : "输入文字或按住说话..."} rows={1} readOnly={recording || speechProcessing} disabled={!session || sending} />
-          <div className={`model-menu ${customModelMode ? "" : "virtual-model-menu"}`} ref={modelMenuEnd}>
-            <button type="button" className={`model-picker ${customModelMode ? "" : "virtual-model-picker"}`} aria-label={customModelMode ? "选择模型和推理强度" : "选择虚拟模型"} aria-expanded={modelMenuOpen} onClick={() => { setModelMenuOpen((open) => !open); setModelSubmenu(null); }}>
-              <span className="model-picker-copy"><strong>{selectedModel?.name || "未配置模型"}</strong>{customModelMode && <small>推理强度 · {reasoningEffortLabels[reasoningEffort]}</small>}</span>
-              <img className={`model-chevron ${modelMenuOpen ? "open" : ""}`} src="/session-chevron.svg" alt="" />
-            </button>
-            {modelMenuOpen && <div className="model-options" role="menu">
-              {customModelMode ? <Fragment>
-                <button type="button" className={`model-setting-row ${modelSubmenu === "model" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "model" ? null : "model")}><span>模型</span><span className="model-setting-value">{selectedModel?.name || "未配置模型"}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{(index === 0 || modelGroupLabel(orderedModels[index - 1]) !== modelGroupLabel(model)) && <div className="model-group-label" role="presentation">{modelGroupLabel(model)}</div>}<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
-                <button type="button" className={`model-setting-row ${modelSubmenu === "effort" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "effort" ? null : "effort")}><span>推理强度</span><span className="model-setting-value">{reasoningEffortLabels[reasoningEffort]}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "effort" && <div className="model-submenu" role="listbox">{reasoningEfforts.map((effort) => <button type="button" className={`model-option ${effort === reasoningEffort ? "selected" : ""}`} role="option" aria-selected={effort === reasoningEffort} key={effort} onClick={() => { setReasoningEffort(effort); setModelSubmenu(null); }}>{reasoningEffortLabels[effort]}</button>)}</div>}
-              </Fragment> : orderedModels.map((model) => (
-                <button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }} key={model.id}>{model.name}</button>
-              ))}
-            </div>}
-          </div>
-          {sending ? <button className="send-button stop-button" type="button" aria-label="停止生成" title="停止生成" onClick={() => void stop()}><Square aria-hidden="true" /></button> : <button className="send-button" type="submit" aria-label="发送" disabled={!session || voicePendingSend || !(draft.replace(/\u200b/g, "").trim() || quotedText || attachments.length)}><ArrowUp aria-hidden="true" /></button>}</>}
+          </div> : <PromptBar
+            className="app-promptbar"
+            placeholder="输入文字，长按输入框说话，或点麦克风"
+            sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
+            commands={[
+              { key: "new-session", name: "/new", description: "新建会话", group: "会话" },
+              { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
+              { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
+              { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
+              { key: "settings", name: "/settings", description: "打开设置", group: "应用" }
+            ]}
+            onCommandPick={(key) => {
+              if (key === "new-session") void createSession();
+              else if (key === "stop") { if (sending) void stop(); }
+              else if (key === "read") {
+                const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
+                if (target) void readMessage(target.id, target.content);
+              }
+              else if (key === "stop-read") stopReading();
+              else if (key === "settings") void bridge?.openSettings();
+            }}
+            models={orderedModels.map((model) => ({ key: model.id, name: model.name, tag: modelGroupLabel(model) }))}
+            model={selectedModelId}
+            onModelChange={setSelectedModelId}
+            efforts={customModelMode ? reasoningEfforts.map((effort) => reasoningEffortLabels[effort]) : ["默认"]}
+            defaultEffort={customModelMode ? reasoningEffortLabels[reasoningEffort] : "默认"}
+            onEffortChange={(label) => { const effort = reasoningEfforts.find((candidate) => reasoningEffortLabels[candidate] === label); if (effort) setReasoningEffort(effort); }}
+            busy={sending}
+            onSend={(text) => { if (!session || voicePendingSendRef.current) return; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
+            onStop={() => { void stop(); }}
+            onAttach={() => new Promise<string[]>((resolve) => { pendingAttachResolveRef.current = resolve; fileInputRef.current?.click(); })}
+            onAttachRemove={(name) => setAttachments((current) => { const index = current.findIndex((attachment) => attachment.name === name); return index < 0 ? current : current.filter((_, position) => position !== index); })}
+            onDictate={startPromptDictation}
+            onDictateCancel={cancelPromptDictation}
+            value={draft}
+            onDraftChange={setDraft}
+            background="#FFFFFF"
+            color="#1B2430"
+            menuBackground="#FFFFFF"
+            sparkColor={ACCENT}
+            width={2000}
+            radius={15}
+            maxRows={5}
+          />}
         </form>
       </section>
-      <aside className="trace-panel">
-        <div className="trace-heading"><p className="eyebrow">运行轨迹</p><h2>本轮与本会话事件</h2></div>
-        <div className="trace-list">
-          {activeTrace.length === 0 && <p className="trace-empty">发送消息后，模型请求、响应、工具调用和返回结果会实时显示并保存到会话目录。</p>}
-          {timelineTrace.map((item) => <details key={`${item.sequence}-${item.stage}`} className={`trace-item ${item.stage.startsWith("mcp.tools/") ? "tool-event" : ""}`}>
-            <summary><span className="trace-order">{item.sequence}</span><span>{traceLabel[item.stage] || item.stage}</span><time>{new Date(item.at).toLocaleTimeString()}</time></summary>
-            <pre>{JSON.stringify(item.data, null, 2)}</pre>
-          </details>)}
-        </div>
-      </aside>
+      <TracePanel activeTrace={activeTrace} isExecuting={sending && !finishing} />
     </section>
   </main>;
 }
