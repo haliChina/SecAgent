@@ -3,6 +3,42 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R41 · 2026-10-10）
+
+### 上游同步 ✓（ce05d8b）
+- fork/master 新进 #4：插件升级不再半删除被锁目录（+141 行含测试）
+  merge 干净零冲突
+- 基线三验证：tsc EXIT=0 / 全量测试绿 / IPC 81 通道 dump 归案
+
+### B3 sessions 域真源重写 ✓（9338842）
+- session-run.ts 222 行：运行编排 + trace 管线 + 中止注册表 + 唤醒特化
+- tool-confirm.ts 59 行：确认闸门（pending 表 + 5min 超时 + 不再提示直写 yaml）
+- settings-apply.ts 81 行：settings:save 编排（wake 换绑回滚/自启回滚/即时应用）
+- ipc-sessions.ts 341→69 行（-80%），IPC 层纯委托
+- 验收：tsc EXIT=0；81 通道 diff 零变化；全量测试绿
+- session-run.ts 222 行全文复读逐字核验；确认闸门接线
+  （runtime confirmToolCall → tool-confirm 显式注入 sendToAppWindows）比对一致
+
+### B4 App.tsx 拆分首批 ✓（69947e9）
+- TracePanel / ToolConfirmationDialog / MessageQuoted 三组件出仓
+  （TracePanel 即 P3-2 轨迹面板升级落点；确认弹层为 P3-4 前置）
+- App.tsx 1021→971 行；验收 tsc EXIT=0 + 全量测试绿
+
+### B5 CI 防复发棘轮 ✓（2e0bb5a）
+- scan-dead-exports.mjs（124 源文件）：201 存量死导出进 allowlist
+- scan-orphan-css.mjs（4 表 390 类）：40 存量孤儿类进 allowlist
+  - 修 split 字符类吞前导点 bug（. 在字符类里吃掉类名首字符）
+  - html 入引用池；双向抽查：wake-edge-svg*（在用）不误报、
+    wake-edge / select-combobox-trigger（旧残留）正确抓出
+- npm run scan 接入 ci.yml；新增死导出/孤儿类即 CI 阻断
+- 新拆模块内部接口 5 个去 export，新代码不进棘轮
+- 教训：块注释里写 **/（glob 语法）会提前闭合注释——首跑 SyntaxError
+
+### 遗留（R42 候选）
+- B4 剩余：SettingsApp/OobeWizard 拆分 + styles.css 按窗口分域
+- 死导出存量批量清理（update.ts 公共 API、四安装器常量等 201 项）
+- UI P3 七项（用户暂缓中）
+
 ## 本轮（R39 · 2026-10-09）
 
 ### PR #1 merge master（3fd7d5f）✓
