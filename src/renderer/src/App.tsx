@@ -11,42 +11,15 @@ import { AttachmentStrip } from "./components/AttachmentStrip.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
-import { reasoningEffortLabels, traceLabel } from "./constants.js";
+import { reasoningEffortLabels } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
 import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
-import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { buildQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { selectionInElement, copyText, UserQuotedContent } from "./components/MessageQuoted.js";
+import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
+import { TracePanel } from "./components/TracePanel.js";
 import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
-
-function selectionInElement(element: HTMLElement): string {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || !selection.rangeCount) return "";
-  const range = selection.getRangeAt(0);
-  if (!element.contains(range.commonAncestorContainer)) return "";
-  return selection.toString().trim();
-}
-
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = text;
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
-}
-
-function UserQuotedContent({ content }: { content: string }) {
-  const parsed = parseQuotedUserMessage(content);
-  if (!parsed.quote) return <>{content}</>;
-  return <>
-    <blockquote className="message-quote">{parsed.quote}</blockquote>
-    {parsed.body ? parsed.body : null}
-  </>;
-}
 
 type VoiceInputMode = "streaming" | "hold";
 type VoiceDropAction = "send" | "cancel" | "edit";
@@ -424,7 +397,6 @@ export function App() {
       console.debug("[SecAgent scroll] completed-answer-start", { targetScrollTop: target, scrollTop: messages.scrollTop });
     });
   }, [finishing]);
-  const timelineTrace = useMemo(() => activeTrace.filter((item) => item.stage !== "model.output.delta"), [activeTrace]);
   const executionSeconds = useMemo(() => {
     const start = activeTrace.find((item) => item.stage === "user.request");
     const end = [...activeTrace].reverse().find((item) => item.stage === "assistant.response" || item.stage === "runtime.error");
@@ -958,19 +930,7 @@ export function App() {
           {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><ThoughtLine label={activeStepKind === "tool" ? "正在调用工具" : "正在思考"} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
           <div />
         </div>
-        {toolConfirmation && <div className="tool-confirmation-overlay" role="dialog" aria-modal="true" aria-label="敏感操作确认">
-          <div className="tool-confirmation-card">
-            <h3>模型请求执行敏感操作</h3>
-            <p className="tool-confirmation-reason">{toolConfirmation.reason}</p>
-            <div className="tool-confirmation-detail"><strong>{toolConfirmation.tool}</strong><pre>{JSON.stringify(toolConfirmation.arguments, null, 2).slice(0, 2000)}</pre></div>
-            <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
-            <div className="tool-confirmation-actions">
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(false)}>拒绝</button>
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(true, true)}>总是允许此类</button>
-              <button type="button" className="primary-button" onClick={() => resolveToolConfirmation(true)}>允许一次</button>
-            </div>
-          </div>
-        </div>}
+        {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
         <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y） */}<MatrixOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
@@ -1005,16 +965,7 @@ export function App() {
           />}
         </form>
       </section>
-      <aside className="trace-panel">
-        <div className="trace-heading"><p className="eyebrow">运行轨迹</p><h2>本轮与本会话事件</h2></div>
-        <div className="trace-list">
-          {activeTrace.length === 0 && <p className="trace-empty">发送消息后，模型请求、响应、工具调用和返回结果会实时显示并保存到会话目录。</p>}
-          {timelineTrace.map((item) => <details key={`${item.sequence}-${item.stage}`} className={`trace-item ${item.stage.startsWith("mcp.tools/") ? "tool-event" : ""}`}>
-            <summary><span className="trace-order">{item.sequence}</span><span>{traceLabel[item.stage] || item.stage}</span><time>{new Date(item.at).toLocaleTimeString()}</time></summary>
-            <pre>{JSON.stringify(item.data, null, 2)}</pre>
-          </details>)}
-        </div>
-      </aside>
+      <TracePanel activeTrace={activeTrace} />
     </section>
   </main>;
 }
