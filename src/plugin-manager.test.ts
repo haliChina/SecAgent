@@ -434,7 +434,7 @@ function lockPluginDir(pluginDirInPath: string): () => void {
   return () => { (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = realRmSync; };
 }
 
-test("upgrading while the old plugin directory is locked quarantines it and sweeps on next start", async () => {
+test("upgrading while the old plugin directory is locked leaves it intact and sweeps it on next start", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-upgrade-"));
   try {
     const manager = new PluginManager(workspace);
@@ -452,16 +452,16 @@ test("upgrading while the old plugin directory is locked quarantines it and swee
     assert.equal(manager.list()[0].version, "1.1.0");
     assert.equal((await manager.getPromptContributions())[0].text, "new");
     assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.1.0")), true);
-    // 旧目录被改名隔离（没有被直接删除，也不会挡住新版本）
-    const trash = fs.readdirSync(path.join(workspace, "plugins", "installed")).filter((name) => name.startsWith(".trash-locked-test-"));
-    assert.equal(trash.length, 1);
+    // 升级路径完全不碰旧版本目录（不删除、不隔离）——被锁也无所谓，不产生 .trash-*
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.0.0")), true);
+    const trash = fs.readdirSync(path.join(workspace, "plugins", "installed")).filter((name) => name.startsWith(".trash-"));
+    assert.equal(trash.length, 0);
     await manager.shutdown();
 
-    // 模拟重启：initialize 先清扫 .trash-*，再加载插件
+    // 模拟重启：initialize 清扫孤儿版本目录（状态里只有 1.1.0），再加载插件
     const restarted = new PluginManager(workspace);
     await restarted.initialize();
-    const remaining = fs.readdirSync(path.join(workspace, "plugins", "installed")).filter((name) => name.startsWith(".trash-"));
-    assert.equal(remaining.length, 0);
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.0.0")), false);
     assert.equal(restarted.list()[0].version, "1.1.0");
     assert.equal((await restarted.getPromptContributions())[0].text, "new");
     await restarted.shutdown();
@@ -492,7 +492,7 @@ test("uninstalling a locked plugin directory also succeeds via quarantine", asyn
   }
 });
 
-test("when both deletion and quarantine fail, install reports the restart guidance", async () => {
+test("when both deletion and quarantine fail on reinstall, install reports the restart guidance and keeps the old version active", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-stuck-"));
   try {
     const manager = new PluginManager(workspace);
@@ -500,8 +500,10 @@ test("when both deletion and quarantine fail, install reports the restart guidan
     await manager.install(createLockedArchive(workspace, "1.0.0", "old"));
     const realRmSync = fs.rmSync;
     const realRenameSync = fs.renameSync;
+    // 同版本重装：目标目录 installed/locked-test/1.0.0 删不掉（EPERM）也隔离不了（改名失败）
+    // ——升级路径已不碰旧目录，双失败只会在同版本重装时发生。
     (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmOptions) => {
-      if (typeof target === "string" && target.includes(path.join("installed", "locked-test"))) {
+      if (typeof target === "string" && target.includes(path.join("installed", "locked-test", "1.0.0"))) {
         const error = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
         error.code = "EPERM";
         throw error;
@@ -509,19 +511,19 @@ test("when both deletion and quarantine fail, install reports the restart guidan
       return realRmSync(target, options);
     }) as typeof fs.rmSync;
     (fs as unknown as { renameSync: typeof fs.renameSync }).renameSync = ((from: fs.PathLike, to: fs.PathLike) => {
-      if (typeof from === "string" && from.includes(path.join("installed", "locked-test"))) throw new Error("EPERM: rename not permitted");
+      if (typeof from === "string" && from.includes(path.join("installed", "locked-test", "1.0.0"))) throw new Error("EPERM: rename not permitted");
       return realRenameSync(from, to);
     }) as typeof fs.renameSync;
     try {
       await assert.rejects(
-        () => manager.install(createLockedArchive(workspace, "1.1.0", "new")),
+        () => manager.install(createLockedArchive(workspace, "1.0.0", "new")),
         /完全退出 SecAgent/
       );
     } finally {
       (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = realRmSync;
       (fs as unknown as { renameSync: typeof fs.renameSync }).renameSync = realRenameSync;
     }
-    // 失败不破坏既有安装
+    // 失败不破坏既有安装，且旧版本被自动重新激活——服务不停摆到重启
     assert.equal(manager.list()[0].version, "1.0.0");
     assert.equal((await manager.getPromptContributions())[0].text, "old");
     await manager.shutdown();

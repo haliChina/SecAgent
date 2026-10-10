@@ -373,8 +373,10 @@ export class PluginManager {
    * deactivate 后仍映射在本进程内——Node 无法卸载已加载的原生插件，
    * rmSync 会 EPERM（实机：0.5.3 → 0.5.4 升级报 Permission denied）。
    * 策略：先小步重试（杀毒/索引的瞬态句柄）；仍失败则把整个目录改名
-   * 隔离到 installed/.trash-<id>-<uuid>——LoadLibrary 以 FILE_SHARE_DELETE
-   * 打开模块，**改名可行、删除不可行**——下次启动时在任何插件加载前清扫。
+   * 隔离到**同级目录**的 .trash-<id>-<uuid>——LoadLibrary 以 FILE_SHARE_DELETE
+   * 打开模块，**改名可行、删除不可行**。卸载时隔离目录落在 installed/ 下，
+   * 同版本重装时落在插件目录内；两处的 .trash-* 都由启动清扫处理
+   * （彼时尚无插件激活、无原生模块加载，删除不会被文件锁阻断）。
    */
   private async removeDirTolerant(dir: string, pluginId: string): Promise<void> {
     if (!fs.existsSync(dir)) return;
@@ -390,7 +392,7 @@ export class PluginManager {
         await new Promise((resolve) => setTimeout(resolve, 200));
       }
     }
-    const trash = path.join(this.installedRoot, `.trash-${pluginId}-${crypto.randomUUID()}`);
+    const trash = path.join(path.dirname(dir), `.trash-${pluginId}-${crypto.randomUUID()}`);
     try {
       fs.renameSync(dir, trash);
     } catch (renameError) {
