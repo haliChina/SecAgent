@@ -23,12 +23,12 @@ import type { PluginManager } from "../plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort } from "../types.js";
 import type { ConversationMessage } from "../model-provider.js";
 
-export interface SessionRunDeps {
+interface SessionRunDeps {
   getPluginManager: () => PluginManager | undefined;
   sendToAppWindows: (channel: string, payload: unknown) => void;
 }
 
-export interface SessionRunOptions {
+interface SessionRunOptions {
   modelId?: string;
   reasoningEffort: ReasoningEffort;
   attachments: ChatAttachment[];

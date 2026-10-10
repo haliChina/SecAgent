@@ -21,7 +21,7 @@ import type { PluginManager } from "../plugin-manager.js";
 import type { WindowsUpdateManager } from "./update-manager.js";
 import type { ReasoningEffort } from "../types.js";
 
-export interface SessionIpcDeps {
+interface SessionIpcDeps {
   getPluginManager: () => PluginManager | undefined;
   sendToAppWindows: (channel: string, payload: unknown) => void;
   getUpdateManager: () => WindowsUpdateManager | undefined;

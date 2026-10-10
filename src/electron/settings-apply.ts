@@ -18,7 +18,7 @@ import { configureTts } from "./tts.js";
 import { closeVoiceWakeWindow, getActiveWakeShortcut, openWakeWindow, setActiveWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import type { WindowsUpdateManager } from "./update-manager.js";
 
-export interface SettingsApplyDeps {
+interface SettingsApplyDeps {
   sendToAppWindows: (channel: string, payload: unknown) => void;
   getUpdateManager: () => WindowsUpdateManager | undefined;
 }

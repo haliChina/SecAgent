@@ -22,7 +22,8 @@
     "dev": "node scripts/dev-electron-vite.mjs",
     "dev:cli": "tsx src/index.ts",
     "start": "node scripts/dev-launcher.mjs",
-    "test": "node --test \"dist/**/*.test.js\""
+    "test": "node --test \"dist/**/*.test.js\"",
+    "scan": "node scripts/scan-dead-exports.mjs && node scripts/scan-orphan-css.mjs"
   },
   "dependencies": {
     "@andresaya/edge-tts": "^1.8.0",
