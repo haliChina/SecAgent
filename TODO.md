@@ -3,6 +3,47 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R49 · 2026-10-10）
+
+### UI P3-5 主题三态 + 防闪烁 ✓（f8c8ea1）
+- config 全链路：SecAgentConfig.theme ↔ SettingsPayload.theme，
+  照 hallucinationEnabled 单字段模式；非法值一律回落 light
+- theme.ts：resolveTheme 纯函数三态折算 + localStorage 缓存 +
+  watchSystemTheme（system 模式跟随 OS 切换）
+- 防闪烁：theme-boot.js 外链同步脚本（CSP 禁 inline 故不入内联）
+  首帧前应用缓存；main.tsx 用 settings 真值校正 + 广播双窗同步
+- 暗色：[data-theme=dark] token 全量覆盖（@theme 桥接自动跟随）；
+  7 处白色玻璃面 token 化 --glass-*；语义色红绿两主题通用
+- 设置页「外观」卡（系统区）三态下拉；顺手修幻觉提醒开关
+  重复渲染两行的既有 bug（462/463 完全一样）
+- theme.test.ts 5 用例（三态折算/白名单回落）
+
+### 设置 UI 重设计 ✓（与主窗口 R48 语言统一）
+- **动机**：HookSidebar（rareui 钩式浮卡，fixed left22/top76/宽188 +
+  SVG 动画钩线）与主窗口「常驻侧栏 + 静谧列表」脱节；设置页
+  是全应用最后的旧导航语言
+- **手术 1**：SettingsApp——扁平 settingsNavItems（dividerBefore）
+  → settingsNavGroups 四组（基础/语音/模型与服务 + 动态插件设置）；
+  HookSidebar JSX → settings-rail 常驻全高导航（top:57px 至底部，
+  bg-1 + border-right，active=accent-soft；窄窗 ≤960px 静态化）
+- **手术 2**：Bits.tsx 删 re-export + 删 parts/hook-sidebar.tsx
+  （真源直译组件退役——唤醒窗仍有 MatrixOrb 等保留 rareui 血统）
+- **手术 3**：styles.css——R24 卡片化块→rail 新规则；删 R25/R26
+  双栏网格残迹（含引用已删 slot 的死媒体查询）、settings-layout/
+  settings-nav/settings-content/settings-nav-divider 死规则；
+  让位 246→264px（rail 224 + gutter 40）
+- 保留：hash 路由/activePage/OOBE 模式/settings-empty-card/
+  plugin-settings-shell 全不动；设置功能零变化（chrome 重设计）
+- 插件设置组动态并入（settingsPages ?? [] 兜底——R6 白屏教训）
+
+### 验收
+- P3-5：tsc EXIT=0；测试 264 项 263 过 0 挂；双扫描器绿
+- 重设计：扫描器绿（170 文件 395 类零孤儿）；tsc/测试见提交
+- 过程插曲：tsc 上轮残留进程假死（0% CPU 睡眠 85 分钟），杀重启
+  后 10 分钟完成——run-tsc.sh 自带 pkill 自清理，重启即净
+
+### P3 全部收官（7/7 + 主题）；视觉验证轮待办（窄窗观感/暗色实机）
+
 ## 本轮（R48 · 2026-10-10）
 
 ### UI P3-1 侧栏常驻会话 ✓
