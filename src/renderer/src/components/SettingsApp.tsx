@@ -8,18 +8,13 @@ import { reasoningEffortLabels, ttsRates, ttsVoices } from "../constants.js";
 import { ASR_BAILIAN_PRESETS, ASR_OPENAI_PRESETS, BAILIAN_DEFAULTS, MIMO_ASR_DEFAULTS, type AsrProviderKind, type BailianAsrSettings, type MimoAsrSettings } from "../../../asr/settings.js";
 import { emptyMcp, emptyProvider, isOfficialVisionModel, reasoningEffortsForModel } from "../utils.js";
 import { formatOfficialBalanceExpiry, formatOfficialPoints } from "../official-balance.js";
-import { AnimatedCounter, HookSidebar } from "./ui/Bits.js";
+import { AnimatedCounter } from "./ui/Bits.js";
 
-const settingsNavItems: Array<{ id: string; label: string; dividerBefore?: boolean }> = [
-  { id: "settings-wake", label: "随时唤醒" },
-  { id: "settings-system", label: "系统" },
-  { id: "settings-updates", label: "更新" },
-  { id: "settings-telemetry", label: "诊断与隐私" },
-  { id: "settings-tts", label: "朗读", dividerBefore: true },
-  { id: "settings-asr", label: "语音识别" },
-  { id: "settings-models", label: "模型", dividerBefore: true },
-  { id: "settings-mcp", label: "MCP 服务" },
-  { id: "settings-plugins", label: "插件" }
+// R49 重设计：导航分组（与侧栏 rail 的组标签对应）
+const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
+  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
+  { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
+  { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }] }
 ];
 import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
 
@@ -353,19 +348,16 @@ export function SettingsApp() {
   ];
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
     <div className="settings-window-title">SecAgent设置</div>
-    {!isOobe && <HookSidebar activeId={activePage} items={[
-      ...settingsNavItems,
-      // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
-      // 否则插件配置页（含 SecScore）只能靠手输 hash 才能到达。
-      // settingsPages?. 兜底：类型层必填，但 IPC 运行时数据（旧版本安装/旧格式
-      // 插件清单）可能缺字段——渲染期裸 .map 一旦 undefined 整棵设置窗口 React
-      // 树崩溃（真机白屏只剩窗口标题，CI tsc/build 无法捕获，见 R6）。
-      ...plugins.flatMap((plugin, pluginIndex) => (plugin.settingsPages ?? []).map((page, pageIndex) => ({
-        id: `plugin-${plugin.id}-${page.id}`,
-        label: page.title,
-        dividerBefore: pluginIndex === 0 && pageIndex === 0
-      })))
-    ]} onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }} />}
+    {!isOobe && <nav className="settings-rail" aria-label="设置导航">
+      {settingsNavGroups.map((group) => <div className="settings-rail-group" key={group.label}>
+        <p className="settings-rail-label">{group.label}</p>
+        {group.items.map((item) => <button type="button" className={`settings-rail-item ${activePage === item.id ? "active" : ""}`} key={item.id} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>{item.label}</button>)}
+      </div>)}
+      {plugins.some((plugin) => (plugin.settingsPages ?? []).length > 0) && <div className="settings-rail-group">
+        <p className="settings-rail-label">插件设置</p>
+        {plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => <button type="button" className={`settings-rail-item ${activePage === `plugin-${plugin.id}-${page.id}` ? "active" : ""}`} key={`${plugin.id}-${page.id}`} onClick={() => { setActivePage(`plugin-${plugin.id}-${page.id}`); window.history.replaceState(null, "", `#plugin-${plugin.id}-${page.id}`); }}>{page.title}</button>))}
+      </div>}
+    </nav>}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2><p>按下全局快捷键后，在当前显示器工作区唤起语音 Agent。窗口不会覆盖任务栏。</p></div></div>

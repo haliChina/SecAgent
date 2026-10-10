@@ -9,7 +9,6 @@ export * from "./parts/thought-line.js";
 export * from "./parts/voice-pill.js";
 export * from "./parts/delete-button.js";
 export * from "./parts/animated-counter.js";
-export * from "./parts/hook-sidebar.js";
 export * from "./parts/aui-shared.js";
 export * from "./parts/tool-error.js";
 export * from "./parts/aui-feedback.js";
