@@ -3,6 +3,28 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R42 · 2026-10-10）
+
+### B4 OobeWizard 拆分 ✓
+- OobeWizardHelpers.ts：版本兼容/目标就绪/状态文案/阶段进度 7 助手出仓
+- OobePluginCard.tsx：每应用安装卡片（双端进度编排 + 目标勾选列表）
+  ~174 行 JSX + 计算块逐字搬运；40 项 props 全显式注入
+- OobeWizard.tsx 1230→1016 行（-17%）；行级手术用 python 脚本
+  首尾行断言防错位
+- SettingsApp：WakeHotkeyField/更新格式化 3 助手 → SettingsFields.tsx
+
+### 死导出存量清理批次 1 ✓
+- update.ts 11 符号去 export（UPDATE_API_URL 等——模块内自用、
+  无外部引用；删代码会破功能，去 export 才是对的）
+  其中 canonicalizeUpdateJson/releaseAssetName 被 update.test.ts 引用，
+  tsc 抓出后恢复 export——测试引用算存活
+- 扫描器两处真修复：walk 过滤器此前把 *.test.ts 排除在引用池外
+  （R41 的「测试入池」修复实际是死代码）；scripts/*.mjs 入池
+  （163 文件）。allowlist 190→151，剔除 39 个测试引用假阳性
+
+### 验收
+- tsc EXIT=0；全量测试绿；IPC 通道不变（未动 electron 域）
+
 ## 本轮（R41 · 2026-10-10）
 
 ### 上游同步 ✓（ce05d8b）
