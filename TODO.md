@@ -3,6 +3,34 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R48 · 2026-10-10）
+
+### UI P3-1 侧栏常驻会话 ✓
+- 方案（最小风险）：topbar 保持全宽不动（拖拽区/Windows 控件/
+  macOS 红绿灯全不受影响），`.workspace` block→flex，aside 常驻
+  左侧 232px——取代 topbar 悬停下拉（仅 10 条）与 allSessionsOpen
+  模态弹层
+- 新增 SessionSidebar.tsx：新建会话大按钮 + 会话列表（active 高亮
+  --accent-soft、preview 一行截断、月-日短时间、DeleteButton 悬停
+  浮现）+ 底部设置按钮（行内 aria-label="会话列表"）
+- App.tsx 手术（python 带断言）：删 session-menu 块/session-modal
+  块/两个 state//sessions 命令分支（侧栏常驻后无意义）；
+  SessionSidebar 插 workspace 首位
+- CSS：删 11 个旧类（session-menu/trigger/list/option/chevron/
+  options/new-session-button/modal-backdrop/modal/modal-close/
+  all-session 全家/modal-new-session）；增 14 个 sidebar 类；
+  **误删回滚一处**：.session-modal-header 被 SettingsApp providerModal
+  复用（rg 复查发现），恢复该类、.modal-close 保持删除
+- 删除面零残留：tsx 无 session-menu/all-session 引用，孤儿 CSS
+  扫描器验证（407→396 类全对齐）
+
+### 验收（环境 I/O 慢，tsc 约 30 分钟）
+- tsc EXIT=0；测试 259 项 258 过 0 挂；双扫描器绿
+
+### P3 终态：7/7 完成（P3-5 主题三态未排期——需视觉验证轮）
+- 视觉微调待办：侧栏 232px 下对话区余量（messages padding 45px）
+  在窄窗口的观感；下轮视觉验证轮处理
+
 ## 本轮（R47 · 2026-10-10）
 
 ### UI P3-6 交付物卡片 ✓
