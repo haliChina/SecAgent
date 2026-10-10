@@ -3,6 +3,32 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R46 · 2026-10-10）
+
+### UI P3-7 不可信输出处理 ✓
+- 审计结论：
+  · 原始 HTML——react-markdown v10 无 rehype-raw，默认即丢弃（补注释文档化）
+  · URL 协议——defaultUrlTransform 白名单（https?/ircs?/mailto/xmpp+
+    相对），javascript:/data: 被替换为空串；此前依赖库默认，现显式传入
+  · ANSI——全仓零处理（此前 rg "ansi" 匹配全是 tr**ansi**tion 误报），
+    工具 stdout/stderr 的颜色/光标序列在 <pre> 里原样乱码
+- 新增 src/renderer/src/ansi.ts（primitives 模式：只剥序列不解释颜色）：
+  · stripAnsi：OSC（BEL/ST 终止，含超链接）/DCS/CSI/Fe 转义/遗留 BEL
+  · stripAnsiDeep：JSON 形状深遍历（不改写原对象）
+- 接线四处：MessageActivities（resultText 摘要/toolErrorMessage/
+  结果 pre 深清理）；TracePanel（summarizeData 字符数与值截断/
+  检查器 pre 深清理）；MarkdownContent（显式 urlTransform）
+- 回归锁 ansi.test.ts 8 用例（含 defaultUrlTransform 协议白名单——
+  防未来升级改变安全行为）
+
+### 验收
+- tsc EXIT=0；测试 252 项 251 过 0 挂（新增 8 例全过）；双扫描器绿
+
+### P3 剩余（未做，供后续取舍）
+- P3-1 侧栏常驻会话（大布局改造）
+- P3-5 主题三态（设置页无调色板基础，从零建，需视觉验证轮）
+- P3-6 Review-Diff 闸门 + 交付物卡片
+
 ## 本轮（R45 · 2026-10-10）
 
 ### UI P3-3 命令面板 ✓
