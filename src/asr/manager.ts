@@ -13,7 +13,7 @@
 import type { AsrEvent, AsrEventSink, AsrProvider, AsrSession } from "./types.js";
 import type { AsrProviderKind } from "./settings.js";
 
-export interface AsrManagerOptions {
+interface AsrManagerOptions {
   /** Reads the live provider preference (`auto` when absent). */
   getProviderKind: () => AsrProviderKind | undefined;
   /** Reads the user's fully custom ordered fallback chain, if configured. */

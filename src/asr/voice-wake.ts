@@ -14,12 +14,12 @@ const KWS_DIR = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20";
 type Kws = ReturnType<typeof import("sherpa-onnx")["createKws"]>;
 type KwsStream = ReturnType<Kws["createStream"]>;
 
-export interface VoiceWakeOptions {
+interface VoiceWakeOptions {
   extraRoots?: string[];
   log?: (message: string) => void;
 }
 
-export function keywordTokens(phrase: string): string {
+function keywordTokens(phrase: string): string {
   const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "symbol", type: "array" }) as string[];
   const initials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
   return syllables.map((syllable) => {

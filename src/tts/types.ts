@@ -60,7 +60,7 @@ export interface BailianTtsSettings {
 }
 
 /** Windows 系统朗读（SAPI）设置。 */
-export interface WindowsTtsSettings {
+interface WindowsTtsSettings {
   voice?: string;
 }
 

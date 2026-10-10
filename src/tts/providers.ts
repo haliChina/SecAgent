@@ -34,7 +34,7 @@ function escapeXml(value: string): string {
 }
 
 /** "+"→1.0 multiplier, "-"→slower; SAPI Rate is -10..10. */
-export function percentRateToSapi(rate: string | undefined): number {
+function percentRateToSapi(rate: string | undefined): number {
   const parsed = Number((rate || "+0%").replace(/[+%\s]/g, ""));
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(-10, Math.min(10, Math.round(parsed / 10)));
@@ -153,14 +153,14 @@ export async function listWindowsVoices(): Promise<Array<{ id: string; label: st
 
 /* ------------------------------------------------------------------ mimo -- */
 
-export interface MimoTtsProviderOptions {
+interface MimoTtsProviderOptions {
   getSettings(): MimoTtsSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
   fetchImpl?: typeof fetch;
 }
 
-export interface ResolvedMimoTtsConfig {
+interface ResolvedMimoTtsConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -169,7 +169,7 @@ export interface ResolvedMimoTtsConfig {
   voiceDescription: string;
 }
 
-export const MIMO_TTS_DEFAULTS = {
+const MIMO_TTS_DEFAULTS = {
   apiKeyEnv: "MIMO_API_KEY",
   baseUrl: "https://api.xiaomimimo.com/v1",
   model: "mimo-v2.5-tts",
@@ -178,7 +178,7 @@ export const MIMO_TTS_DEFAULTS = {
   voiceDescription: "默认"
 } as const;
 
-export function resolveMimoTtsConfig(settings: MimoTtsSettings | undefined, getApiKey: (name: string) => string | undefined): ResolvedMimoTtsConfig | null {
+function resolveMimoTtsConfig(settings: MimoTtsSettings | undefined, getApiKey: (name: string) => string | undefined): ResolvedMimoTtsConfig | null {
   const apiKey = (settings?.apiKeyEnv?.trim() && getApiKey(settings.apiKeyEnv.trim())) || process.env.MIMO_API_KEY;
   if (!apiKey) return null;
   return {
@@ -253,7 +253,7 @@ export class MimoTtsProvider implements TtsProvider {
 
 /* --------------------------------------------------------------- bailian -- */
 
-export interface BailianTtsProviderOptions {
+interface BailianTtsProviderOptions {
   getSettings(): BailianTtsSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
@@ -261,9 +261,9 @@ export interface BailianTtsProviderOptions {
 }
 
 /** `ws` package constructor shape (headers in handshake). */
-export type BailianTtsWsConstructor = new (url: string, options?: { headers?: Record<string, string> }) => { send(data: unknown): void; close(): void; binaryType: string; onopen: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null; onerror: ((event: unknown) => void) | null; onclose: (() => void) | null; readyState: number };
+type BailianTtsWsConstructor = new (url: string, options?: { headers?: Record<string, string> }) => { send(data: unknown): void; close(): void; binaryType: string; onopen: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null; onerror: ((event: unknown) => void) | null; onclose: (() => void) | null; readyState: number };
 
-export const BAILIAN_TTS_DEFAULTS = {
+const BAILIAN_TTS_DEFAULTS = {
   apiKeyEnv: "BAILIAN_API_KEY",
   wsUrl: "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
   model: "cosyvoice-v3-flash",

@@ -103,7 +103,7 @@ export interface SpeechAsrSettings {
 }
 
 /** Provider dropdown entries for the 第三方云端 panel's 百炼 channels. */
-export interface AsrBailianPreset {
+interface AsrBailianPreset {
   id: string;
   provider: "bailian" | "bailian-ws";
   label: string;
@@ -125,7 +125,7 @@ export const ASR_BAILIAN_PRESETS: readonly AsrBailianPreset[] = [
   }
 ];
 
-export interface AsrOpenAiPreset {
+interface AsrOpenAiPreset {
   id: string;
   label: string;
   baseUrl: string;
@@ -167,7 +167,7 @@ export const ASR_OPENAI_PRESETS: readonly AsrOpenAiPreset[] = [
   }
 ];
 
-export function isAsrProviderKind(value: unknown): value is AsrProviderKind {
+function isAsrProviderKind(value: unknown): value is AsrProviderKind {
   return value === "auto" || value === "official" || value === "openai" || value === "local" || value === "bailian" || value === "bailian-ws" || value === "mimo" || value === "local-pro";
 }
 
