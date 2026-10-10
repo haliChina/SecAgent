@@ -3,6 +3,27 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R45 · 2026-10-10）
+
+### UI P3-3 命令面板 ✓
+- 查证：TODO 所述「/compact 等现有命令」实际不存在——全仓无任何
+  slash 命令；prompt-bar（rareui 真源移植）原生支持 commands 菜单
+  （触发/本地前缀过滤/↑↓Enter 键盘导航/文本插入），App 一直喂空数组
+- prompt-bar 三处小手术（真源行为保留，不传回调零变化）：
+  · PromptBarCommand += group；Props += onCommandPick（动作回调）
+  · pick() slash 分支：有回调时执行动作并清 token，不再插文本
+  · 下拉分组头渲染（role=presentation，不进键盘导航索引）
+- App.tsx 对接 6 条真实动作命令（全查证存在的入口）：
+  /new 新建会话 · /sessions 会话列表 · /stop 停止回复 ·
+  /read 朗读最后一条助手消息 · /stop-read 停止朗读 · /settings 设置
+
+### 验收
+- tsc EXIT=0；全量测试绿；双扫描器绿（397 类全引用）
+
+### P3 剩余（未做，供后续取舍）
+- P3-1 侧栏常驻会话（大布局改造）
+- P3-5 主题三态 / P3-6 Review-Diff 卡片 / P3-7 不可信输出
+
 ## 本轮（R44 · 2026-10-10）
 
 ### UI P3 最后一轮推进：P3-2 + P3-4 ✓
