@@ -939,7 +939,25 @@ export function App() {
             className="app-promptbar"
             placeholder="输入文字，长按输入框说话，或点麦克风"
             sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
-            commands={[]}
+            commands={[
+              { key: "new-session", name: "/new", description: "新建会话", group: "会话" },
+              { key: "sessions", name: "/sessions", description: "切换到其他会话", group: "会话" },
+              { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
+              { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
+              { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
+              { key: "settings", name: "/settings", description: "打开设置", group: "应用" }
+            ]}
+            onCommandPick={(key) => {
+              if (key === "new-session") void createSession();
+              else if (key === "sessions") setAllSessionsOpen(true);
+              else if (key === "stop") { if (sending) void stop(); }
+              else if (key === "read") {
+                const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
+                if (target) void readMessage(target.id, target.content);
+              }
+              else if (key === "stop-read") stopReading();
+              else if (key === "settings") void bridge?.openSettings();
+            }}
             models={orderedModels.map((model) => ({ key: model.id, name: model.name, tag: modelGroupLabel(model) }))}
             model={selectedModelId}
             onModelChange={setSelectedModelId}

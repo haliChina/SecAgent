@@ -47,6 +47,7 @@ export interface PromptBarCommand {
   key: string;
   name: string;
   description?: string;
+  group?: string;
 }
 
 export interface PromptBarModel {
@@ -87,6 +88,9 @@ export interface PromptBarProps {
   onModelChange?: (key: string) => void;
   onAttachRemove?: (name: string) => void;
   onDictateCancel?: () => void;
+  /* P3-3 命令面板：选中命令后回调动作 key（不传时保持真源行为——
+     只把命令名插入草稿）。 */
+  onCommandPick?: (key: string) => void;
   background?: string;
   color?: string;
   menuBackground?: string;
@@ -109,9 +113,10 @@ type Row = {
   tag?: string;
   icon?: ReactNode | LucideIcon;
   attach?: boolean;
+  group?: string;
 };
 type Token = { kind: 'at' | 'slash'; query: string; start: number };
-type Latest = Pick<PromptBarProps, 'onSend' | 'onStop' | 'onAttach' | 'onDictate' | 'onEffortChange' | 'onDraftChange' | 'onModelChange' | 'onAttachRemove' | 'onDictateCancel'>;
+type Latest = Pick<PromptBarProps, 'onSend' | 'onStop' | 'onAttach' | 'onDictate' | 'onEffortChange' | 'onDraftChange' | 'onModelChange' | 'onAttachRemove' | 'onDictateCancel' | 'onCommandPick'>;
 type Spark = {
   x: number;
   y: number;
@@ -263,6 +268,7 @@ export const PromptBar = ({
   onModelChange,
   onAttachRemove,
   onDictateCancel,
+  onCommandPick,
   background = '#27272a',
   color = '#f5f5f5',
   menuBackground = '#323236',
@@ -289,7 +295,7 @@ export const PromptBar = ({
   const lastOpen = useRef<string | null>(null);
   const dictation = useRef(0);
   const latest = useRef<Latest>({});
-  latest.current = { onSend, onStop, onAttach, onDictate, onEffortChange, onDraftChange, onModelChange, onAttachRemove, onDictateCancel };
+  latest.current = { onSend, onStop, onAttach, onDictate, onEffortChange, onDraftChange, onModelChange, onAttachRemove, onDictateCancel, onCommandPick };
 
   const [draft, setDraft] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
@@ -548,6 +554,15 @@ export const PromptBar = ({
       return;
     }
     const head = token ? draft.slice(0, token.start) : draft;
+    if (open === 'slash' && latest.current.onCommandPick) {
+      setDraft(head);
+      setPlusOpen(false);
+      setDismissed(false);
+      closeMenus();
+      latest.current.onCommandPick(row.key);
+      focusInput();
+      return;
+    }
     if (row.attach) {
       setDraft(head);
       Promise.resolve(latest.current.onAttach?.()).then(files => {
@@ -723,44 +738,50 @@ export const PromptBar = ({
                 aria-hidden="true"
               />
               {list.map((row, i) => (
-                <button
-                  key={row.key}
-                  ref={el => {
-                    rowRefs.current[i] = el;
-                  }}
-                  type="button"
-                  role="option"
-                  aria-selected={i === cursor}
-                  className="relative z-[1] flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-inherit outline-none [font:inherit] [-webkit-tap-highlight-color:transparent]"
-                  onMouseDown={e => e.preventDefault()}
-                  onPointerEnter={() => setActive(i)}
-                  onClick={() => pick(row)}
-                >
-                  {open === 'at' ? (
-                    <span className="inline-flex w-5 flex-none justify-center [color:color-mix(in_srgb,var(--pb-ink)_70%,transparent)]">
-                      {renderPbIcon(row.icon ?? PaperclipIcon, 15)}
-                    </span>
+                <Fragment key={row.key}>
+                  {open === 'slash' && row.group && row.group !== list[i - 1]?.group ? (
+                    <div role="presentation" className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold tracking-[0.08em] uppercase [color:color-mix(in_srgb,var(--pb-ink)_45%,transparent)]">
+                      {row.group}
+                    </div>
                   ) : null}
-                  <span className="min-w-0 shrink truncate text-[13px] font-medium">{row.name}</span>
-                  {row.description ? (
-                    <span className="min-w-0 flex-auto truncate text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
-                      {row.description}
-                    </span>
-                  ) : null}
-                  {open === 'model' ? (
-                    <>
-                      <span className="ml-auto flex-none text-[11px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
-                        {row.tag}
+                  <button
+                    ref={el => {
+                      rowRefs.current[i] = el;
+                    }}
+                    type="button"
+                    role="option"
+                    aria-selected={i === cursor}
+                    className="relative z-[1] flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-inherit outline-none [font:inherit] [-webkit-tap-highlight-color:transparent]"
+                    onMouseDown={e => e.preventDefault()}
+                    onPointerEnter={() => setActive(i)}
+                    onClick={() => pick(row)}
+                  >
+                    {open === 'at' ? (
+                      <span className="inline-flex w-5 flex-none justify-center [color:color-mix(in_srgb,var(--pb-ink)_70%,transparent)]">
+                        {renderPbIcon(row.icon ?? PaperclipIcon, 15)}
                       </span>
-                      <span
-                        className="inline-flex w-4 flex-none justify-center opacity-0 data-[on]:opacity-100"
-                        data-on={row.key === model?.key ? '' : undefined}
-                      >
-                        <CheckIcon size={13} strokeWidth={2.5} />
+                    ) : null}
+                    <span className="min-w-0 shrink truncate text-[13px] font-medium">{row.name}</span>
+                    {row.description ? (
+                      <span className="min-w-0 flex-auto truncate text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
+                        {row.description}
                       </span>
-                    </>
-                  ) : null}
-                </button>
+                    ) : null}
+                    {open === 'model' ? (
+                      <>
+                        <span className="ml-auto flex-none text-[11px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
+                          {row.tag}
+                        </span>
+                        <span
+                          className="inline-flex w-4 flex-none justify-center opacity-0 data-[on]:opacity-100"
+                          data-on={row.key === model?.key ? '' : undefined}
+                        >
+                          <CheckIcon size={13} strokeWidth={2.5} />
+                        </span>
+                      </>
+                    ) : null}
+                  </button>
+                </Fragment>
               ))}
               {list.length === 0 ? (
                 <div className="flex h-9 items-center px-2 text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
