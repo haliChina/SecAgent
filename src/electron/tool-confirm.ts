@@ -5,13 +5,14 @@
  * （直写 yaml，不走全量 settings 重写）。行为与拆出前一致。
  */
 import fs from "node:fs";
+import crypto from "node:crypto";
 import YAML from "yaml";
 import { configPath } from "../config.js";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import { logMain } from "./main-log.js";
+import { checkToolCall, approvalSignature, type GuardCheckRequest } from "../tool-guard.js";
 
-const pendingToolConfirmations = new Map<string, { resolve: (approved: boolean) => void; timer: NodeJS.Timeout }>();
-let toolConfirmationSeq = 0;
+const pendingToolConfirmations = new Map<string, { resolve: (approved: boolean) => void; timer: NodeJS.Timeout; request: { tool: string; arguments: Record<string, unknown> } }>();
 
 /** Pause the agent until the user approves a sensitive tool call (Codex-style). */
 export function confirmSensitiveToolCall(
@@ -20,25 +21,31 @@ export function confirmSensitiveToolCall(
   sendToAppWindows: (channel: string, payload: unknown) => void
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const confirmationId = `tool-confirm-${++toolConfirmationSeq}`;
+    const confirmationId = `tool-confirm-${crypto.randomUUID()}`;
     const timer = setTimeout(() => {
       pendingToolConfirmations.delete(confirmationId);
       logMain("tool.confirm.timeout", { confirmationId });
       resolve(false);
     }, 5 * 60_000);
-    pendingToolConfirmations.set(confirmationId, { resolve, timer });
+    pendingToolConfirmations.set(confirmationId, { resolve, timer, request: { tool: confirmation.tool, arguments: confirmation.arguments } });
     logMain("tool.confirm.request", { confirmationId, sessionId, tool: confirmation.tool });
     sendToAppWindows("runtime:tool-confirmation", { confirmationId, sessionId, ...confirmation });
   });
 }
 
 /** Resolve a pending confirmation from the renderer; expired ids are rejected. */
-export function resolveToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }): { ok: boolean; error?: string } {
+export function resolveToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean }): { ok: boolean; error?: string } {
   const pending = pendingToolConfirmations.get(payload.confirmationId);
   if (!pending) return { ok: false, error: "确认请求已过期" };
   pendingToolConfirmations.delete(payload.confirmationId);
   clearTimeout(pending.timer);
-  if (payload.approved && payload.always && payload.signature) appendGuardApproval(payload.signature);
+  if (payload.approved && payload.always) {
+    // Derive signature in the main process from the stored request, never trust renderer-supplied values
+    const { request } = pending;
+    const decision = checkToolCall(request, { enabled: true, approved: [] });
+    const sig = approvalSignature(request, decision);
+    if (sig) appendGuardApproval(sig);
+  }
   logMain("tool.confirm.reply", { confirmationId: payload.confirmationId, approved: payload.approved, always: Boolean(payload.always) });
   pending.resolve(payload.approved);
   return { ok: true };

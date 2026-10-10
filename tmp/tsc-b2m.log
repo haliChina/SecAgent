@@ -1,8 +1,0 @@
-npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-src/electron/ipc-sessions.ts(23,32): error TS2307: Cannot find module '../../telemetry.js' or its corresponding type declarations.
-src/electron/ipc-sessions.ts(31,42): error TS2307: Cannot find module '../../conversation-format.js' or its corresponding type declarations.
-src/electron/main.ts(28,162): error TS2300: Duplicate identifier 'setNotifyWakeHotkey'.
-src/electron/main.ts(28,162): error TS2459: Module '"./wake.js"' declares 'setNotifyWakeHotkey' locally, but it is not exported.
-src/electron/main.ts(30,350): error TS2300: Duplicate identifier 'setNotifyWakeHotkey'.
-src/electron/main.ts(262,83): error TS2552: Cannot find name 'closeWakeWindow'. Did you mean 'closeVoiceWakeWindow'?
-EXIT=2

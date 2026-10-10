@@ -1,5 +1,0 @@
-npm warn Unknown project config "node-linker". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
-src/electron/main.ts(569,87): error TS2304: Cannot find name 'officialProvider'.
-src/electron/main.ts(739,20): error TS2304: Cannot find name 'officialProvider'.
-src/electron/main.ts(1003,17): error TS2552: Cannot find name 'runSectlOAuthLogin'. Did you mean 'runSectlOAuthFlow'?
-EXIT=2
