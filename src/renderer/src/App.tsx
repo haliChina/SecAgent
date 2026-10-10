@@ -965,7 +965,7 @@ export function App() {
           />}
         </form>
       </section>
-      <TracePanel activeTrace={activeTrace} />
+      <TracePanel activeTrace={activeTrace} isExecuting={sending && !finishing} />
     </section>
   </main>;
 }

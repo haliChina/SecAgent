@@ -147,6 +147,16 @@ button:focus:not(:focus-visible) { outline: none; }
 .trace-item time { color: var(--text-3); font-size: 10px; white-space: nowrap; }
 .trace-item pre { max-height: 220px; overflow: auto; margin: 0; padding: 10px; border-top: 1px solid var(--line); color: var(--text-2); font: 10px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 .trace-item.tool-event { border-color: var(--accent-border); }.trace-item.tool-event .trace-order { background: var(--accent-soft); color: var(--accent); }
+.trace-turn { margin-bottom: 10px; }
+.trace-turn-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin: 0 2px 6px; color: var(--text-3); font-size: 11px; }
+.trace-turn-head strong { color: var(--text-2); font-size: 11px; font-weight: 650; letter-spacing: .02em; }
+.trace-live { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--accent); font-size: 11px; font-weight: 600; }
+.trace-live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); animation: trace-live-pulse 1.2s ease-in-out infinite; }
+@keyframes trace-live-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.trace-data-summary { margin: 0; padding: 8px 10px 0; color: var(--text-3); font-size: 11px; line-height: 1.5; }
+.trace-data pre { border-top: none; }
+.tool-confirmation-keys { margin: 0; color: var(--text-3); font-size: 11px; text-align: center; letter-spacing: .01em; }
+.tool-confirmation-card:focus { outline: none; }
 
 .settings-shell { min-height: 100vh; padding: 64px 48px 64px; color: var(--text-1); background: var(--bg-0); }.eyebrow { margin: 0; color: var(--text-3); font-size: 11px; font-weight: 700; letter-spacing: .14em; }
 .settings-crash { max-width: 720px; margin: 24px auto; padding: 20px 24px; border: 1px solid rgba(248,113,113,.35); border-radius: 12px; background: rgba(248,113,113,.14); }
