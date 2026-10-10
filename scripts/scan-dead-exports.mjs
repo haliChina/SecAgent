@@ -21,7 +21,7 @@ function walk(dir, out = []) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx)$/.test(name) && !/\.test\.ts$/.test(name)) out.push(full);
+    else if (/\.(ts|tsx)$/.test(name)) out.push(full); // 测试文件也入池（引用算存活；定义侧另跳过）
   }
   return out;
 }
@@ -30,7 +30,14 @@ const files = walk(SRC);
 const EXPORT_RE = /^export\s+(?:declare\s+)?(?:async\s+)?(?:function|const|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/gm;
 
 // 引用池包含全部源文件（含 *.test.ts：测试引用算存活——测试随产品交付且能捕获破坏）
+// 与 scripts/*.mjs（构建脚本可能引用 src 符号，漏扫会误报死导出）
 const allSources = files.map((file) => ({ file, text: readFileSync(file, "utf8") }));
+for (const name of readdirSync(join(ROOT, "scripts"))) {
+  if (/\.(mjs|js)$/.test(name)) {
+    const extra = join(ROOT, "scripts", name);
+    allSources.push({ file: extra, text: readFileSync(extra, "utf8") });
+  }
+}
 const dead = [];
 for (const { file, text } of allSources) {
   if (/\.test\.ts$/.test(file)) continue; // 死导出只报告非测试文件里的定义
