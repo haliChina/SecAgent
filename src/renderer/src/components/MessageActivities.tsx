@@ -2,22 +2,24 @@ import { AnimatedDetails } from "./AnimatedDetails.js";
 import { ToolError } from "./ui/Bits.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { toolTitle } from "../utils.js";
+import { stripAnsi, stripAnsiDeep } from "../ansi.js";
 
 type ToolActivity = Extract<AssistantActivity, { kind: "tool" }>;
 
 const localTools = new Set(["look_at", "read", "write", "edit", "bash"]);
 
 function resultText(activity: ToolActivity): string {
-  if (typeof activity.result === "string") return activity.result;
+  // P3-7：工具输出按不可信处理——先剥 ANSI 序列再进摘要/文本
+  if (typeof activity.result === "string") return stripAnsi(activity.result);
   if (!activity.result || typeof activity.result !== "object") return "";
   const result = activity.result as { stdout?: unknown; stderr?: unknown };
-  return `${typeof result.stdout === "string" ? result.stdout : ""}\n${typeof result.stderr === "string" ? result.stderr : ""}`;
+  return `${typeof result.stdout === "string" ? stripAnsi(result.stdout) : ""}\n${typeof result.stderr === "string" ? stripAnsi(result.stderr) : ""}`;
 }
 
 function toolErrorMessage(activity: ToolActivity): string | undefined {
   if (!("result" in activity) || !activity.result || typeof activity.result !== "object") return undefined;
   const error = (activity.result as { error?: unknown }).error;
-  return typeof error === "string" && error.trim() ? error : undefined;
+  return typeof error === "string" && error.trim() ? stripAnsi(error) : undefined;
 }
 
 function gitSummary(activities: ToolActivity): string[] {
@@ -79,7 +81,7 @@ export function MessageActivities({ activities, elapsedSeconds, isExecuting = fa
         : activity.kind !== "tool"
         ? <AnimatedDetails className={`intermediate-output ${activity.kind}`} key={`${activity.kind}-${index}`} autoOpen={isExecuting && activeStepKind === "thinking" && index === activities.length - 1 && activity.kind === "thinking"} stickyAutoOpen summary={<><span className="activity-dot">·</span><span>{activity.kind === "thinking" ? "推理" : activity.kind === "summary" ? "中间摘要" : "中间内容"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}><div className="activity-content"><MarkdownContent>{activity.content}</MarkdownContent></div></AnimatedDetails>
         : <AnimatedDetails className="message-tool" key={`${activity.name}-${index}`} summary={<><span className="activity-dot">·</span><span className="tool-name">{toolTitle(activity.name)}</span><span className="tool-state">{"result" in activity ? (toolErrorMessage(activity) ? "已失败" : "已完成") : "调用中"}</span><img className="details-chevron" src="/session-chevron.svg" alt="" /></>}> 
-          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p>{toolErrorMessage(activity) ? <ToolError name={toolTitle(activity.name)} message={toolErrorMessage(activity) || ""} /> : <pre>{"result" in activity ? JSON.stringify(activity.result, null, 2) : "正在等待返回…"}</pre>}</div></div>
+          <div className="tool-detail"><div><p>参数</p><pre>{JSON.stringify(activity.arguments, null, 2)}</pre></div><div><p>工具结果</p>{toolErrorMessage(activity) ? <ToolError name={toolTitle(activity.name)} message={toolErrorMessage(activity) || ""} /> : <pre>{"result" in activity ? JSON.stringify(stripAnsiDeep(activity.result), null, 2) : "正在等待返回…"}</pre>}</div></div>
         </AnimatedDetails>) }
     </div>
   </AnimatedDetails>;

@@ -1,6 +1,6 @@
 import { ACCENT, ACCENT_DEEP } from "./ui/parts/theme.js";
 import { useEffect, useRef, type ComponentProps } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import mermaid from "mermaid";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -207,5 +207,10 @@ function expandMafsTags(markdown: string): string {
 }
 
 export function MarkdownContent({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ code: MarkdownCode }}>{expandMafsTags(children)}</ReactMarkdown>;
+  // P3-7 不可信输出处理：
+  // - 原始 HTML 不渲染——插件链无 rehype-raw，模型输出里的 <script>/<img onerror> 等
+  //   会被 react-markdown 直接丢弃（只保留可显示的文本/结构）
+  // - URL 协议白名单——显式传 defaultUrlTransform（https?/ircs?/mailto/xmpp +
+  //   相对地址），javascript:/data: 等被替换为空串；行为由 ansi.test.ts 上锁
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} urlTransform={defaultUrlTransform} components={{ code: MarkdownCode }}>{expandMafsTags(children)}</ReactMarkdown>;
 }

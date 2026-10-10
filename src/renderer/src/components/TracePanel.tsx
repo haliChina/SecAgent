@@ -10,6 +10,7 @@
  */
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { traceLabel, type TraceEvent } from "../constants.js";
+import { stripAnsi, stripAnsiDeep } from "../ansi.js";
 
 interface TraceTurn {
   key: string;
@@ -19,12 +20,12 @@ interface TraceTurn {
 }
 
 function summarizeData(data: unknown): string | null {
-  if (typeof data === "string") return `${data.length} 字符`;
+  if (typeof data === "string") return `${stripAnsi(data).length} 字符`;
   if (data && typeof data === "object") {
     const entries = Object.entries(data as Record<string, unknown>);
     if (!entries.length) return null;
     return entries.map(([key, value]) => {
-      const text = typeof value === "string" ? (value.length > 24 ? `${value.slice(0, 24)}…` : value) : Array.isArray(value) ? `${value.length} 项` : String(value);
+      const text = typeof value === "string" ? (value.length > 24 ? `${stripAnsi(value).slice(0, 24)}…` : stripAnsi(value)) : Array.isArray(value) ? `${value.length} 项` : String(value);
       return `${key}: ${text.length > 40 ? `${text.slice(0, 40)}…` : text}`;
     }).slice(0, 4).join(" · ");
   }
@@ -81,7 +82,7 @@ export function TracePanel({ activeTrace, isExecuting = false }: { activeTrace: 
           <summary><span className="trace-order">{item.sequence}</span><span>{traceLabel[item.stage] || item.stage}</span><time>{new Date(item.at).toLocaleTimeString()}{gapMs >= 100 ? ` · +${gapMs < 1000 ? `${Math.round(gapMs)}ms` : `${(gapMs / 1000).toFixed(1)}s`}` : ""}</time></summary>
           <div className="trace-data">
             {summarizeData(item.data) && <p className="trace-data-summary">{summarizeData(item.data)}</p>}
-            <pre>{JSON.stringify(item.data, null, 2)}</pre>
+            <pre>{JSON.stringify(stripAnsiDeep(item.data), null, 2)}</pre>
           </div>
         </details>)}
       </section>)}
