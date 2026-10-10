@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/electron/renderer";
 import { App } from "./App.js";
 import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
+import { applyTheme, cacheTheme, watchSystemTheme, type Theme } from "./theme.js";
 import "./styles.css";
 
 const sentryDsn = window.secagent.telemetryConfig.sentryDsn;
@@ -45,6 +46,20 @@ window.secagent.onSettingsChanged((settings) => {
     initializeSentry();
   }
 });
+
+// 主题三态（P3-5）：theme-boot.js 已按缓存先行防闪烁；这里用 settings
+// 真值校正并持续跟随（保存后 sendToAppWindows 广播，双窗同步）。
+// system 模式额外挂 OS 偏好监听，切换即换肤。
+let unwatchSystemTheme: (() => void) | undefined;
+function activateTheme(theme: unknown): void {
+  if (theme !== "light" && theme !== "dark" && theme !== "system") return;
+  cacheTheme(theme);
+  applyTheme(theme);
+  unwatchSystemTheme?.();
+  unwatchSystemTheme = theme === "system" ? watchSystemTheme("system", () => applyTheme("system")) : undefined;
+}
+void window.secagent.getSettings().then((settings) => activateTheme((settings as { theme?: unknown }).theme)).catch(() => undefined);
+window.secagent.onSettingsChanged((settings) => activateTheme((settings as { theme?: unknown }).theme));
 
 // WakeOverlay starts a microphone/WebSocket session as soon as it mounts. React
 // StrictMode intentionally mounts effects twice in development, which races the
