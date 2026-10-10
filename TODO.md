@@ -3,6 +3,31 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R44 · 2026-10-10）
+
+### UI P3 最后一轮推进：P3-2 + P3-4 ✓
+- **P3-2 轨迹面板升级**（TracePanel.tsx 22→90 行）：
+  · 回合分组：model.request（工具循环每次模型请求）开新组，
+    准备事件归第 0 组；组头显示事件数与组耗时
+    （查证：每次 send 前 setTrace([])，activeTrace 单轮——按
+    user.request 分组会退化单组，故按模型请求切）
+  · 事件行：相邻时延（≥100ms 才显示）
+  · 记录检查器：data KV 摘要（长值截断）+ 原始 JSON
+  · 尾部跟随：贴底跟随新事件，上滚即停跟
+  · in-flight 诚实标记：isExecuting 脉冲点，不伪造进度
+- **P3-4 工具确认键盘接管**（ToolConfirmationDialog）：
+  · Enter 允许一次 / Shift+Enter 总是允许 / Esc 拒绝（capture 捕获）
+  · 挂载即 focus 卡片，pending 期间弹层是唯一操作面
+  · 键提示行 + 后端 5min 超时兜底（已有）
+- App.tsx 接线：TracePanel 传 isExecuting={sending && !finishing}
+
+### 验收
+- tsc EXIT=0；全量测试绿；双扫描器绿（CSS 类 390→397 全有引用）
+
+### P3 剩余（未做，供后续取舍）
+- P3-1 侧栏常驻会话（大布局改造）
+- P3-3 命令面板 / P3-5 主题三态 / P3-6 Review-Diff 卡片 / P3-7 不可信输出
+
 ## 本轮（R43 · 2026-10-10）
 
 ### styles.css 分域 → 判定：不适合机械拆分 ⚠
