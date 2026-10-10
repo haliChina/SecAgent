@@ -200,9 +200,45 @@ export class PluginManager {
   async initialize(): Promise<void> {
     fs.mkdirSync(this.installedRoot, { recursive: true });
     fs.mkdirSync(this.runtimeRoot, { recursive: true });
-    this.sweepPendingTrash();
     this.state = this.readState();
+    // 必须在任何插件激活（可能把 .node 原生模块加载进本进程、在 Windows 上锁住文件）之前清理遗留目录。
+    this.sweepStalePluginDirs();
     for (const plugin of this.state.plugins.filter((item) => item.enabled)) await this.activate(plugin.id);
+  }
+
+  /**
+   * 启动期清理：升级遗留的旧版本目录、安装/卸载改名隔离的 .trash-*、崩溃残留的 .staging-*。
+   * 此时尚无插件激活、无原生模块加载，删除不会被文件锁阻断。
+   */
+  private sweepStalePluginDirs(): void {
+    const wanted = new Map<string, Set<string>>();
+    for (const plugin of this.state.plugins) {
+      if (!wanted.has(plugin.id)) wanted.set(plugin.id, new Set());
+      wanted.get(plugin.id)!.add(plugin.version);
+    }
+    const rmQuietly = (target: string): void => { try { fs.rmSync(target, { recursive: true, force: true }); } catch { /* 留待下次启动 */ } };
+    try {
+      for (const entry of fs.readdirSync(this.installedRoot, { withFileTypes: true })) {
+        // 卸载失败时整个插件目录被改名到 installed/.trash-<id>-<uuid>
+        if (entry.name.startsWith(".trash-")) { rmQuietly(path.join(this.installedRoot, entry.name)); continue; }
+        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+        const versions = wanted.get(entry.name);
+        const pluginDir = path.join(this.installedRoot, entry.name);
+        for (const child of fs.readdirSync(pluginDir, { withFileTypes: true })) {
+          if (!child.isDirectory()) continue;
+          const trash = child.name.startsWith(".trash-");
+          // 只清理状态中已有记录的插件的孤儿版本：state 缺失/损坏时不误删手动放入的目录
+          const orphan = !child.name.startsWith(".") && versions !== undefined && versions.size > 0 && !versions.has(child.name);
+          if (trash || orphan) rmQuietly(path.join(pluginDir, child.name));
+        }
+      }
+    } catch { /* installedRoot 不可读时静默跳过 */ }
+    const pluginsRoot = path.join(this.workspace, "plugins");
+    try {
+      for (const entry of fs.readdirSync(pluginsRoot, { withFileTypes: true })) {
+        if (entry.isDirectory() && entry.name.startsWith(".staging-")) rmQuietly(path.join(pluginsRoot, entry.name));
+      }
+    } catch { /* plugins 目录不可读时静默跳过 */ }
   }
 
   onChanged(listener: () => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
@@ -275,7 +311,6 @@ export class PluginManager {
     if (!manifestEntry) throw new Error("插件包缺少 secagent-plugin.json 或 plugin.json");
     const manifest = this.validateManifest(JSON.parse(manifestEntry.getData().toString("utf8")), ownManifestEntry ? "secagent" : "agent");
     const previous = this.state.plugins.find((item) => item.id === manifest.id);
-    const pluginRoot = path.join(this.installedRoot, manifest.id);
     const target = path.join(this.installedRoot, manifest.id, manifest.version);
     const staging = path.join(this.workspace, "plugins", `.staging-${manifest.id}-${crypto.randomUUID()}`);
     try {
@@ -284,12 +319,19 @@ export class PluginManager {
       const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : "plugin.json");
       if (previous) await this.deactivate(manifest.id);
       try {
-        await this.removeDirTolerant(pluginRoot, manifest.id);
+        // 升级时不再删除整个旧插件目录：旧版本里的原生模块（如 koffi.node）可能仍被
+        // 本进程加载，Windows 无法删除已加载的 .node——rmSync 删到一半抛 EPERM，
+        // 留下「清单还在、main.mjs 已没了」的残目录（实机症状即“找不到主入口：main.mjs”）。
+        // 旧版本目录留给下次启动的 sweepStalePluginDirs 清理（彼时无模块加载，删除必成）。
         fs.mkdirSync(path.dirname(target), { recursive: true });
+        if (fs.existsSync(target)) {
+          // 同版本重装：目标目录同样可能锁着，容错移除（小步重试 + 改名隔离），交给启动清理。
+          await this.removeDirTolerant(target, manifest.id);
+        }
         fs.renameSync(extractedRoot, target);
       } catch (error) {
-        // 安装在中途失败（如旧目录被锁且隔离也失败）：此刻插件已停用，
-        // 状态里仍是旧版本——尽力把旧版本重新激活，避免服务中断到下次重启。
+        // 安装在中途失败（如目录被锁且隔离也失败）：此刻插件已停用，状态里仍是
+        // 旧版本——尽力把旧版本重新激活，避免服务中断到下次重启。
         if (previous?.enabled) {
           try { await this.activate(manifest.id); } catch { /* 旧目录已残缺则保持停用，等待用户重试 */ }
         }
@@ -320,6 +362,8 @@ export class PluginManager {
     await this.deactivate(id);
     this.state.plugins = this.state.plugins.filter((item) => item.id !== id);
     this.saveState();
+    // 与 install 同理：插件目录里的原生模块可能仍被本进程加载（Windows 删不掉）。
+    // 容错移除：小步重试 + 改名隔离到 .trash-<id>-<uuid>，交给启动清扫。
     await this.removeDirTolerant(path.join(this.installedRoot, id), id);
     this.changed();
   }
@@ -357,16 +401,6 @@ export class PluginManager {
           `改名隔离也失败：${renameError instanceof Error ? renameError.message : String(renameError)}`
       );
     }
-  }
-
-  /** 启动时清扫上一轮改名隔离的插件目录——此刻没有任何插件被加载，句柄必然已释放。 */
-  private sweepPendingTrash(): void {
-    try {
-      for (const entry of fs.readdirSync(this.installedRoot)) {
-        if (!entry.startsWith(".trash-")) continue;
-        try { fs.rmSync(path.join(this.installedRoot, entry), { recursive: true, force: true }); } catch { /* 仍被占用就留给下次启动 */ }
-      }
-    } catch { /* installedRoot 不可读：忽略 */ }
   }
 
   async reload(id: string): Promise<void> { await this.deactivate(id); await this.activate(id); }
