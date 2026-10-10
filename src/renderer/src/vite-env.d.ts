@@ -2,7 +2,7 @@ interface SessionMeta { id: string; title: string; createdAt: string; updatedAt:
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }
-interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> } }
+interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> }; fallbackNotice?: string }
 interface SessionData { meta: SessionMeta; messages: SessionMessage[] }
 interface SessionRuntimeEvent { sessionId: string; sequence: number; at: string; stage: string; data: unknown }
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";

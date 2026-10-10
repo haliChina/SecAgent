@@ -32,7 +32,7 @@ const cn = clsx;
 /* DeleteButton (rareui deletebutton) — 展开式两钮确认删除               */
 /* 逐行直译自 swamimalode07/rare-ui components/ui/delete-button.tsx：    */
 /* 48px 垃圾桶（桶壁 motion 模板插值、盖 -35° spring LID）展开 84px 凹槽 */
-/* 面板；✓ 描画 pathLength / × 圆钮 whileTap PRESS 弹簧；kept 回弹 nudge。 */
+/* 面板；对勾描画 pathLength / 叉号圆钮 whileTap PRESS 弹簧；kept 回弹 nudge。 */
 /* 适配：sr-only/aria-label 中文化；ariaLabel prop 供会话列表命名。       */
 /* ------------------------------------------------------------------ */
 const DB_HINGE = "3px 6px";

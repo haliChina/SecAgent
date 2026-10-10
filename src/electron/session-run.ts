@@ -193,9 +193,9 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     // Surface resilience findings inline; hallucination reports are persisted
     // as a structured field on the message so the renderer renders a proper
     // notice strip (GuardrailNotice) instead of appending markdown text.
-    let finalMessage = result.message;
-    if ("usedFallbackModels" in result && result.usedFallbackModels?.length) finalMessage += `\n\n> ⚙️ 模型稳定性：已自动切换备用模型（${result.usedFallbackModels.join(" → ")}），原模型暂时不可用。`;
-    sessionStore.appendMessage(id, "assistant", finalMessage, toolCalls, activities, undefined, false, "hallucination" in result && result.hallucination?.signals.length ? result.hallucination : undefined);
+    // 回退提示不拼进对话内容，走独立字段单独一行渲染（用户可读性约定）。
+    const fallbackNotice = "usedFallbackModels" in result && result.usedFallbackModels?.length ? `模型稳定性：已自动切换备用模型（${result.usedFallbackModels.join(" → ")}），原模型暂时不可用。` : undefined;
+    sessionStore.appendMessage(id, "assistant", result.message, toolCalls, activities, undefined, false, "hallucination" in result && result.hallucination?.signals.length ? result.hallucination : undefined, fallbackNotice);
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     trace({ stage: "assistant.response", data: { text: result.message } });

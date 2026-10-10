@@ -204,6 +204,9 @@ button:focus:not(:focus-visible) { outline: none; }
 .activity-content, .tool-detail { padding: 4px 8px 8px; color: var(--text-2); font-size: 12px; line-height: 1.5; }.activity-content > :first-child { margin-top: 3px; }.activity-content > :last-child { margin-bottom: 0; }
 .tool-detail { display: grid; gap: 9px; }.tool-detail p { margin: 8px 0 4px; color: var(--text-3); font-size: 11px; }.tool-detail pre { max-height: 160px; overflow: auto; margin: 0; padding: 8px; border-radius: 6px; background: var(--bg-3); color: var(--text-2); font: 10px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-word; }
 
+/* 回退提示（单独一行，不混入对话内容）：细线 + 小字，克制 */
+.fallback-notice { margin: 4px 0 8px; padding: 2px 0 2px 10px; border-left: 2px solid var(--line-strong); color: var(--text-3); font-size: 11.5px; line-height: 1.5; }
+
 /* 交付物卡片（P3-6）：文件改动列表 + 行数统计，路径只来自工具记录 */
 .deliverable-card { max-width: min(560px, 100%); margin: 6px 0 8px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-2); }
 .deliverable-card .details-summary { gap: 8px; min-height: 0; padding: 0; }

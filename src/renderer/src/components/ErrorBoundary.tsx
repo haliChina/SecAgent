@@ -54,7 +54,7 @@ export class WindowErrorBoundary extends Component<{ crashTitle: string; windowT
           <pre>{String(this.state.error.stack || this.state.error)}</pre>
           {this.state.componentStack ? <details className="settings-crash-components"><summary>组件栈（定位用）</summary><pre>{this.state.componentStack}</pre></details> : null}
           <div className="settings-crash-actions">
-            <button type="button" onClick={this.copyDetails}>{this.state.copied ? "已复制 ✓" : "复制错误信息"}</button>
+            <button type="button" onClick={this.copyDetails}>{this.state.copied ? "已复制" : "复制错误信息"}</button>
             <button type="button" className="settings-crash-retry" onClick={() => this.setState({ error: null, componentStack: null, copied: false })}>重试</button>
           </div>
         </div>

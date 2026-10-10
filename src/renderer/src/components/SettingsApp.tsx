@@ -59,7 +59,7 @@ export function SettingsApp() {
   });
 
   // 音频设备枚举（麦克风/扬声器）；浏览器要求先授权麦克风才能看到 label。
-  // ⚠️ 这组 useState/useEffect 必须放在下方 isOobe / !settings 早退 return 之
+  // 注意：这组 useState/useEffect 必须放在下方 isOobe / !settings 早退 return 之
   // 前：首渲染 settings 必为 null 走早退，配置加载完成后的下一次渲染才会走到
   // 这里——hook 出现在早退之后会让该次渲染比上次多一个 hook，React #310
   // 「Rendered more hooks than during the previous render」整窗崩溃。
