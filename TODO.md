@@ -3,6 +3,33 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R47 · 2026-10-10）
+
+### UI P3-6 交付物卡片 ✓
+- 数据面审计：审批闸门在 runtime.ts（B0 已接）；本地工具
+  write{path,content}→result{path,bytes}、edit{path,oldText,newText}
+  →result{path,replaced}（pi-tools.ts）
+- 新增 deliverable.ts（纯逻辑）：collectFileChanges——
+  · **路径只来自记录**（result.path），不从模型 prose 解析——
+    prose 可以撒谎，记录不会；bash/look_at/MCP 不计入
+  · 行数语义（诚实标记）：write 按内容行数计 +（记录不含新建/
+    覆盖之分，不标 -）；edit newText 计 + oldText 计 -
+  · 同路径聚合（writes/edits 次数 + 累计行数），保持首现顺序
+- DeliverableCard.tsx：AnimatedDetails 折叠卡；无文件改动不渲染
+  （null）；文件名 + 父目录（title 悬停全路径）+ +X/-Y 统计
+- App.tsx 接线：message-content 内 AuiMessageActions 后（查证
+  .message 为横向 flex，同级渲染会挤压气泡——与 execution-summary
+  同模式 max-width min(560px,100%)）
+- deliverable.test.ts 7 用例（聚合/过滤/CRLF/splitPath 四平台路径）
+
+### 验收（环境 I/O 慢，tsc 约 25 分钟）
+- tsc EXIT=0；测试 259 项 258 过 0 挂（新增 7 例全过）；双扫描器
+  绿（397→407 类全引用）
+
+### P3 剩余（未做，供后续取舍）
+- P3-1 侧栏常驻会话（大布局改造）
+- P3-5 主题三态（设置页无调色板基础，从零建，需视觉验证轮）
+
 ## 本轮（R46 · 2026-10-10）
 
 ### UI P3-7 不可信输出处理 ✓
