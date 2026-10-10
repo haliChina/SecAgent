@@ -154,8 +154,16 @@ export function registerSettingsIpc(deps: {
   // Fetch an OpenAI-compatible provider's model catalogue (GET {base}/models),
   // e.g. https://api.xiaomimimo.com/v1/models — feeds the settings dropdowns.
   ipcMain.handle("models:fetch", async (_event, request: { baseUrl?: string; apiKey?: string; apiKeyEnv?: string }) => {
-    const apiKey = (request.apiKey && request.apiKey.trim()) || (request.apiKeyEnv ? process.env[request.apiKeyEnv] || "" : "");
+    // H2: Only allow reading env vars that match known API key naming patterns
+    const ENV_ALLOWLIST = /^[A-Z][A-Z0-9_]*(?:API[_]?KEY|TOKEN|SECRET)$/i;
+    const apiKey = (request.apiKey && request.apiKey.trim()) || (request.apiKeyEnv && ENV_ALLOWLIST.test(request.apiKeyEnv) ? process.env[request.apiKeyEnv] || "" : "");
     if (!request.baseUrl?.trim()) return { ok: false, message: "请填写 Base URL（例如 https://api.xiaomimimo.com/v1）", models: [] };
+    // H3: Reject private/loopback URLs to prevent SSRF (allow localhost for local dev)
+    try {
+      const parsed = new URL(request.baseUrl);
+      if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["127.0.0.1", "localhost", "[::1]", "::1"].includes(parsed.hostname)))
+        return { ok: false, message: "Base URL 必须是 https（本地开发可用 http://localhost）", models: [] };
+    } catch { return { ok: false, message: "Base URL 格式无效", models: [] }; }
     if (!apiKey) return { ok: false, message: "缺少 API Key（先保存到工作区 .env 或在输入框填写）", models: [] };
     const { fetchProviderModels } = await import("../models/fetch-models.js");
     return fetchProviderModels({ baseUrl: request.baseUrl, apiKey, timeoutMs: 15_000 });

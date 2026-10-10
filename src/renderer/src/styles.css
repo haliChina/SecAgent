@@ -1,6 +1,6 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
-@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 @theme {
   --color-background: var(--bg-0);
   --color-foreground: var(--text-1);
@@ -26,6 +26,7 @@
 .aui-pop-up { animation: aui-pop-up .3s cubic-bezier(0.23, 1, 0.32, 1) both; }
 @keyframes aui-shimmer { from { background: linear-gradient(90deg, currentColor 40%, transparent 50%, currentColor 60%); background-size: 200% 100%; background-position: 100% 0; -webkit-background-clip: text; background-clip: text; color: transparent; } to { background-position: -100% 0; } }
 .aui-shimmer { animation: aui-shimmer 1.4s linear infinite; }
+@layer base {
 /* Preflight button 片段——rareui 组件假设存在（否则裸 button 显示 UA 灰块，图1 问题） */
 button { appearance: none; background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer; }
 body { margin: 0; min-width: 720px; background: var(--bg-0); }
@@ -33,6 +34,7 @@ button, textarea, select { font: inherit; }
 button { appearance: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; transition: transform .12s cubic-bezier(.2, .8, .2, 1); }
 button:active:not(:disabled) { transform: scale(.96); }
 button:focus:not(:focus-visible) { outline: none; }
+}
 
 .app-shell { min-height: 100vh; display: block; background: var(--bg-0); }
 .topbar { position: relative; z-index: 2; width: 100%; height: 59px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid var(--bg-3); background: var(--bg-2); -webkit-app-region: drag; }.topbar.macos { padding-left: 86px; }

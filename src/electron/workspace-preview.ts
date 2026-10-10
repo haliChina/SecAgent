@@ -1,5 +1,5 @@
 /**
- * 工作区文件预览窗（B2 自 main.ts 拆出，纯搬家）。
+ * 工作区文件预览窗（B2 自 main.ts 拆出，纯搬家——已恢复路径校验）。
  *
  * workspace:preview-file 通道：.html/.htm 起临时 127.0.0.1 静态服务
  * （路径白名单限工作区根内，防目录逃逸）；.svg 直接 loadFile；
@@ -12,11 +12,19 @@ import { BrowserWindow } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 
 function workspaceFilePath(relativePath: string): string {
-  return path.join(DEFAULT_WORKSPACE, relativePath);
+  const normalized = relativePath.replaceAll("\\", "/");
+  if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) throw new Error("预览文件路径必须是工作区内的相对路径");
+  const root = path.resolve(DEFAULT_WORKSPACE);
+  const filePath = path.resolve(root, normalized);
+  if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) throw new Error("预览文件必须位于当前工作区内");
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`找不到工作区文件：${normalized}`);
+  const extension = path.extname(filePath).toLowerCase();
+  if (![".html", ".htm", ".svg", ".md", ".markdown"].includes(extension)) throw new Error("只支持预览 HTML、SVG 和 Markdown 文件");
+  return filePath;
 }
 
 function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 export async function openWorkspaceFilePreview(relativePath: string): Promise<{ ok: true }> {

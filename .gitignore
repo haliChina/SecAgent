@@ -26,4 +26,6 @@ secagent-ce-icon-generated.png
 \\tmp*
 
 
-AGENTS.local.mdBits.js
+AGENTS.local.md
+Bits.js
+tmp/

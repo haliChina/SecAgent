@@ -10,8 +10,13 @@
 import "./day-separator.css";
 
 // 日期文案：本地化长月 + 日（如 "10月9日"）。
-export function daySeparatorLabel(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, { month: "long", day: "numeric" });
+export function daySeparatorLabel(iso: string, now = new Date()): string {
+  const date = new Date(iso);
+  const localMidnight = (value: Date): number => new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+  const days = Math.round((localMidnight(now) - localMidnight(date)) / 86_400_000);
+  if (days <= 0) return "今天";
+  if (days === 1) return "昨天";
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric" });
 }
 
 // 本地日历日的稳定 id（ScrollProgress 节锚点 + DaySeparator 挂载用）。

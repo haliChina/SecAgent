@@ -46,7 +46,7 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     return result;
   });
 
-  ipcMain.handle("runtime:tool-confirmation-reply", (_event, payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }) => {
+  ipcMain.handle("runtime:tool-confirmation-reply", (_event, payload: { confirmationId: string; approved: boolean; always?: boolean }) => {
     return resolveToolConfirmation(payload);
   });
 
