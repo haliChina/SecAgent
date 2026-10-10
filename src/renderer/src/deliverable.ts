@@ -25,7 +25,8 @@ interface FileChangeAggregate {
 
 function lineCount(text: string): number {
   if (!text) return 0;
-  return text.split(/\r?\n/).length;
+  const trimmed = text.replace(/\r?\n$/, "");
+  return trimmed.split(/\r?\n/).length;
 }
 
 /** 只认记录里的字段：write/edit 的 result 必须是含 path 的对象（成功返回的形态）。 */

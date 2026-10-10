@@ -6,8 +6,7 @@
  * check/download/install、diagnostics:open-logs/export-logs、
  * shell:open-external。更新管理器与设置窗打开回调经注入。
  *
- * settings:save 留在 main.ts——它联动 wake 快捷键注册（与 wake
- * 域同生命周期，后续批次一起拆）。
+ * settings:save 已移至 ipc-sessions.ts + settings-apply.ts（B3 拆分完成）。
  */
 import fs from "node:fs";
 import path from "node:path";

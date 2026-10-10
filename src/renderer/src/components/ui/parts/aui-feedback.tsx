@@ -133,7 +133,7 @@ export function AuiMessageActions({
       {onCopy && (
         <button
           type="button"
-          aria-label={isCopied ? "Copied response" : "Copy response"}
+          aria-label={isCopied ? "已复制" : "复制回答"}
           onClick={() => {
             onCopy();
             setLocalCopied(true);
@@ -155,7 +155,7 @@ export function AuiMessageActions({
         <>
           <button
             type="button"
-            aria-label="Mark response helpful"
+            aria-label="标记有用"
             aria-pressed={reaction === "up"}
             onClick={() => onReactionChange(reaction === "up" ? null : "up")}
             className={cn(buttonClassName, reaction === "up" && "bg-foreground/[0.06] text-foreground/90")}
@@ -164,7 +164,7 @@ export function AuiMessageActions({
           </button>
           <button
             type="button"
-            aria-label="Mark response unhelpful"
+            aria-label="标记无用"
             aria-pressed={reaction === "down"}
             onClick={() => onReactionChange(reaction === "down" ? null : "down")}
             className={cn(buttonClassName, reaction === "down" && "bg-foreground/[0.06] text-foreground/90")}
@@ -174,12 +174,12 @@ export function AuiMessageActions({
         </>
       )}
       {onRegenerate && (
-        <button type="button" aria-label="Regenerate response" onClick={onRegenerate} className={buttonClassName}>
+        <button type="button" aria-label="重新生成" onClick={onRegenerate} className={buttonClassName}>
           <RefreshCwIcon className={cn("size-3.5", regenerating && "animate-spin motion-reduce:animate-none")} />
         </button>
       )}
       {onMore && (
-        <button type="button" aria-label="More response actions" onClick={onMore} className={buttonClassName}>
+        <button type="button" aria-label="更多操作" onClick={onMore} className={buttonClassName}>
           <EllipsisIcon className="size-3.5" />
         </button>
       )}

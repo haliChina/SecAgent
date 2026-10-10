@@ -95,7 +95,7 @@ export function ToolError({
           ) : (
             <RotateCwIcon className="size-3" />
           )}
-          {retrying ? "Retrying" : "Retry"}
+          {retrying ? "重试中" : "重试"}
         </button>
       </div>
     </div>

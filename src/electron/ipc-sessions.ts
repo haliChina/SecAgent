@@ -63,7 +63,4 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     if (typeof text !== "string" || (!text.trim() && !attachments.length)) throw new Error("消息不能为空");
     return runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id });
   });
-
-// A second launch focuses the running instance instead of competing for the
-// wake shortcut, the tray, and the local HTTP server port.
 }

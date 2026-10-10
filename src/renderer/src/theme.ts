@@ -4,7 +4,7 @@
  * 职责拆分：
  * - resolveTheme：纯函数（测试覆盖）——system 时按 prefersDark 折算
  * - applyTheme / readCachedTheme / cacheTheme：DOM 副作用 + localStorage 缓存
- *   （缓存的唯一目的：index.html 内联防闪烁脚本在首帧前同步应用，
+ *   （缓存的唯一目的：index.html 同步加载的防闪烁脚本在首帧前同步应用，
  *   之后 main.tsx 会用 settings 真值校正——缓存错也只是闪一下，不持久）
  * - watchSystemTheme：system 模式下跟随 OS 切换实时换肤
  *
