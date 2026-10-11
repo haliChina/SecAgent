@@ -3,6 +3,23 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R52 · 2026-10-12）
+
+### PR #1 评审遗留清零 ✓
+- **P2 唤醒兜底 TTS 双排队（Codex，WakeOverlay.tsx:193）**：
+  无 <tts> 标签时 processWakeAnswer(answer, true) 兜底整段入队后，
+  外层完成块仍按「零字已排」把整段 answer 再排一次——兜底回答被
+  读两遍。修复：兜底入队时同步 ttsScheduledTextRef.current = raw，
+  外层 remaining 归零。ddc7227 未触及该文件（漏修），本轮补上
+- **ansi.ts C1 引入符剥离（自查 🟢，评审点名用例）**：新增 C1→C0
+  归一化表（\x90/\x9b/\x9c/\x9d/\x9e/\x9f → ESC 双字节），统一
+  走既有剥离规则；顺带发现并补齐 PM/APC（ESC ^/_）C0 形式整段
+  剥离——此前只吃引入符不吃载荷。\x9d8;;http://evil\x9c 现出 ""
+- **tool-error「Skip」按钮文案中文化**（aria 已中文、按钮文本漏改）
+- **对齐确认（ddc7227 已修，勿重复）**：aui-feedback aria 中文 ✓、
+  theme.ts 注释更正 ✓、deliverable 尾换行 ✓
+- 新用例：ansi C1 六形式 + C0 PM/APC 对称（9/9 tsx 直跑过）
+
 ## 本轮（R51 · 2026-10-11）
 
 ### PR #1 最新推送 CI 抢修 + 安装包交付 ✓
