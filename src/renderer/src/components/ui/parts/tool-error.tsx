@@ -82,7 +82,7 @@ export function ToolError({
           disabled={!onSkip}
           className="text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground/90 h-7 rounded-full px-2.5 text-xs font-medium transition-[background-color,color,scale] duration-150 active:scale-[0.96] disabled:pointer-events-none disabled:opacity-30"
         >
-          Skip
+          跳过
         </button>
         <button
           type="button"

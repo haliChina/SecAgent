@@ -191,6 +191,9 @@ export function WakeOverlay() {
         if (whole) {
           enqueueTts(whole);
           wakeTtsScheduledRef.current = whole;
+          // P2 修复（Codex 评审）：同步外层完成块用的跟踪 ref——否则完成块
+          // 仍认为零字已排，把整段 answer 再排一次，兜底回答被读两遍。
+          ttsScheduledTextRef.current = raw;
         }
       }
       return;

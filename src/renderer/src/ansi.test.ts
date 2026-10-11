@@ -57,3 +57,19 @@ test("MarkdownContent URL 协议白名单：javascript:/data: 丢弃，安全协
   assert.equal(defaultUrlTransform("#anchor"), "#anchor");
   assert.equal(defaultUrlTransform("/relative/path"), "/relative/path");
 });
+
+test("stripAnsi 剥离单字节 C1 引入符序列（评审补漏）", () => {
+  // OSC C1 形式（\x9d … \x9c）：评审点名的穿透用例
+  assert.equal(stripAnsi("\u009d8;;http://evil\u009c"), "");
+  assert.equal(stripAnsi("前\u009d8;;http://evil\u009c后"), "前后");
+  // DCS C1 形式（\x90 … \x9c）
+  assert.equal(stripAnsi("\u0090data\u009c"), "");
+  // CSI C1 形式（\x9b）
+  assert.equal(stripAnsi("\u009b31m红\u009b0m"), "红");
+  // PM/APC C1 形式（\x9e/\x9f）
+  assert.equal(stripAnsi("\u009epm\u009c\u009fapc\u009c"), "");
+  // PM/APC C0 形式（ESC ^ / ESC _ … ST）——与 C1 行为对称
+  assert.equal(stripAnsi("\u001b^pm\u001b\\\u001b_apc\u001b\\"), "");
+  // 孤立 ST（\x9c）归一为 ESC \ 后由 Fe 规则吃掉
+  assert.equal(stripAnsi("a\u009cb"), "ab");
+});
