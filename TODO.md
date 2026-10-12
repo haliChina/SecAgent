@@ -3,6 +3,21 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R53 · 2026-10-12）
+
+### 用户推送 eda92c6 审计 ✓（HookSidebar 复活为设置页钩式导航）
+- **内容**：R49 的 .settings-rail 常驻侧栏换回 rareui HookSidebar
+  （parts/hook-sidebar.tsx 185 行直译 + Bits 导出 + SettingsApp 接线 +
+  styles.css 18 行）；点状虚线钩轨随 active/hover spring 游走
+- **审计结论全绿，无需跟进修复**：
+  · styles.css 括号平衡 OK（701 行，无 R51 式截断——上次教训的
+    常规复检项）；settings-rail 旧类清干净（无残留）
+  · 无 emoji（新文件扫描 0）；OOBE 护栏保留（!isOobe 才挂钩栏）
+  · 插件设置页扁平注入 + hash 导航保持；窄屏 media query 降级
+  · 双扫描器绿（171 文件 0 死导出；394 类 0 孤儿）
+  · CI 双绿：run 103（CI）+ run 114（三平台打包）均 success
+  · 评审第 43 条为本方 R52 回复（无新发现）；PR mergeable clean
+
 ## 本轮（R52 · 2026-10-12）
 
 ### PR #1 评审遗留清零 ✓
