@@ -352,21 +352,16 @@ export function SettingsApp() {
       activeId={activePage}
       onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }}
       items={[
-        // 分组标签随每组首项注入（group），组间以分隔线隔开（dividerBefore）。
-        ...settingsNavGroups.flatMap((group, groupIndex) => group.items.map((item, itemIndex) => ({
-          id: item.id,
-          label: item.label,
-          ...(itemIndex === 0 ? { group: group.label } : {}),
-          ...(groupIndex > 0 && itemIndex === 0 ? { dividerBefore: true } : {})
-        }))),
+        // 钩轨是扁平列表（竖直点线穿过所有项末端带钩指向选中项）——分组标签/分隔线
+        // 会被点线穿过显得断裂杂乱，故摊平所有组为单一列表，不再注入 group/divider。
+        ...settingsNavGroups.flatMap((group) => group.items.map((item) => ({ id: item.id, label: item.label }))),
         // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
         // 否则插件配置页（含 SecScore）只能靠手输 hash 到达。settingsPages?. 兜底：
         // 类型层必填，但 IPC 运行时数据（旧安装/旧清单）可能缺字段——裸 .map 一旦
         // undefined 整棵设置窗 React 树崩溃（真机白屏只剩标题，tsc/build 捕获不到，见 R6）。
-        ...plugins.flatMap((plugin, pluginIndex) => (plugin.settingsPages ?? []).map((page, pageIndex) => ({
+        ...plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => ({
           id: `plugin-${plugin.id}-${page.id}`,
-          label: page.title,
-          ...(pluginIndex === 0 && pageIndex === 0 ? { group: "插件设置", dividerBefore: true } : {})
+          label: page.title
         } satisfies HookSidebarItem)))
       ]}
     />}

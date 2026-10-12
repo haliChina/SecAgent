@@ -19,7 +19,7 @@
  * 把 button reset 关进 base 层，否则 reset 会吃掉工具类（见 2c426e6 修复）。
  */
 import { ACCENT } from "./theme.js";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { clsx } from "clsx";
 
@@ -31,10 +31,6 @@ const HK_DASH = "repeating-linear-gradient(to top, transparent 0 2px, currentCol
 export interface HookSidebarItem {
   id: string;
   label: string;
-  /** 组标签（仅每组首项设置）：在该项之前渲染一行小标题 */
-  group?: string;
-  /** 分隔线：在该项之前渲染一条 .settings-nav-divider */
-  dividerBefore?: boolean;
 }
 
 function HookRail({ from = 0, y, visible, color, dashed, className }: {
@@ -157,26 +153,23 @@ export function HookSidebar({ activeId, items, onSelect }: {
           const isActive = index === activeIndex;
           const setRef = (el: HTMLElement | null): void => { itemRefs.current[index] = el; };
           return (
-            <Fragment key={item.id}>
-              {item.group && <p className="hook-group-label">{item.group}</p>}
-              {item.dividerBefore && <div className="settings-nav-divider" role="separator" />}
-              <button
-                type="button"
-                data-slot="hook-sidebar-item"
-                data-active={isActive}
-                ref={setRef}
-                onMouseEnter={() => { setHoverIndex(index); setPointerInside(true); }}
-                onFocus={() => { setHoverIndex(index); setFocusInside(true); }}
-                onBlur={() => setFocusInside(false)}
-                onClick={() => onSelect(item.id)}
-                className={cn(
-                  "rounded-lg py-1.5 pl-5 pr-2 text-left text-sm transition-colors duration-200 motion-reduce:transition-none",
-                  isActive ? "text-foreground" : "text-foreground/50 hover:text-foreground/80"
-                )}
-              >
-                {item.label}
-              </button>
-            </Fragment>
+            <button
+              key={item.id}
+              type="button"
+              data-slot="hook-sidebar-item"
+              data-active={isActive}
+              ref={setRef}
+              onMouseEnter={() => { setHoverIndex(index); setPointerInside(true); }}
+              onFocus={() => { setHoverIndex(index); setFocusInside(true); }}
+              onBlur={() => setFocusInside(false)}
+              onClick={() => onSelect(item.id)}
+              className={cn(
+                "rounded-lg py-1.5 pl-5 pr-2 text-left text-sm transition-colors duration-200 motion-reduce:transition-none",
+                isActive ? "text-foreground" : "text-foreground/50 hover:text-foreground/80"
+              )}
+            >
+              {item.label}
+            </button>
           );
         })}
       </div>
