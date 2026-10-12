@@ -3,6 +3,20 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R54 · 2026-10-12）
+
+### 用户推送 ee4aaf4 审计 ✓（HookSidebar 去分组标签/分隔线）
+- **内容**：钩线穿过分组标签/分隔线处断裂显杂乱——去掉
+  group/dividerBefore props 与 Fragment 包裹，纯项列表；
+  hook-sidebar.tsx -43/+28、styles.css 同步收敛
+- **审计结论全绿，无需跟进修复**：
+  · styles.css 括号平衡 OK（700 行）；分组标签/分隔线类清干净
+    （CSS 类 394→392，与删 2 类一致，孤儿扫描 0）
+  · 无 emoji；钩轨动画逻辑（setRef/hoverIndex/spring）未动
+  · 双扫描器绿（171 文件 0 死导出；392 类 0 孤儿）
+  · CI 双绿：run 105（CI）+ run 116（三平台打包）均 success
+  · 新评论仅 Codex 用量提示（无实质发现）；PR mergeable clean
+
 ## 本轮（R53 · 2026-10-12）
 
 ### 用户推送 eda92c6 审计 ✓（HookSidebar 复活为设置页钩式导航）
