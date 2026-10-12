@@ -8,7 +8,7 @@ import { reasoningEffortLabels, ttsRates, ttsVoices } from "../constants.js";
 import { ASR_BAILIAN_PRESETS, ASR_OPENAI_PRESETS, BAILIAN_DEFAULTS, MIMO_ASR_DEFAULTS, type AsrProviderKind, type BailianAsrSettings, type MimoAsrSettings } from "../../../asr/settings.js";
 import { emptyMcp, emptyProvider, isOfficialVisionModel, reasoningEffortsForModel } from "../utils.js";
 import { formatOfficialBalanceExpiry, formatOfficialPoints } from "../official-balance.js";
-import { AnimatedCounter } from "./ui/Bits.js";
+import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js";
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
@@ -348,16 +348,28 @@ export function SettingsApp() {
   ];
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
     <div className="settings-window-title">SecAgent设置</div>
-    {!isOobe && <nav className="settings-rail" aria-label="设置导航">
-      {settingsNavGroups.map((group) => <div className="settings-rail-group" key={group.label}>
-        <p className="settings-rail-label">{group.label}</p>
-        {group.items.map((item) => <button type="button" className={`settings-rail-item ${activePage === item.id ? "active" : ""}`} key={item.id} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>{item.label}</button>)}
-      </div>)}
-      {plugins.some((plugin) => (plugin.settingsPages ?? []).length > 0) && <div className="settings-rail-group">
-        <p className="settings-rail-label">插件设置</p>
-        {plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => <button type="button" className={`settings-rail-item ${activePage === `plugin-${plugin.id}-${page.id}` ? "active" : ""}`} key={`${plugin.id}-${page.id}`} onClick={() => { setActivePage(`plugin-${plugin.id}-${page.id}`); window.history.replaceState(null, "", `#plugin-${plugin.id}-${page.id}`); }}>{page.title}</button>))}
-      </div>}
-    </nav>}
+    {!isOobe && <HookSidebar
+      activeId={activePage}
+      onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }}
+      items={[
+        // 分组标签随每组首项注入（group），组间以分隔线隔开（dividerBefore）。
+        ...settingsNavGroups.flatMap((group, groupIndex) => group.items.map((item, itemIndex) => ({
+          id: item.id,
+          label: item.label,
+          ...(itemIndex === 0 ? { group: group.label } : {}),
+          ...(groupIndex > 0 && itemIndex === 0 ? { dividerBefore: true } : {})
+        }))),
+        // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
+        // 否则插件配置页（含 SecScore）只能靠手输 hash 到达。settingsPages?. 兜底：
+        // 类型层必填，但 IPC 运行时数据（旧安装/旧清单）可能缺字段——裸 .map 一旦
+        // undefined 整棵设置窗 React 树崩溃（真机白屏只剩标题，tsc/build 捕获不到，见 R6）。
+        ...plugins.flatMap((plugin, pluginIndex) => (plugin.settingsPages ?? []).map((page, pageIndex) => ({
+          id: `plugin-${plugin.id}-${page.id}`,
+          label: page.title,
+          ...(pluginIndex === 0 && pageIndex === 0 ? { group: "插件设置", dividerBefore: true } : {})
+        } satisfies HookSidebarItem)))
+      ]}
+    />}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2><p>按下全局快捷键后，在当前显示器工作区唤起语音 Agent。窗口不会覆盖任务栏。</p></div></div>

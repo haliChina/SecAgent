@@ -299,7 +299,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .plugin-state { margin-left: 8px; color: var(--text-3); font-size: 12px; font-weight: 400; }.plugin-state.ready, .plugin-message.ready, mark.ready { color: #4ADE80; }.plugin-state.error, .plugin-message.error, mark.error { color: #F87171; }.plugin-meta, .plugin-message, .plugin-empty, .plugin-page p { color: var(--text-3); font-size: 13px; }.plugin-toggle { color: var(--text-2); font-size: 12px; }.plugin-page { margin-top: 15px; padding: 13px; border-radius: 8px; background: var(--accent-soft); }.plugin-page h3 { margin: 0 0 4px; font-size: 14px; }.plugin-page p { margin: 5px 0; }.plugin-page mark { padding: 2px 5px; border-radius: 4px; background: rgba(74,222,128,.15); }
 
 /* Settings uses one active panel at a time with the navigation kept in a left rail. */
-.settings-shell:not(.oobe-shell) { padding-left: 264px; }
+.settings-shell:not(.oobe-shell) { padding-left: 248px; }
 .settings-shell.windows-settings { padding-top: 64px; }
 .settings-shell.has-window-title::before { content: ""; position: fixed; z-index: 2; top: 0; right: 0; left: 0; height: 57px; -webkit-app-region: drag; }
 .settings-shell.windows-settings::before { right: max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
@@ -674,14 +674,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 /* P3 R33：react-bits VoicePill 真源 CSS（.rb-vp 前缀，R24 注入）整段删除——
    rb-vp/voice-pill__* 类在全部 TSX 零引用（从未接线，录音 UI 用 VoicePill 适配版）。 */
-/* ==== R49：设置侧栏常驻导航（重设计）——与主窗口 SessionSidebar 同语言 ==== */
-.settings-rail { position: fixed; z-index: 5; top: 57px; bottom: 0; left: 0; display: flex; flex-direction: column; gap: 16px; width: 224px; padding: 16px 12px 14px; border-right: 1px solid var(--line); background: var(--bg-1); overflow-y: auto; }
-.settings-rail-group { display: grid; gap: 2px; }
-.settings-rail-label { margin: 0 0 4px 10px; color: var(--text-3); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
-.settings-rail-item { width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 550; text-align: left; cursor: pointer; transition: background .12s ease, color .12s ease; }
-.settings-rail-item:hover { background: var(--bg-3); color: var(--text-1); }
-.settings-rail-item.active { background: var(--accent-soft); color: var(--accent-text); }
-@media (max-width: 960px) { .settings-rail { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; border-right: 0; border-bottom: 1px solid var(--line); } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
+/* ==== R52：设置侧栏钩式导航（HookSidebar 复活）——点线钩轨随 active/hover 游走 ==== */
+.settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 76px; bottom: 20px; left: 22px; box-sizing: border-box; width: 198px; padding: 12px 10px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; }
+.settings-shell [data-slot="hook-sidebar-item"] { width: 100%; font-weight: 550; }
+.settings-shell [data-slot="hook-sidebar-item"][data-active="true"] { font-weight: 650; }
+.hook-group-label { margin: 14px 0 2px 20px; color: var(--text-3); font-size: 10px; font-weight: 700; letter-spacing: .12em; }
+.hook-group-label:first-child { margin-top: 2px; }
+.settings-nav-divider { height: 1px; margin: 10px 6px; background: var(--line); }
+@media (max-width: 960px) { .settings-shell [data-slot="hook-sidebar"] { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
 .composer-actions { align-items: center; }
 .composer-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; }
 /* R26：麦克风按钮在 DOM 里位于 textarea 之前，视觉上贴着窗口左缘；而
