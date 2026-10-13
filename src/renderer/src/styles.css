@@ -50,9 +50,21 @@ button:focus:not(:focus-visible) { outline: none; }
 
 .session-modal-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }.session-modal-header h2 { margin: 4px 0 0; font-size: 20px; }
 
-/* 侧栏常驻会话（P3-1）：取代 topbar 悬停下拉与 all-sessions 模态 */
+/* 侧栏常驻会话（P3-1）：取代 topbar 悬停下拉与 all-sessions 模态。
+   R56：可收窄成 56px 图标轨——collapsed 态头部换轨道按钮组、列表项
+   换图标钮（title 补全会话名）、底部设置同图标化。 */
 .session-sidebar { display: flex; flex-direction: column; flex: 0 0 232px; min-height: 0; border-right: 1px solid var(--line); background: var(--bg-0); }
-.sidebar-new { margin: 14px 14px 10px; padding: 9px; border: 1px solid var(--accent-border); border-radius: 9px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; font-weight: 600; cursor: pointer; }.sidebar-new:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.session-sidebar.collapsed { flex: 0 0 56px; }
+.sidebar-head { display: flex; align-items: stretch; gap: 8px; margin: 14px 14px 10px; }
+.sidebar-new { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 9px; border: 1px solid var(--accent-border); border-radius: 9px; background: var(--accent-soft); color: var(--accent-text); font-size: 13px; font-weight: 600; cursor: pointer; }.sidebar-new:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.sidebar-collapse { flex: 0 0 34px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--text-3); cursor: pointer; }.sidebar-collapse:hover { background: var(--bg-3); color: var(--text-1); }
+.sidebar-rail-top { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 14px 0 10px; }
+.sidebar-rail-button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; color: var(--text-2); cursor: pointer; }.sidebar-rail-button:hover { background: var(--bg-3); color: var(--text-1); }
+.sidebar-rail-button.accent { border: 1px solid var(--accent-border); background: var(--accent-soft); color: var(--accent-text); }.sidebar-rail-button.accent:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.session-sidebar.collapsed .sidebar-list { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 0; }
+.session-sidebar.collapsed .sidebar-item { display: flex; justify-content: center; border-radius: 10px; padding: 0; }
+.sidebar-rail-button.wide { width: 40px; height: 34px; }
+.session-sidebar.collapsed .sidebar-foot { display: flex; justify-content: center; padding: 10px 0 12px; }
 .sidebar-list { flex: 1; min-height: 0; overflow: auto; padding: 0 8px; }
 .sidebar-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-radius: 8px; }.sidebar-item.active { background: var(--accent-soft); }
 .sidebar-item [data-slot="delete-button"] { opacity: 0; transition: opacity .16s ease; }.sidebar-item:hover [data-slot="delete-button"], .sidebar-item:focus-within [data-slot="delete-button"], .sidebar-item.active [data-slot="delete-button"] { opacity: 1; }
@@ -62,9 +74,18 @@ button:focus:not(:focus-visible) { outline: none; }
 .sidebar-item time { color: var(--text-3); font-size: 10px; white-space: nowrap; }
 .sidebar-empty { margin: 16px 10px; color: var(--text-3); font-size: 12px; }
 .sidebar-foot { padding: 10px 14px 14px; border-top: 1px solid var(--line); }
-.sidebar-settings { width: 100%; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; }.sidebar-settings:hover { background: var(--bg-3); color: var(--text-1); }
+.sidebar-settings { width: 100%; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; }.sidebar-settings:hover { background: var(--bg-3); color: var(--text-1); }
 .conversation { height: 100%; display: grid; grid-template-rows: 1fr auto; position: relative; }
-.messages { min-height: 0; overflow: auto; padding: 45px 45px 30px; display: flex; gap: 18px; flex-direction: column; }
+.messages { min-height: 0; overflow: auto; padding: 45px 45px 118px; display: flex; gap: 18px; flex-direction: column; }
+/* R57：底部留白加高——滚动跟随到底时末条消息退出 ScrollProgress 浮标
+   所在带（约 132px 折算），浮标不再压住内容/日期分隔条。 */
+.message-content > .fallback-notice, .message-content [data-slot="stopped-run"], .message-content [data-slot="guardrail-notice"] { margin-top: 8px; }
+.bubble.error { border-color: color-mix(in srgb, #DC2626 38%, var(--line)); background: color-mix(in srgb, #DC2626 5%, var(--bg-1)); }
+.error-notice { display: grid; gap: 6px; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+.error-notice :where(p, pre, code) { font-size: 12.5px; }
+.error-notice-title { display: inline-flex; align-items: center; gap: 6px; color: #DC2626; font-size: 12px; font-weight: 650; }
+.error-notice-title::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #DC2626; box-shadow: 0 0 0 3px color-mix(in srgb, #DC2626 18%, transparent); }
+.image-only-hint { color: var(--text-2); font-size: 12.5px; letter-spacing: .02em; }
 .message { display: flex; align-items: flex-start; max-width: 94%; }
 .message.user { align-self: flex-end; flex-direction: row-reverse; margin-top: 0; }
 .message-content { min-width: 0; }
@@ -400,13 +421,19 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 }
 .points-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; }.points-card .card-heading { margin: 0; }.points-value { margin: 0; color: var(--accent-text); font-size: 22px; font-weight: 700; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); cursor: pointer; }.settings-card > .toggle-row:first-child { margin-top: 0; padding-top: 0; border-top: 0; }.toggle-row .toggle-copy { display: grid; gap: 4px; }.toggle-row .toggle-copy strong { font-size: 14px; }.toggle-row .toggle-copy small { color: var(--muted, var(--text-2)); font-size: 12px; line-height: 1.5; }.toggle-row input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex: none; cursor: pointer; accent-color: var(--accent); }.toggle-row.nested-toggle-row { margin-left: 28px; }.official-balance-row { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }.official-balance-row .points-value { margin-right: auto; }.official-redeem-row { display: flex; align-items: center; gap: 10px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }.official-redeem-row input { flex: 1; min-width: 0; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; }.official-redeem-row input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }.default-model-settings { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--line); }.default-model-settings label { display: grid; gap: 6px; color: var(--muted, var(--text-2)); font-size: 13px; }.default-model-settings select { min-width: 0; }.tool-confirmation-overlay { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15, 23, 42, .45); backdrop-filter: blur(2px); }
-.tool-confirmation-card { display: grid; gap: 12px; width: min(520px, 100%); max-height: 80vh; overflow: auto; padding: 20px; border: 1px solid var(--accent); border-radius: 12px; background: var(--bg-2); box-shadow: 0 18px 48px rgba(0,0,0,.22); }
-.tool-confirmation-card h3 { margin: 0; color: var(--accent); font-size: 16px; }
-.tool-confirmation-reason { margin: 0; color: var(--accent); font-size: 13px; font-weight: 600; }
-.tool-confirmation-detail { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-1); font-size: 12px; }
-.tool-confirmation-detail strong { color: var(--text-2); }
-.tool-confirmation-detail pre { margin: 0; overflow: auto; max-height: 200px; color: var(--text-2); font-size: 11px; white-space: pre-wrap; word-break: break-all; }
-.tool-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; }
+@keyframes tool-confirmation-in { from { opacity: 0; transform: translateY(6px) scale(.985); } }
+/* R57 重设计：玻璃卡 + 红点警示头（无 emoji）、层级分明的参数块、
+   按钮组右对齐留足点击区，整体与消息气泡/设置卡同一语言。 */
+.tool-confirmation-card { display: grid; gap: 14px; width: min(560px, 100%); max-height: 80vh; overflow: auto; padding: 22px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--glass-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 24px 64px rgba(15, 23, 42, .28), inset 0 1px 0 var(--glass-inset); animation: tool-confirmation-in .18s ease; }
+.tool-confirmation-card h3 { display: flex; align-items: center; gap: 10px; margin: 0; color: var(--text-1); font-size: 15px; font-weight: 650; }
+.tool-confirmation-card h3::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; background: #DC2626; box-shadow: 0 0 0 4px color-mix(in srgb, #DC2626 16%, transparent); }
+.tool-confirmation-reason { margin: 0; color: var(--accent-text); font-size: 13.5px; font-weight: 600; line-height: 1.5; }
+.tool-confirmation-detail { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); font-size: 12px; }
+.tool-confirmation-detail strong { color: var(--text-2); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tool-confirmation-detail pre { margin: 0; overflow: auto; max-height: 200px; color: var(--text-2); font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.tool-confirmation-actions { display: flex; justify-content: flex-end; gap: 10px; padding-top: 2px; }
+.tool-confirmation-keys { margin: 0; color: var(--text-3); font-size: 11px; text-align: center; letter-spacing: .01em; }
+.tool-confirmation-card:focus { outline: none; }
 .hallucination-notice { margin: 8px 0 0; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 12px; line-height: 1.6; }
 .hallucination-notice strong { display: block; margin-bottom: 2px; }
 .provider-list-item .card-heading { align-items: center; }
@@ -691,6 +718,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
    一并消失，order 规则随之撤销。 */
 .composer .app-promptbar { flex: 1 1 auto; min-width: 0; }
 .composer .app-promptbar textarea { flex: none; height: auto; }
+/* R57：promptbar 表面回归整体语言——rareui 裸白底改为主题玻璃面
+   （--pb-bg 由 App 传 var(--glass-bg)），叠 1px 线框 + 毛玻璃 + 原组合
+   阴影；两主题经 token 自动适配。选中第 2 层 div 即其 surface。 */
+.composer .app-promptbar > div > div[role="presentation"] { border: 1px solid var(--line-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 var(--glass-inset); }
 
 .wake-thinking { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 14px; }
 .wake-thinking-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent, var(--accent)); animation: wake-think-bounce 1.1s ease-in-out infinite; }

@@ -116,6 +116,51 @@ function sendToAppWindows(channel: string, payload: unknown): void {
   }
 }
 
+/** R57：敏感工具确认到达时唤起应用窗口（应用在后台时弹层点不到）。 */
+function raiseAppWindows(): void {
+  for (const target of [getMainWindow(), getSettingsWindow()]) {
+    if (!target || target.isDestroyed()) continue;
+    try {
+      if (!target.isVisible()) target.showInactive();
+      target.focus();
+    } catch {
+      // Windows may close mid-operation.
+    }
+  }
+}
+
+/** R57：批准全局组合键类命令前让出前台——最小化当前聚焦的本应用窗口，
+ * 焦点回落到用户原本所在窗口，Alt+F4 之类不再关掉本应用自己。 */
+function yieldAppForeground(): void {
+  for (const target of [getMainWindow(), getSettingsWindow()]) {
+    if (!target || target.isDestroyed()) continue;
+    try {
+      if (target.isFocused()) target.minimize();
+    } catch {
+      // Windows may close mid-operation.
+    }
+  }
+}
+
+/** R57：Windows 标题栏三键（WCO）配色随主题同步——渲染端换肤后上报
+ * topbar 实色，主进程调 setTitleBarOverlay 消掉硬编码白色。 */
+ipcMain.handle("window:chrome-sync", (_event, colors: { background?: string; symbol?: string }) => {
+  if (process.platform !== "win32") return { ok: true };
+  for (const target of BrowserWindow.getAllWindows()) {
+    if (!target || target.isDestroyed()) continue;
+    try {
+      target.setTitleBarOverlay({
+        color: typeof colors.background === "string" ? colors.background : "#F1F4F9",
+        symbolColor: typeof colors.symbol === "string" ? colors.symbol : "#475569",
+        height: 57
+      });
+    } catch {
+      // Not every window uses the overlay.
+    }
+  }
+  return { ok: true };
+});
+
 ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openWorkspaceFilePreview(relativePath));
 
 ipcMain.handle("oobe:progress:get", () => readOobeProgress(DEFAULT_WORKSPACE));
@@ -194,7 +239,7 @@ async function startApplication(): Promise<void> {
   registerOfficialIpc();
   registerSettingsIpc({ getUpdateManager: () => updateManager, openSettings });
   registerWakeIpc();
-  registerSessionsIpc({ getPluginManager: () => pluginManager, sendToAppWindows, getUpdateManager: () => updateManager });
+  registerSessionsIpc({ getPluginManager: () => pluginManager, sendToAppWindows, getUpdateManager: () => updateManager, toolConfirmWindowHooks: { raiseAppWindows, yieldForeground: yieldAppForeground } });
   registerSpeechIpc({ getWakeWindow: getWakeWindow, getVoiceWakeWindow: getVoiceWakeWindow, openWakeWindow });
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);

@@ -20,11 +20,14 @@ import { confirmSensitiveToolCall, resolveToolConfirmation } from "./tool-confir
 import type { PluginManager } from "../plugin-manager.js";
 import type { WindowsUpdateManager } from "./update-manager.js";
 import type { ReasoningEffort } from "../types.js";
+import type { ToolConfirmWindowHooks } from "./tool-confirm.js";
 
 interface SessionIpcDeps {
   getPluginManager: () => PluginManager | undefined;
   sendToAppWindows: (channel: string, payload: unknown) => void;
   getUpdateManager: () => WindowsUpdateManager | undefined;
+  /** R57：敏感工具确认的窗口回调（唤起/让出前台）。 */
+  toolConfirmWindowHooks?: ToolConfirmWindowHooks;
 }
 
 export function registerSessionsIpc(deps: SessionIpcDeps): void {

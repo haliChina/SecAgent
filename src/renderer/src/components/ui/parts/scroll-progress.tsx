@@ -169,11 +169,23 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
     }, reduceMotion ? 0 : 700)
     setActiveId(id)
     setOpen(false)
-    // App 适配：消息流在内部滚动容器，window 级 scrollIntoView 无效（R24 反馈"点不动"）
+    // App 适配：消息流在内部滚动容器，window 级 scrollIntoView 无效（R24 反馈"点不动"）。
+    // R57：offsetTop 依赖 offsetParent（.conversation），布局微调即错位；改用
+    // rect 差值计算相对滚动量，并夹取到 [0, maxScrollTop]——末节内容不足一屏时
+    // 目标不再越过最大滚动量，日期分隔条落在视野内而非"压到底部被遮挡一半"。
     const target = document.getElementById(id)
     const container = containerRef?.current
     if (target && container && container.contains(target)) {
-      container.scrollTo({ top: target.offsetTop - 24, behavior: reduceMotion ? "auto" : "smooth" })
+      const top =
+        target.getBoundingClientRect().top -
+        container.getBoundingClientRect().top +
+        container.scrollTop -
+        24
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+      container.scrollTo({
+        top: Math.max(0, Math.min(top, maxScrollTop)),
+        behavior: reduceMotion ? "auto" : "smooth",
+      })
     } else {
       target?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
     }

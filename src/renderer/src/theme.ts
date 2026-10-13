@@ -40,6 +40,12 @@ export function applyTheme(theme: Theme): void {
   // light 是默认态：删除属性即回 :root 基线，避免属性残留
   if (resolved === "dark") document.documentElement.dataset.theme = "dark";
   else delete document.documentElement.dataset.theme;
+  // R57：Windows 标题栏三键（WCO）配色跟随 topbar 实色，消除原生白色块。
+  try {
+    void window.secagent.syncWindowChrome(resolved === "dark"
+      ? { background: "#111720", symbol: "#A8B2C4" }
+      : { background: "#F1F4F9", symbol: "#475569" });
+  } catch { /* 非 Windows 平台 / 桥未就绪时静默 */ }
 }
 
 /** system 模式下监听 OS 切换；返回清理函数。 */

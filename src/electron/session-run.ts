@@ -22,10 +22,13 @@ import { confirmSensitiveToolCall } from "./tool-confirm.js";
 import type { PluginManager } from "../plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort } from "../types.js";
 import type { ConversationMessage } from "../model-provider.js";
+import type { ToolConfirmWindowHooks } from "./tool-confirm.js";
 
 interface SessionRunDeps {
   getPluginManager: () => PluginManager | undefined;
   sendToAppWindows: (channel: string, payload: unknown) => void;
+  /** R57：敏感工具确认的窗口回调（唤起/让出前台），由 main 注入。 */
+  toolConfirmWindowHooks?: ToolConfirmWindowHooks;
 }
 
 interface SessionRunOptions {
@@ -179,7 +182,7 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     const runtimeConfig = isWakeRequest
       ? { ...config, agent: { ...config.agent, systemPrompt: `${config.agent.systemPrompt}\n\n## 快速唤起输出协议\n${QUICK_WAKE_OUTPUT_PROMPT}` } }
       : config;
-    runtime = new SecAgentRuntime(runtimeConfig, audit, skills, trace, deps.getPluginManager(), { confirmToolCall: (confirmation) => confirmSensitiveToolCall(id, confirmation, deps.sendToAppWindows) });
+    runtime = new SecAgentRuntime(runtimeConfig, audit, skills, trace, deps.getPluginManager(), { confirmToolCall: (confirmation) => confirmSensitiveToolCall(id, confirmation, deps.sendToAppWindows, deps.toolConfirmWindowHooks) });
     const visionConfig = resolveVisionAgentConfig(config);
     if (visionConfig) logMain("session.vision-model", { model: visionConfig.agent.model, provider: visionConfig.agent.provider, baseUrl: visionConfig.agent.baseUrl });
     const previousReadSkillNames = before.messages.flatMap((message) => message.toolCalls || []).filter((call) => call.name === "secagent__read_skill" || call.name === "read_skill").map((call) => typeof (call.arguments as { name?: unknown })?.name === "string" ? (call.arguments as { name: string }).name : "");

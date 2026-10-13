@@ -105,6 +105,8 @@ interface Window {
     openExternal(url: string): Promise<{ ok: true }>;
     completeOnboarding(): Promise<{ ok: true }>;
     createSession(): Promise<SessionData>;
+    /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
+    syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
     deleteSession(id: string): Promise<SessionMeta[]>;
     getSession(id: string): Promise<SessionData>;
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;

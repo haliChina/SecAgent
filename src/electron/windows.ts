@@ -56,15 +56,17 @@ export async function ensureMacDockVisible(): Promise<void> {
   await app.dock?.show();
 }
 
-function windowChromeOptions(overlayColor = "#FFFFFF"): Electron.BrowserWindowConstructorOptions {
+function windowChromeOptions(overlayColor = "#F1F4F9"): Electron.BrowserWindowConstructorOptions {
   if (process.platform === "darwin") {
     return { titleBarStyle: "hidden", trafficLightPosition: { x: 16, y: 21 } };
   }
   // Windows and Linux share the Window Controls Overlay. A native frame on
   // Linux would stack the system title bar on top of the in-app draggable topbar.
+  // R57：overlay 底色默认取 topbar 浅色实色（不再是刺眼的白色）；
+  // 渲染端换肤后经 window:chrome-sync 动态改写（暗色主题同步为 --bg-1 暗色）。
   return {
     titleBarStyle: "hidden",
-    titleBarOverlay: { color: overlayColor, symbolColor: "#55637A", height: 57 },
+    titleBarOverlay: { color: overlayColor, symbolColor: "#475569", height: 57 },
     autoHideMenuBar: true
   };
 }

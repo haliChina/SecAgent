@@ -426,6 +426,28 @@ export const PromptBar = ({
     let speed = 1;
     let pulse = 0;
     const parts: Spark[] = [];
+    /* R57 粒子精灵：sparkColor 的径向渐变（实心核 + 柔光衰减）预渲染一次，
+    tick 里 drawImage 复用，替代逐粒子 shadowBlur。 */
+    const sprite = document.createElement('canvas');
+    {
+      const S = 64;
+      sprite.width = S;
+      sprite.height = S;
+      const sc = sprite.getContext('2d');
+      if (sc) {
+        const rgb = sparkColor.replace(/^#/, '');
+        const full = rgb.length === 3 ? rgb.split('').map(c => c + c).join('') : rgb;
+        const r = parseInt(full.slice(0, 2), 16) || 0;
+        const g = parseInt(full.slice(2, 4), 16) || 0;
+        const b = parseInt(full.slice(4, 6), 16) || 0;
+        const grad = sc.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+        grad.addColorStop(0, `rgba(${r},${g},${b},1)`);
+        grad.addColorStop(0.34, `rgba(${r},${g},${b},0.9)`);
+        grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        sc.fillStyle = grad;
+        sc.fillRect(0, 0, S, S);
+      }
+    }
     const resize = () => {
       const rect = canvas.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1);
@@ -466,9 +488,9 @@ export const PromptBar = ({
         if (parts.length < 30) spawn(false);
       }
       ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = sparkColor;
-      ctx.shadowColor = sparkColor;
-      ctx.shadowBlur = 6 + energy * 10 + pulse * 6;
+      /* R57：逐粒子 shadowBlur（每帧 30 次离屏模糊合成）是粒子动画卡顿的主因。
+      改为一次性预渲染径向渐变精灵，循环里只做 drawImage——视觉同款柔光，
+      合成开销降到一次贴图。 */
       for (let i = parts.length - 1; i >= 0; i -= 1) {
         const p = parts[i];
         p.life += dt;
@@ -485,16 +507,17 @@ export const PromptBar = ({
         }
         const edge = Math.min(1, Math.max(0, p.y / 14), Math.max(0, (h - p.y) / 14));
         ctx.globalAlpha = Math.min(1, Math.sin(k * Math.PI) * (0.9 + energy * 0.25) * twinkle) * edge;
-        ctx.beginPath();
-        ctx.arc(
-          p.x + Math.sin((now / 900) * (1 + energy * 0.8) + p.phase) * p.sway,
-          p.y,
-          p.r * twinkle * (1 + energy * 0.35),
-          0,
-          Math.PI * 2
+        const radius = p.r * twinkle * (1 + energy * 0.35);
+        const size = radius * 6;
+        ctx.drawImage(
+          sprite,
+          p.x + Math.sin((now / 900) * (1 + energy * 0.8) + p.phase) * p.sway - size / 2,
+          p.y - size / 2,
+          size,
+          size
         );
-        ctx.fill();
       }
+      ctx.globalAlpha = 1;
       raf = requestAnimationFrame(tick);
     };
     resize();

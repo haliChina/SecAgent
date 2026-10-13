@@ -1,6 +1,6 @@
 import { ACCENT } from "./components/ui/parts/theme.js";
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { LoaderCircle, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
 import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
@@ -65,8 +65,9 @@ export function App() {
   const messagesRef = useRef<HTMLDivElement>(null);
   const answerContentRef = useRef<HTMLDivElement>(null);
   const executionSummaryRef = useRef<HTMLButtonElement>(null);
-  const answerScrollPhase = useRef<"follow-bottom" | "settling" | "locked">("follow-bottom");
-  const answerScrollLockTimer = useRef<number | undefined>(undefined);
+  // R56 流式跟随滚动：follow=true 时容器钉在底部（思考/工具调用内容增长自动下滚）；
+  // 用户手动上滚即置 false（暂停跟随、自由浏览），滚回底部附近自动恢复。
+  const followOutputRef = useRef(true);
   const answerStartScrollPending = useRef(false);
   /* R27 PromptBar 桥：onAttach 必须返回 Promise，但文件选择器是回调式——
      pendingAttachResolveRef 暂存 resolve，input change 后由 addImageFiles 兑现；
@@ -356,39 +357,20 @@ export function App() {
   const finalStreamStart = useMemo(() => activeTrace.reduce((start, item, index) => item.stage === "model.output.reset" ? index + 1 : start, 0), [activeTrace]);
   const streamingOutput = useMemo(() => activeTrace.slice(finalStreamStart).filter((item) => item.stage === "model.output.delta")
     .map((item) => { const data = item.data as { text?: string; kind?: string }; return data.kind === "answer" || !data.kind ? data.text || "" : ""; }).join(""), [activeTrace, finalStreamStart]);
-  useEffect(() => {
-    if (!sending || !streamingOutput || !messagesRef.current || !executionSummaryRef.current) return;
-    const messages = messagesRef.current;
-    const summary = executionSummaryRef.current;
-    const target = messages.scrollTop + summary.getBoundingClientRect().top - messages.getBoundingClientRect().top;
-    const maxScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
-    if (target > maxScrollTop) {
-      if (answerScrollLockTimer.current !== undefined) {
-        window.clearTimeout(answerScrollLockTimer.current);
-        answerScrollLockTimer.current = undefined;
-      }
-      answerScrollPhase.current = "follow-bottom";
-      messages.scrollTo({ top: maxScrollTop, behavior: "auto" });
-      console.debug("[SecAgent scroll] follow-bottom", { outputLength: streamingOutput.length, targetScrollTop: target, maxScrollTop, scrollTop: messages.scrollTop });
-      return;
-    }
-
-    if (answerScrollPhase.current !== "follow-bottom") return;
-    answerScrollPhase.current = "settling";
-    messages.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-    console.debug("[SecAgent scroll] settle-summary", { outputLength: streamingOutput.length, targetScrollTop: target, maxScrollTop, scrollTop: messages.scrollTop });
-    answerScrollLockTimer.current = window.setTimeout(() => {
-      answerScrollPhase.current = "locked";
-      answerScrollLockTimer.current = undefined;
-      console.debug("[SecAgent scroll] summary-locked", { scrollTop: messages.scrollTop });
-    }, 320);
-  }, [streamingOutput, sending]);
+  // R56 手动滚动手势识别：滚轮上滚立即暂停跟随（scrollbar 拖拽由下方 onScroll 兜底）；
+  // 任何方式回到距底 64px 内即恢复。程序化 scrollTo 也经过这里——"auto" 直达底部，
+  // 不会产生远离底部的中间位置。
+  const handleMessagesWheel = (event: ReactWheelEvent) => {
+    if (event.deltaY < 0) followOutputRef.current = false;
+  };
+  const handleMessagesScroll = () => {
+    const el = messagesRef.current;
+    if (!el) return;
+    followOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+  };
   useEffect(() => {
     if (finishing || !answerStartScrollPending.current || !messagesRef.current || !answerContentRef.current) return;
     answerStartScrollPending.current = false;
-    if (answerScrollLockTimer.current !== undefined) window.clearTimeout(answerScrollLockTimer.current);
-    answerScrollLockTimer.current = undefined;
-    answerScrollPhase.current = "locked";
     const messages = messagesRef.current;
     const answer = answerContentRef.current;
     requestAnimationFrame(() => {
@@ -440,6 +422,19 @@ export function App() {
     if (last.stage === "model.output.delta") return (last.data as { kind?: string }).kind || "answer";
     return "tool";
   }, [activeTrace]);
+  // R56 流式自动跟随（原 settle-summary/summary-locked 机制移除）：思考/推理与工具
+  // 调用内容流式增长时，若用户停留在底部附近（followOutputRef=true）则容器钉住
+  // 底部，跟着最新内容往下滚；用户上滚离开底部即暂停（保留完整手动浏览能力），
+  // 滚回底部附近自动恢复跟随。收尾时 answerStartScrollPending 仍会把最终回答顶部
+  // 滚入视野，不受跟随状态影响。
+  useEffect(() => {
+    if (!sending || !messagesRef.current) return;
+    if (!followOutputRef.current) return;
+    const messages = messagesRef.current;
+    const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
+    if (nextScrollTop - messages.scrollTop < 24) return;
+    messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
+  }, [streamingOutput, traceActivities, sending]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
   // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
   const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
@@ -470,7 +465,25 @@ export function App() {
       return [...merged.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence);
     });
   };
-  const createSession = async () => { if (bridge) { const next = await bridge.createSession(); setSessions(await bridge.listSessions()); setSession(next); setTrace([]); requestAnimationFrame(() => textareaRef.current?.focus()); } };
+  const createSession = async () => {
+    if (!bridge) return;
+    // R56 新建防堆积：已存在"空会话"（默认标题且无预览 ⇒ 无消息）时直接切换过去，
+    // 不再重复落盘新会话——连续点 + 不会刷出一排"新会话"，也省掉 sessions:list
+    // 全量预览扫描随会话数线性变慢的开销。
+    const list = await bridge.listSessions();
+    const empty = list.find((item) => item.title === "新会话" && !item.preview);
+    if (empty) {
+      if (empty.id === session?.meta.id) { requestAnimationFrame(() => textareaRef.current?.focus()); return; }
+      await changeSession(empty.id);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
+    const next = await bridge.createSession();
+    setSessions(await bridge.listSessions());
+    setSession(next);
+    setTrace([]);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
   const deleteSession = async (id: string) => {
     if (!bridge) return;
     const remaining = await bridge.deleteSession(id);
@@ -531,15 +544,15 @@ export function App() {
     void addImageFiles(Array.from(event.dataTransfer.files));
   };
   const scrollMessagesToBottom = () => {
-    if (answerScrollLockTimer.current !== undefined) window.clearTimeout(answerScrollLockTimer.current);
-    answerScrollLockTimer.current = undefined;
-    answerScrollPhase.current = "follow-bottom";
+    // R56：新消息发送重置跟随开关；"auto" 直达底部（无 smooth 中间位置，
+    // 避免 onScroll 误判为用户上滚而暂停跟随）。
+    followOutputRef.current = true;
     requestAnimationFrame(() => {
       const messages = messagesRef.current;
       if (!messages) return;
       const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
       console.debug("[SecAgent scroll] user-message", { currentScrollTop: messages.scrollTop, nextScrollTop, maxScrollTop: nextScrollTop });
-      messages.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+      messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
     });
   };
   const submitMessage = async (text: string, sentAttachments: ChatAttachment[], optimisticMessageId?: string) => {
@@ -567,6 +580,14 @@ export function App() {
         answerStartScrollPending.current = true;
         setFinishing(true);
       }
+    } catch (error) {
+      // R57：IPC/桥层异常兜底（runSession 内部已把模型错误写成"执行失败："
+      // 消息入会话，走不到这里）——本地补一条同格式错误消息，保持异常在
+      // 对话流内可见而不是无声失败。
+      const detail = `执行失败：${error instanceof Error ? error.message : String(error)}`;
+      setSession((current) => current && current.meta.id === session.meta.id
+        ? { ...current, messages: [...current.messages, { id: `local-error-${Date.now()}`, role: "assistant", content: detail, createdAt: new Date().toISOString() }] }
+        : current);
     } finally {
       if (completed) await new Promise((resolve) => setTimeout(resolve, 260));
       setFinishing(false);
@@ -891,8 +912,8 @@ export function App() {
     <section className="workspace">
       <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
-        {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" />}
-        <div className="messages" ref={messagesRef}>
+        {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
+        <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
           {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb size={200} state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
           {session?.messages.map((message, index) => {
             const previous = index > 0 ? session.messages[index - 1] : undefined;
@@ -900,7 +921,12 @@ export function App() {
             const activities = message.activities?.length ? message.activities : message.toolCalls?.length ? message.toolCalls.map((call) => ({ kind: "tool" as const, ...call })) : message.id === latestAssistantId ? traceActivities : [];
             const reading = speakingMessageId === message.id;
             const visibleContent = message.role === "assistant" ? stripWorkspaceFilesMarkup(message.content) : message.content;
-            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}</div>{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</article></Fragment>;
+            // R57：模型/运行时异常消息（runSession 统一写入"执行失败："前缀）在对话内
+            // 以错误态气泡呈现——留在会话流里可回溯，不再像零散警告。
+            const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
+            // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
+            const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><ThoughtLine label={activeStepKind === "tool" ? "正在调用工具" : "正在思考"} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
           <div />
@@ -946,9 +972,9 @@ export function App() {
             onDictateCancel={cancelPromptDictation}
             value={draft}
             onDraftChange={setDraft}
-            background="#FFFFFF"
-            color="#1B2430"
-            menuBackground="#FFFFFF"
+            background="var(--glass-bg)"
+            color="var(--text-1)"
+            menuBackground="var(--glass-strong)"
             sparkColor={ACCENT}
             width={2000}
             radius={15}
