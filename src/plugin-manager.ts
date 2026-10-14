@@ -111,7 +111,7 @@ export interface PluginOverlayHandle {
   show(): Promise<void>;
   hide(): Promise<void>;
   close(): Promise<void>;
-  setBounds(bounds: { x?: number; y?: number; width?: number; height?: number }): Promise<void>;
+  setBounds(bounds: { x?: number; y?: number; width?: number; height?: number; anchor?: "top-left" | "bottom-right" }): Promise<void>;
 }
 
 export interface OverlayRequest extends OverlayCreateOptions {
