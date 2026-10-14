@@ -7,7 +7,13 @@ type WakeStatus = "listening" | "transcribing" | "submitting" | "streaming" | "c
 
 const WAKE_NO_VOICE_TIMEOUT_MS = 8_000;
 const WAKE_RESULT_GRACE_MS = 2_000;
-const VOICE_RMS_THRESHOLD = 0.008;
+/* R58：0.008 过敏（风扇/呼吸/环境噪声即判定"有声音"），导致只有一点
+   噪声输入时 hasVoice=true → 无声超时被取消、又无转录可提交 → 窗口
+   永远"继续识别"。抬到 0.015（典型语音 RMS 0.05+），另加连续 3 帧
+   持续判定（见 onaudioprocess）。 */
+const VOICE_RMS_THRESHOLD = 0.015;
+/** 有过"声音"但始终无转录时的静音收敛窗口（ms）——到点直接关窗，不再空转。 */
+const WAKE_SILENCE_CLOSE_MS = 2_200;
 
 function isVoiceActive(samples: Float32Array): boolean {
   let energy = 0;
@@ -324,6 +330,9 @@ const submitTranscript = async () => {
       let audioFrames = 0;
       let lastAudioLogAt = 0;
       let voiceLogged = false;
+      // R58：连续 3 帧（≈384ms）持续有能量才认作"声音"——单帧噪声毛刺不再
+      // 触发 hasVoice / 取消无声超时。
+      let voiceStreak = 0;
       processor.onaudioprocess = (event) => {
         const samples = new Float32Array(event.inputBuffer.getChannelData(0));
         bridge.sendSpeechAudio(samples);
@@ -338,11 +347,16 @@ const submitTranscript = async () => {
           logSpeech("audio.frames", { count: audioFrames, rms: Math.sqrt(energy / Math.max(1, samples.length)), peak, active, contextState: context.state });
         }
         if (active) {
-          if (!voiceLogged) { voiceLogged = true; logSpeech("voice.detected", { frame: audioFrames }); }
-          if (listenTimeoutRef.current !== undefined) window.clearTimeout(listenTimeoutRef.current);
-          listenTimeoutRef.current = undefined;
-          hasVoiceRef.current = true;
-          lastVoiceAtRef.current = Date.now();
+          voiceStreak += 1;
+          if (voiceStreak >= 3) {
+            if (!voiceLogged) { voiceLogged = true; logSpeech("voice.detected", { frame: audioFrames }); }
+            if (listenTimeoutRef.current !== undefined) window.clearTimeout(listenTimeoutRef.current);
+            listenTimeoutRef.current = undefined;
+            hasVoiceRef.current = true;
+            lastVoiceAtRef.current = Date.now();
+          }
+        } else {
+          voiceStreak = 0;
         }
       };
       source.connect(processor);
@@ -358,7 +372,15 @@ const submitTranscript = async () => {
         }
       }, WAKE_NO_VOICE_TIMEOUT_MS);
       silenceTimerRef.current = window.setInterval(() => {
-        if (hasVoiceRef.current && transcriptRef.current.trim() && Date.now() - lastVoiceAtRef.current >= 1500) void submitTranscriptRef.current();
+        if (!hasVoiceRef.current || submittingRef.current) return;
+        const quiet = Date.now() - lastVoiceAtRef.current;
+        // R58：有转录 → 原有 1.5s 静音提交；有过声音但始终无转录（噪声误触发
+        // 或内容太短引擎判空）→ 2.2s 静音收敛直接关窗，不再无限"继续识别"。
+        if (transcriptRef.current.trim() && quiet >= 1500) void submitTranscriptRef.current();
+        else if (!transcriptRef.current.trim() && quiet >= WAKE_SILENCE_CLOSE_MS) {
+          logSpeech("capture.silence-close", { quietMs: quiet });
+          void bridge.closeWake();
+        }
       }, 100);
     } catch (reason) {
       logSpeech("capture.failed", { error: reason instanceof Error ? reason.message : String(reason) });

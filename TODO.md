@@ -3,6 +3,24 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R58 · 2026-10-14）
+
+1. **模型选择器溢出**：菜单容器 max-h-[min(360px,70vh)] + overflow 滚动 +
+   overscroll-contain；键盘 ↑↓ 手动把 cursor 行滚进视野（不用 scrollIntoView
+   避免连带滚外层页面）
+2. **推理强度最高档动效**：fillAt 去掉 '100%' 特例统一 calc 插值（单位突变
+   跳变根因）；promptbar 表面撤 backdrop-filter(14px)（Windows 合成开销大，
+   叠加 spark 粒子画布是偶发掉帧诱因），改近实心 --glass-strong
+3. **Thinking 推理框圆角**：intermediate-output/message-tool 展开态
+   border-radius 10px + 内边距（原直角矩形贴内容）
+4. **右下角状态球换 FluidOrb**：新 parts/fluid-orb.tsx（RareUI 同源语言，
+   与 MatrixOrb 同 prop 协议：谐波扰动渐变流体球 + 状态权重平滑过渡 +
+   reduced-motion 静态帧）；useDevicePixelRatio 自 matrix-orb 导出复用
+5. **语音窗口轻声空转**：VAD 阈值 0.008→0.015 + 连续 3 帧持续判定 +
+   "有声音但无转录"2.2s 静音收敛直接关窗；主窗听写采集改原始信号
+   （关 NS/AGC 保 AEC）提升识别率
+6. 验证：tsc 0 · npm run build 通过 · scan 0 死导出 0 孤儿 · 括号平衡
+
 ## 本轮（R56+R57 · 2026-10-13）
 
 ### R56 三项（会话体验）

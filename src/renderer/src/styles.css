@@ -221,7 +221,11 @@ button:focus:not(:focus-visible) { outline: none; }
 .message-tool, .intermediate-output { display: block; overflow: hidden; border: 0; border-radius: 0; background: transparent; }
 .message-tool { animation: message-tool-rise .2s ease-out both; }
 @keyframes message-tool-rise { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
-.message-tool.is-open, .intermediate-output.is-open { background: var(--bg-2); }
+/* R58：展开态（思考/工具推理框）补圆角与内边距——此前是直角矩形贴内容。 */
+.message-tool.is-open, .intermediate-output.is-open { background: var(--bg-2); border-radius: 10px; }
+.message-tool.is-open > .details-summary, .intermediate-output.is-open > .details-summary { padding: 5px 12px 0; }
+.message-tool.is-open .activity-content, .intermediate-output.is-open .activity-content { padding: 6px 12px 10px; }
+.message-tool.is-open .tool-detail, .intermediate-output.is-open .tool-detail { padding: 6px 12px 10px; }
 .message-tool .details-summary, .intermediate-output .details-summary { gap: 7px; color: var(--text-3); font-size: 12px; }
 .details-chevron { width: 12px; height: 12px; flex: 0 0 12px; margin-left: 1px; transform: rotate(90deg); transition: transform .24s ease; }.message-tool.is-open .details-chevron, .intermediate-output.is-open .details-chevron { transform: rotate(180deg); }
 .activity-dot { color: var(--text-3); font-size: 16px; }.tool-icon { color: var(--accent); font-size: 15px; }.tool-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.tool-state, .activity-state { margin-left: 0; color: var(--text-3); font-size: 11px; white-space: nowrap; }
@@ -675,7 +679,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .aurora-backdrop canvas { display: block; width: 100%; height: 100%; }
 /* 常驻状态球（composer 上方，会话开始后出现）：出现走过渡，不瞬移 */
 .composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); }
-.composer-orb-dock .matrix-orb { margin: 0; gap: 0; }
+.composer-orb-dock .matrix-orb, .composer-orb-dock .fluid-orb { margin: 0; gap: 0; display: block; }
 .composer-orb-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 @keyframes orb-dock-in { from { opacity: 0; transform: translateY(8px) scale(.5); } }
 
@@ -718,10 +722,11 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
    一并消失，order 规则随之撤销。 */
 .composer .app-promptbar { flex: 1 1 auto; min-width: 0; }
 .composer .app-promptbar textarea { flex: none; height: auto; }
-/* R57：promptbar 表面回归整体语言——rareui 裸白底改为主题玻璃面
-   （--pb-bg 由 App 传 var(--glass-bg)），叠 1px 线框 + 毛玻璃 + 原组合
-   阴影；两主题经 token 自动适配。选中第 2 层 div 即其 surface。 */
-.composer .app-promptbar > div > div[role="presentation"] { border: 1px solid var(--line-strong); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 var(--glass-inset); }
+/* R57：promptbar 表面回归整体语言——rareui 裸白底改为主题玻璃面。
+   R58 复盘：backdrop-filter(14px) 叠加 spark 粒子画布在 Windows 合成开销
+   偏高，是推理强度滑条等小动效"偶尔抽风"的诱因——改近实心 --glass-strong，
+   保线框/阴影/玻璃色、弃实时模糊。 */
+.composer .app-promptbar > div > div[role="presentation"] { border: 1px solid var(--line-strong); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 var(--glass-inset); }
 
 .wake-thinking { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); font-size: 14px; }
 .wake-thinking-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent, var(--accent)); animation: wake-think-bounce 1.1s ease-in-out infinite; }

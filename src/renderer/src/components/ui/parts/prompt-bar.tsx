@@ -382,6 +382,15 @@ export const PromptBar = ({
       void glow.offsetHeight;
       glow.style.transition = '';
     }
+    /* R58：模型等长列表限高滚动后，键盘 ↑↓ 的 cursor 可能移出可视区——
+       手动把行滚进容器视野（不用 scrollIntoView，避免连带滚动外层页面）。 */
+    const scroller = glow.parentElement;
+    if (scroller && scroller.scrollHeight > scroller.clientHeight) {
+      const top = row.offsetTop;
+      const bottom = top + row.offsetHeight;
+      if (top < scroller.scrollTop) scroller.scrollTop = Math.max(0, top - 4);
+      else if (bottom > scroller.scrollTop + scroller.clientHeight) scroller.scrollTop = bottom - scroller.clientHeight + 4;
+    }
   }, [open, cursor, list]);
   useEffect(() => {
     if (!open) lastOpen.current = null;
@@ -566,7 +575,9 @@ export const PromptBar = ({
     }
   };
   const stepAt = (i: number) => `calc(${EDGE}px + (100% - ${EDGE * 2}px) * ${i / Math.max(1, efforts.length - 1)})`;
-  const fillAt = (i: number) => (i === efforts.length - 1 ? '100%' : `calc(${stepAt(i)} + 7px)`);
+  /* R58：去掉最高档 '100%' 特例——统一 calc 插值，最高档往返不再出现
+     单位突变导致的偶发跳变（"抽风"）。最高档填充到 100%-1px，与滑块右缘对齐。 */
+  const fillAt = (i: number) => `calc(${stepAt(i)} + 7px)`;
 
   const pick = (row: Row) => {
     if (open === 'model') {
@@ -689,7 +700,7 @@ export const PromptBar = ({
       <style>{STYLE}</style>
       {open ? (
         <div
-          className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[260px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
+          className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom max-h-[min(360px,70vh)] overflow-y-auto overscroll-contain rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[260px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
           role={open === 'effort' ? 'dialog' : 'listbox'}
           aria-label={
             open === 'at' ? '来源' : open === 'slash' ? '命令' : open === 'model' ? '模型' : '推理强度'

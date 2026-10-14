@@ -3,6 +3,7 @@
    P1 步骤 2 已删除 _dead-* 死组件（15 个，约 2000 行）。审计见 UI-REWRITE-PLAN.md。 */
 export * from "./parts/scroll-progress.js";
 export * from "./parts/matrix-orb.js";
+export * from "./parts/fluid-orb.js";
 export * from "./parts/aurora-backdrop.js";
 export * from "./parts/day-separator.js";
 export * from "./parts/thought-line.js";

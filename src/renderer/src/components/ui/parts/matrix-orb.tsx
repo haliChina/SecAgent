@@ -138,7 +138,8 @@ function subscribeToZoom(onChange: () => void): () => void {
   return () => window.removeEventListener("resize", onChange);
 }
 
-function useDevicePixelRatio(): number {
+/** R58：FluidOrb 复用（DPR 感知，zoom 缩放重建画布缓冲）。 */
+export function useDevicePixelRatio(): number {
   return useSyncExternalStore(
     subscribeToZoom,
     () => Math.min(window.devicePixelRatio || 1, 4),

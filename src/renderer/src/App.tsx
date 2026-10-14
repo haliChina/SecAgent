@@ -21,7 +21,7 @@ import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
 import { TracePanel } from "./components/TracePanel.js";
 import { DeliverableCard } from "./components/DeliverableCard.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
-import { AuroraBackdrop, DaySeparator, DeleteButton, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
+import { AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
 type VoiceInputMode = "streaming" | "hold";
 type VoiceDropAction = "send" | "cancel" | "edit";
@@ -647,7 +647,11 @@ export function App() {
         setSpeechMode(null);
         return false;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(audioInputRef.current ? { deviceId: { exact: audioInputRef.current } } : {}) } });
+      /* R58：主窗听写采集改"原始信号"——关 noiseSuppression/autoGainControl
+       （浏览器降噪会削低电平语音、AGC 泵动改变动态，ASR 引擎在近讲场景
+       对原始 16k 单声道准确率更高；echoCancellation 保留防 TTS 回灌）。
+       唤醒窗采集不变（KWS 链路按原约束调优）。 */
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false, ...(audioInputRef.current ? { deviceId: { exact: audioInputRef.current } } : {}) } });
       if (speechSession.stopRequested) {
         stream.getTracks().forEach((track) => track.stop());
         if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
@@ -932,7 +936,7 @@ export function App() {
           <div />
         </div>
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y） */}<MatrixOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球换 RareUI 同源 FluidOrb（流体渐变形态，与 MatrixOrb 同协议）。 */}<FluidOrb size={40} state={orbState} color={orbAccent} stream={micStream} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
@@ -972,7 +976,7 @@ export function App() {
             onDictateCancel={cancelPromptDictation}
             value={draft}
             onDraftChange={setDraft}
-            background="var(--glass-bg)"
+            background="var(--glass-strong)"
             color="var(--text-1)"
             menuBackground="var(--glass-strong)"
             sparkColor={ACCENT}
