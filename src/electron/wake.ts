@@ -14,7 +14,7 @@ import { DEFAULT_WORKSPACE } from "../paths.js";
 import { SessionStore } from "../session-store.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "../wake-hotkey.js";
 import { stopSpeech, stopVoiceWake } from "./speech.js";
-import { ensureMacDockVisible, installWindowDiagnostics, rendererPath, setNotifyWakeHotkey } from "./windows.js";
+import { ensureMacDockVisible, installWindowDiagnostics, installExternalLinkGuard, rendererPath, setNotifyWakeHotkey } from "./windows.js";
 import { logMain } from "./main-log.js";
 import type { ReasoningEffort } from "../types.js";
 
@@ -111,6 +111,7 @@ export async function openWakeWindow(): Promise<void> {
     webPreferences: { preload: path.join(__dirname, "../preload/preload.cjs"), contextIsolation: true, nodeIntegration: false, autoplayPolicy: "no-user-gesture-required" }
   });
   installWindowDiagnostics(wakeWindow, "wake");
+  installExternalLinkGuard(wakeWindow);
   if (process.platform === "darwin") {
     // Keep the overlay in the current macOS Space, including a separate
     // full-screen app Space. Without visibleOnFullScreen, focusing this

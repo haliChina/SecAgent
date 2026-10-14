@@ -87,6 +87,11 @@ button:focus:not(:focus-visible) { outline: none; }
 .error-notice-title::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #DC2626; box-shadow: 0 0 0 3px color-mix(in srgb, #DC2626 18%, transparent); }
 .image-only-hint { color: var(--text-2); font-size: 12.5px; letter-spacing: .02em; }
 .message { display: flex; align-items: flex-start; max-width: 94%; }
+/* R59：长思考/长输出滚动卡顿主因——整条消息流全量参与布局与绘制。
+   离屏消息免布局免绘制（Chromium content-visibility:auto），滚动只付
+   可视区域代价；contain-intrinsic-size 用"auto 记忆高度"保滚动条稳定，
+   首次估高 160px。 */
+.message { content-visibility: auto; contain-intrinsic-size: auto 160px; }
 .message.user { align-self: flex-end; flex-direction: row-reverse; margin-top: 0; }
 .message-content { min-width: 0; }
 .bubble-row { position: relative; }
@@ -261,6 +266,16 @@ button:focus:not(:focus-visible) { outline: none; }
 
 html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hidden; background: transparent; }
 .wake-root { position: fixed; inset: 0; overflow: hidden; background: transparent; color: var(--text-1); pointer-events: none; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+/* R59：语音窗顶栏——与主窗 .topbar 同语言（bg-1/59px/下边线），浮层归属主应用。 */
+.wake-topbar { position: absolute; top: 0; left: 0; right: 0; z-index: 6; height: 59px; display: flex; align-items: center; gap: 14px; padding: 0 18px; border-bottom: 1px solid var(--line); background: var(--bg-1); box-shadow: 0 1px 3px rgba(15, 23, 42, .06); pointer-events: auto; }
+.wake-topbar-brand { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.wake-topbar-brand img { width: 22px; height: 22px; border-radius: 6px; }
+.wake-topbar-brand strong { font-size: 13.5px; font-weight: 650; color: var(--text-1); }
+.wake-topbar-brand span { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.wake-topbar-status { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; color: var(--text-2); font-size: 12.5px; }
+.wake-topbar-close { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); color: var(--text-2); cursor: pointer; }
+.wake-topbar-close:hover { background: var(--bg-3); color: var(--text-1); border-color: var(--line-strong); }
+.wake-topbar-close:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
 .wake-edge-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .wake-dismiss-area { position: absolute; inset: 0; pointer-events: auto; }
 .wake-edge-svg-mid { opacity: .72; animation: wake-edge-svg-mid 20s ease-in-out infinite; }
@@ -505,7 +520,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .select-combobox-select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .select-combobox-select:disabled { background: var(--bg-3); color: var(--text-3); cursor: not-allowed; }
 .select-combobox-select option, .select-combobox-select optgroup { color: var(--text-2); background: var(--bg-2); }
-.select-combobox-native .select-combobox-chevron { position: absolute; top: 50%; right: 10px; transform: translateY(-55%); color: var(--text-3); font-size: 13px; line-height: 1; pointer-events: none; }
+.select-combobox-native .select-combobox-chevron { position: absolute; top: 50%; right: 9px; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; transform: translateY(-55%); color: var(--text-3); pointer-events: none; border-radius: 4px; }
+.select-combobox-native .select-combobox-chevron svg { display: block; }
+.select-combobox-native:hover .select-combobox-chevron { color: var(--text-2); }
+.select-combobox-native:has(.select-combobox-select:focus-visible) .select-combobox-chevron { color: var(--accent-text); }
 
 /* Provider-preset picker v2 — datalist search + native select dropdown. */
 .preset-combobox-native { position: relative; display: flex; width: 100%; gap: 6px; }

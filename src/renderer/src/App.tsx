@@ -45,8 +45,31 @@ export function App() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [finishing, setFinishing] = useState(false);
+  /* R59 多任务：运行态按会话记账（主进程 activeSessionRuns 本就按会话键控）。
+     runningSessionIds/finishingSessionIds 驱动渲染；ref 镜像供异步闭包取新鲜值。
+     旧的单一全局 sending/finishing 是"新会话出现老会话思考提示 + 停止按钮"
+     串台的根因。 */
+  const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
+  const [finishingSessionIds, setFinishingSessionIds] = useState<string[]>([]);
+  const runningSessionsRef = useRef<string[]>([]);
+  const finishingSessionsRef = useRef<string[]>([]);
+  const markRunning = (id: string) => {
+    if (!runningSessionsRef.current.includes(id)) { runningSessionsRef.current = [...runningSessionsRef.current, id]; setRunningSessionIds(runningSessionsRef.current); }
+  };
+  const markFinishing = (id: string) => {
+    if (!finishingSessionsRef.current.includes(id)) { finishingSessionsRef.current = [...finishingSessionsRef.current, id]; setFinishingSessionIds(finishingSessionsRef.current); }
+  };
+  const clearRun = (id: string) => {
+    runningSessionsRef.current = runningSessionsRef.current.filter((candidate) => candidate !== id);
+    setRunningSessionIds(runningSessionsRef.current);
+    finishingSessionsRef.current = finishingSessionsRef.current.filter((candidate) => candidate !== id);
+    setFinishingSessionIds(finishingSessionsRef.current);
+  };
+  /** 视口当前会话是否在运行 / 在收尾；任意会话在运行（状态球、TracePanel 用）。 */
+  const sessionRunning = Boolean(session && runningSessionIds.includes(session.meta.id));
+  const sessionFinishing = Boolean(session && finishingSessionIds.includes(session.meta.id));
+  const anyRunning = runningSessionIds.length > 0;
+  const anyFinishing = finishingSessionIds.length > 0;
   const [recording, setRecording] = useState(false);
   const [speechProcessing, setSpeechProcessing] = useState(false);
   /** ASR 采集流的 React 侧句柄（audioRef 是 ref 不触发渲染；仅用于喂给状态球取电平）。 */
@@ -360,16 +383,24 @@ export function App() {
   // R56 手动滚动手势识别：滚轮上滚立即暂停跟随（scrollbar 拖拽由下方 onScroll 兜底）；
   // 任何方式回到距底 64px 内即恢复。程序化 scrollTo 也经过这里——"auto" 直达底部，
   // 不会产生远离底部的中间位置。
+  // R59：scrollHeight 读取强制布局，流式期间布局逐 chunk 变脏，滚动事件逐次
+  // 同步读 = 每次全页 reflow（长会话滑动卡顿成因之二）——rAF 合帧，每帧至多读一次。
+  const scrollCheckRafRef = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(scrollCheckRafRef.current), []);
   const handleMessagesWheel = (event: ReactWheelEvent) => {
     if (event.deltaY < 0) followOutputRef.current = false;
   };
   const handleMessagesScroll = () => {
-    const el = messagesRef.current;
-    if (!el) return;
-    followOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+    if (scrollCheckRafRef.current) return;
+    scrollCheckRafRef.current = requestAnimationFrame(() => {
+      scrollCheckRafRef.current = 0;
+      const el = messagesRef.current;
+      if (!el) return;
+      followOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+    });
   };
   useEffect(() => {
-    if (finishing || !answerStartScrollPending.current || !messagesRef.current || !answerContentRef.current) return;
+    if (sessionFinishing || !answerStartScrollPending.current || !messagesRef.current || !answerContentRef.current) return;
     answerStartScrollPending.current = false;
     const messages = messagesRef.current;
     const answer = answerContentRef.current;
@@ -378,7 +409,7 @@ export function App() {
       messages.scrollTo({ top: target, behavior: "auto" });
       console.debug("[SecAgent scroll] completed-answer-start", { targetScrollTop: target, scrollTop: messages.scrollTop });
     });
-  }, [finishing]);
+  }, [sessionFinishing]);
   const executionSeconds = useMemo(() => {
     const start = activeTrace.find((item) => item.stage === "user.request");
     const end = [...activeTrace].reverse().find((item) => item.stage === "assistant.response" || item.stage === "runtime.error");
@@ -427,19 +458,25 @@ export function App() {
   // 底部，跟着最新内容往下滚；用户上滚离开底部即暂停（保留完整手动浏览能力），
   // 滚回底部附近自动恢复跟随。收尾时 answerStartScrollPending 仍会把最终回答顶部
   // 滚入视野，不受跟随状态影响。
+  // R59：读+写也走 rAF（读 scrollHeight 强制布局，逐 chunk 同步写是卡顿成因
+  // 之三）；cleanup 取消过期帧，高频 chunk 每帧只落最后一滚。
   useEffect(() => {
-    if (!sending || !messagesRef.current) return;
+    if (!sessionRunning || !messagesRef.current) return;
     if (!followOutputRef.current) return;
     const messages = messagesRef.current;
-    const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
-    if (nextScrollTop - messages.scrollTop < 24) return;
-    messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
-  }, [streamingOutput, traceActivities, sending]);
+    const raf = requestAnimationFrame(() => {
+      if (!followOutputRef.current) return;
+      const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
+      if (nextScrollTop - messages.scrollTop < 24) return;
+      messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [streamingOutput, traceActivities, sessionRunning]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
   // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
-  const orbState = recording || speechProcessing ? "listening" : sending || finishing ? "thinking" : "idle";
+  const orbState = recording || speechProcessing ? "listening" : anyRunning || anyFinishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
-  const runningTool = sending || finishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
+  const runningTool = anyRunning || anyFinishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
   const orbAccent = runningTool ? ACCENT : undefined;
   const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
   // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
@@ -556,7 +593,7 @@ export function App() {
     });
   };
   const submitMessage = async (text: string, sentAttachments: ChatAttachment[], optimisticMessageId?: string) => {
-    if ((!text && !sentAttachments.length) || !session || sending || (voicePendingSendRef.current && !optimisticMessageId)) return;
+    if ((!text && !sentAttachments.length) || !session || runningSessionsRef.current.includes(session.meta.id) || (voicePendingSendRef.current && !optimisticMessageId)) return;
     if (optimisticMessageId) {
       setSession((current) => current && current.meta.id === session.meta.id
         ? { ...current, messages: current.messages.map((message) => message.id === optimisticMessageId ? { ...message, content: text } : message) }
@@ -566,7 +603,10 @@ export function App() {
       setSession((current) => current ? { ...current, messages: [...current.messages, optimisticMessage] } : current);
     }
     scrollMessagesToBottom();
-    setDraft(""); setQuotedText(""); setAttachments([]); setAttachmentError(""); setTrace([]); setFinishing(false); setSending(true);
+    setDraft(""); setQuotedText(""); setAttachments([]); setAttachmentError(""); setTrace([]);
+    /* R59：按会话记账——同一会话不并发（旧 sending 全局锁解除，其它会话可并行开跑）。 */
+    clearRun(session.meta.id);
+    markRunning(session.meta.id);
     let completed = false;
     try {
       if (bridge) {
@@ -574,11 +614,12 @@ export function App() {
         // 开启模式：档位顺序只是后端的 fallback 顺序，与推理强度无关，使用用户选择的推理强度。
         const effort = customModelMode ? reasoningEffort : defaultEffort;
         const response = await bridge.sendMessage(session.meta.id, text, selectedModelId, effort, sentAttachments);
-        setSession(response);
+        /* R59：多任务——收尾回包只更新视图中的同会话；期间切走的视图不被拽回。 */
+        setSession((current) => current && current.meta.id === session.meta.id ? response : current);
         setSessions(await bridge.listSessions());
         completed = true;
         answerStartScrollPending.current = true;
-        setFinishing(true);
+        markFinishing(session.meta.id);
       }
     } catch (error) {
       // R57：IPC/桥层异常兜底（runSession 内部已把模型错误写成"执行失败："
@@ -590,8 +631,7 @@ export function App() {
         : current);
     } finally {
       if (completed) await new Promise((resolve) => setTimeout(resolve, 260));
-      setFinishing(false);
-      setSending(false);
+      clearRun(session.meta.id);
     }
   };
   const send = async (event: FormEvent) => {
@@ -600,7 +640,7 @@ export function App() {
     await submitMessage(buildQuotedUserMessage(quotedText, draft), attachments);
   };
   const stop = async () => {
-    if (!bridge || !session || !sending) return;
+    if (!bridge || !session || !runningSessionsRef.current.includes(session.meta.id)) return;
     await bridge.stopMessage(session.meta.id);
   };
 
@@ -615,7 +655,7 @@ export function App() {
   };
 
   const startVoiceInput = async (mode: VoiceInputMode, insert?: { start: number; end: number }): Promise<boolean> => {
-    if (recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) return false;
+    if (recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return false;
     if (!navigator.mediaDevices?.getUserMedia) {
       setSpeechStatus("当前环境不支持麦克风");
       return false;
@@ -708,7 +748,7 @@ export function App() {
     resolve("");
   };
   const startPromptDictation = () => new Promise<string>((resolve) => {
-    if (recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) { resolve(""); return; }
+    if (recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) { resolve(""); return; }
     pendingDictationResolveRef.current = resolve;
     void startVoiceInput("streaming").then((started) => { if (!started) { pendingDictationResolveRef.current = null; resolve(""); } });
   });
@@ -837,7 +877,7 @@ export function App() {
   };
   const handleMicPointerDown = (event: ReactPointerEvent<HTMLFormElement>) => {
     const target = event.target instanceof Element ? event.target.closest("textarea") : null;
-    if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) return;
+    if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return;
     const textArea = textareaRef.current;
     const insert = { start: textArea?.selectionStart ?? draft.length, end: textArea?.selectionEnd ?? draft.length };
     const press: NonNullable<typeof voicePressRef.current> = { pointerId: event.pointerId, timer: 0, started: false, released: false, insert };
@@ -930,9 +970,10 @@ export function App() {
             const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
             // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
             const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
-            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
-          {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><ThoughtLine label={activeStepKind === "tool" ? "正在调用工具" : "正在思考"} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
+          {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
+          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><ThoughtLine label={activeStepKind === "tool" ? "正在调用工具" : "正在思考"} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
           <div />
         </div>
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
@@ -953,7 +994,7 @@ export function App() {
             ]}
             onCommandPick={(key) => {
               if (key === "new-session") void createSession();
-              else if (key === "stop") { if (sending) void stop(); }
+              else if (key === "stop") { if (sessionRunning) void stop(); }
               else if (key === "read") {
                 const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
                 if (target) void readMessage(target.id, target.content);
@@ -967,7 +1008,7 @@ export function App() {
             efforts={customModelMode ? reasoningEfforts.map((effort) => reasoningEffortLabels[effort]) : ["默认"]}
             defaultEffort={customModelMode ? reasoningEffortLabels[reasoningEffort] : "默认"}
             onEffortChange={(label) => { const effort = reasoningEfforts.find((candidate) => reasoningEffortLabels[candidate] === label); if (effort) setReasoningEffort(effort); }}
-            busy={sending}
+            busy={sessionRunning}
             onSend={(text) => { if (!session || voicePendingSendRef.current) return; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
             onStop={() => { void stop(); }}
             onAttach={() => new Promise<string[]>((resolve) => { pendingAttachResolveRef.current = resolve; fileInputRef.current?.click(); })}
@@ -986,7 +1027,7 @@ export function App() {
           />}
         </form>
       </section>
-      <TracePanel activeTrace={activeTrace} isExecuting={sending && !finishing} />
+      <TracePanel activeTrace={activeTrace} isExecuting={sessionRunning && !sessionFinishing} />
     </section>
   </main>;
 }

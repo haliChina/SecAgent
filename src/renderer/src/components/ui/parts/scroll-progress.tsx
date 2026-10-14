@@ -90,12 +90,26 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
       setActiveId(active?.id ?? sections[0]?.id)
     }
 
+    /* R59：长会话滚动卡顿主因之一——scroll 事件逐次同步测 rect，流式期间
+       布局脏每次都强制整页 reflow。rAF 合帧后每帧最多测一次；配合
+       .message 的 content-visibility:auto（styles.css），离屏消息免布局
+       免绘制，长思考/长输出滚动回到流畅。 */
+    let raf = 0
+    const schedule = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        update()
+      })
+    }
+
     update()
-    scroller.addEventListener("scroll", update, { passive: true })
-    window.addEventListener("resize", update)
+    scroller.addEventListener("scroll", schedule, { passive: true })
+    window.addEventListener("resize", schedule)
     return () => {
-      scroller.removeEventListener("scroll", update)
-      window.removeEventListener("resize", update)
+      cancelAnimationFrame(raf)
+      scroller.removeEventListener("scroll", schedule)
+      window.removeEventListener("resize", schedule)
     }
   }, [sections, containerRef, offset])
 

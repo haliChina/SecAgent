@@ -76,8 +76,12 @@ export class VoiceWakeEngine {
       },
       maxActivePaths: 4,
       numTrailingBlanks: 1,
-      keywordsScore: 1.5,
-      keywordsThreshold: 0.55,
+      /* R59：实测"根本唤醒不了"——此前 keywordsThreshold 0.55 远高于 sherpa
+         默认 0.25（3M 小模型 + 近讲麦很难过 0.55 的置信门），回落到官方默认
+         （score 1.0 / threshold 0.25）保召回；误触由 numTrailingBlanks 与
+         唤醒词长度天然兜底。 */
+      keywordsScore: 1.0,
+      keywordsThreshold: 0.25,
       keywords: `${keywordTokens(phrase)} @${phrase}`
     });
     this.stream = this.kws.createStream();

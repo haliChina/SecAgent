@@ -3,6 +3,31 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R59 · 2026-10-14）
+
+1. **长内容滚动卡顿**：.message content-visibility:auto + contain-intrinsic-size
+   （离屏消息免布局免绘制）；ScrollProgress 测量与流式跟随/滚动读全部
+   rAF 合帧（流式期间布局脏，逐事件同步读=每次全页 reflow）
+2. **bash 中文乱码**：pi-tools exec 改 buffer 回传，decodeShellBytes
+   严格 UTF-8 优先、GBK 兜底（中文 Windows cmd 输出 cp936）
+3. **下拉"⌄"字形**：SelectCombobox v3——lucide ChevronDown 图标（shadcn
+   同款）+ hover/focus 态；保留原生 select（希沃触屏可靠性，v1 手工
+   弹层失败教训）
+4. **设置页 UX**：语音识别区拆四卡（识别服务/麦克风扬声器/教室嘈杂/
+   云服务高级收拢）+ 大白话文案；系统区卡片化（开机自启/外观独立卡）
+5. **多会话串台**：运行态按会话记账 runningSessionIds/finishingSessionIds
+   （ref 镜像），思考指示/停止按钮/语音门控只认"本会话在跑"；全局
+   sending 锁解除（后端 activeSessionRuns 本就按会话键控）；收尾回包
+   只更新视图中的同会话
+6. **语音窗顶栏**：WakeOverlay 加 wake-topbar（品牌/状态播报/关闭钮），
+   与主窗 topbar 同语言（bg-1·59px·下边线）
+7. **唤醒词失效**：KWS keywordsThreshold 0.55→0.25、score 1.5→1.0
+   （sherpa 官方默认；0.55 在 3M 小模型+近讲麦下几乎无法命中）
+8. **主窗链接顶掉应用**：installExternalLinkGuard（will-navigate 全拦 +
+   setWindowOpenHandler deny，http/https/mailto 转 shell.openExternal），
+   主窗/设置窗/唤醒窗统一安装
+9. 验证：scan 0/0 · 括号平衡 · tsc/build 交 CI（Actions）
+
 ## 本轮（R58 · 2026-10-14）
 
 1. **模型选择器溢出**：菜单容器 max-h-[min(360px,70vh)] + overflow 滚动 +

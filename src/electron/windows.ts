@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, Menu, Notification, Tray, session, screen, ipcMain, type BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle } from "../plugin-manager.js";
 import { logMain } from "./main-log.js";
@@ -33,6 +33,21 @@ export function setNotifyWakeHotkey(value: string): void { notifyWakeHotkey = va
 export function appIconPath(): string {
   const bundledIcon = path.join(__dirname, "../renderer/icon.png");
   return fs.existsSync(bundledIcon) ? bundledIcon : path.join(process.cwd(), "src/renderer/public/icon.png");
+}
+
+/** R59：应用窗口内的链接一律不得替换应用界面（点击后 UI 被网页顶掉且
+ *  无法退出、只能重启）。所有导航与新窗口请求全部拦截，http/https/mailto
+ *  转交系统默认浏览器打开。主窗/设置窗/唤醒浮窗统一安装。 */
+export function installExternalLinkGuard(win: BrowserWindow): void {
+  const toExternal = (url: string): boolean => /^https?:|^mailto:/i.test(url);
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (toExternal(url)) void shell.openExternal(url).catch(() => undefined);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event, url) => {
+    event.preventDefault();
+    if (toExternal(url)) void shell.openExternal(url).catch(() => undefined);
+  });
 }
 
 export function installFileRendererAssetFallback(): void {
@@ -120,6 +135,7 @@ export function createWindow(visible = true): void {
   configureWindowChrome(windowRef);
   installWindowDiagnostics(windowRef, "main");
   installWindowShortcuts(windowRef);
+  installExternalLinkGuard(windowRef);
   windowRef.on("close", (event) => {
     if (isQuitting) return;
     event.preventDefault();
@@ -275,6 +291,7 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
   });
   configureWindowChrome(settingsWindow);
   installWindowDiagnostics(settingsWindow, "settings");
+  installExternalLinkGuard(settingsWindow);
   settingsWindow.on("page-title-updated", (event) => { event.preventDefault(); });
   settingsWindow.setTitle("SecAgent设置");
   const query = oobe ? "?settings=1&oobe=1" : "?settings=1";
