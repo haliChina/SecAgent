@@ -697,6 +697,19 @@ function registerOverlayIpcOnce(): void {
       win.setBounds({ x: bounds.x + (Number(dx) || 0), y: bounds.y + (Number(dy) || 0) });
     }
   });
+  // 绝对定位协议（桌宠 0.4.2+）：渲染端传「抓取点在窗口内的偏移」（拖拽期间恒定），
+  // 主进程用自己读到的光标坐标反推窗口原点。旧 move 协议要跨进程传递增量并在两个
+  // 坐标系之间换算——DPI 缩放/宿主版本差异下会错位，实机表现为「往左上拖反而往
+  // 左下慢速漂移」。此协议每次都从主进程的绝对坐标重算，无累积、自纠错。
+  ipcMain.on("overlay:move-to", (event, offsetX: unknown, offsetY: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    const cursor = screen.getCursorScreenPoint();
+    win.setBounds({
+      x: Math.round(cursor.x - (Number(offsetX) || 0)),
+      y: Math.round(cursor.y - (Number(offsetY) || 0))
+    });
+  });
 }
 
 /**
@@ -750,12 +763,19 @@ async function openPluginOverlay(request: OverlayRequest): Promise<PluginOverlay
     setBounds: async (bounds) => {
       if (!alive()) return;
       const current = win.getBounds();
-      win.setBounds({
+      const next = {
         x: bounds.x ?? current.x,
         y: bounds.y ?? current.y,
         width: bounds.width ?? current.width,
         height: bounds.height ?? current.height
-      });
+      };
+      // anchor="bottom-right"：只改宽高时保持右下角不动（桌宠锚定窗口右下角，
+      // 改尺寸时视觉位置保持原地；旧插件不传 anchor 行为不变）。
+      if ((bounds as { anchor?: string }).anchor === "bottom-right") {
+        next.x = current.x + current.width - next.width;
+        next.y = current.y + current.height - next.height;
+      }
+      win.setBounds(next);
     }
   };
 }
