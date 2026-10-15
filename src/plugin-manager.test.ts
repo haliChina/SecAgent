@@ -406,3 +406,128 @@ test("overlay: 参数校验 + 停用时自动关闭", async () => {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+// ---- Windows 实机 0.5.3→0.5.4 升级 EPERM：旧版 koffi .node 仍映射在进程内 ----
+// rmSync 对 installed/<id> 抛 EPERM。修复契约：重试后改名隔离到 .trash-*，
+// 安装继续成功；下次启动（任何插件加载前）清扫 .trash-*。
+
+function createLockedArchive(workspace: string, version: string, marker: string): string {
+  const archivePath = path.join(workspace, `locked-${version}.zip`);
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  archive.addFile("secagent-plugin.json", Buffer.from(JSON.stringify({ apiVersion: 1, id: "locked-test", name: "Locked test", version, main: "main.mjs", permissions: ["agent.prompts"] })));
+  archive.addFile("main.mjs", Buffer.from(`export function activate(api) { api.registerPrompt("marker", () => "${marker}"); }`));
+  archive.writeZip(archivePath);
+  return archivePath;
+}
+
+/** 把 fs.rmSync 替换为对 installed/<id> 目录抛 EPERM，模拟 Windows 句柄锁死。 */
+function lockPluginDir(pluginDirInPath: string): () => void {
+  const realRmSync = fs.rmSync;
+  (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmOptions) => {
+    if (typeof target === "string" && target.includes(pluginDirInPath)) {
+      const error = new Error("EPERM: operation not permitted, unlink") as NodeJS.ErrnoException;
+      error.code = "EPERM";
+      throw error;
+    }
+    return realRmSync(target, options);
+  }) as typeof fs.rmSync;
+  return () => { (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = realRmSync; };
+}
+
+test("upgrading while the old plugin directory is locked leaves it intact and sweeps it on next start", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-upgrade-"));
+  try {
+    const manager = new PluginManager(workspace);
+    await manager.initialize();
+    await manager.install(createLockedArchive(workspace, "1.0.0", "old"));
+    assert.equal((await manager.getPromptContributions())[0].text, "old");
+
+    const unlock = lockPluginDir(path.join("installed", "locked-test"));
+    try {
+      await manager.install(createLockedArchive(workspace, "1.1.0", "new"));
+    } finally {
+      unlock();
+    }
+    // 安装成功：新版本就位、提示词来自新插件
+    assert.equal(manager.list()[0].version, "1.1.0");
+    assert.equal((await manager.getPromptContributions())[0].text, "new");
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.1.0")), true);
+    // 升级路径完全不碰旧版本目录（不删除、不隔离）——被锁也无所谓，不产生 .trash-*
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.0.0")), true);
+    const trash = fs.readdirSync(path.join(workspace, "plugins", "installed")).filter((name) => name.startsWith(".trash-"));
+    assert.equal(trash.length, 0);
+    await manager.shutdown();
+
+    // 模拟重启：initialize 清扫孤儿版本目录（状态里只有 1.1.0），再加载插件
+    const restarted = new PluginManager(workspace);
+    await restarted.initialize();
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test", "1.0.0")), false);
+    assert.equal(restarted.list()[0].version, "1.1.0");
+    assert.equal((await restarted.getPromptContributions())[0].text, "new");
+    await restarted.shutdown();
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("uninstalling a locked plugin directory also succeeds via quarantine", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-uninstall-"));
+  try {
+    const manager = new PluginManager(workspace);
+    await manager.initialize();
+    await manager.install(createLockedArchive(workspace, "1.0.0", "old"));
+    const unlock = lockPluginDir(path.join("installed", "locked-test"));
+    try {
+      await manager.uninstall("locked-test");
+    } finally {
+      unlock();
+    }
+    assert.equal(manager.list().length, 0);
+    assert.equal(fs.existsSync(path.join(workspace, "plugins", "installed", "locked-test")), false);
+    const trash = fs.readdirSync(path.join(workspace, "plugins", "installed")).filter((name) => name.startsWith(".trash-locked-test-"));
+    assert.equal(trash.length, 1);
+    await manager.shutdown();
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("when both deletion and quarantine fail on reinstall, install reports the restart guidance and keeps the old version active", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-plugin-locked-stuck-"));
+  try {
+    const manager = new PluginManager(workspace);
+    await manager.initialize();
+    await manager.install(createLockedArchive(workspace, "1.0.0", "old"));
+    const realRmSync = fs.rmSync;
+    const realRenameSync = fs.renameSync;
+    // 同版本重装：目标目录 installed/locked-test/1.0.0 删不掉（EPERM）也隔离不了（改名失败）
+    // ——升级路径已不碰旧目录，双失败只会在同版本重装时发生。
+    (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = ((target: fs.PathLike, options: fs.RmOptions) => {
+      if (typeof target === "string" && target.includes(path.join("installed", "locked-test", "1.0.0"))) {
+        const error = new Error("EPERM: operation not permitted") as NodeJS.ErrnoException;
+        error.code = "EPERM";
+        throw error;
+      }
+      return realRmSync(target, options);
+    }) as typeof fs.rmSync;
+    (fs as unknown as { renameSync: typeof fs.renameSync }).renameSync = ((from: fs.PathLike, to: fs.PathLike) => {
+      if (typeof from === "string" && from.includes(path.join("installed", "locked-test", "1.0.0"))) throw new Error("EPERM: rename not permitted");
+      return realRenameSync(from, to);
+    }) as typeof fs.renameSync;
+    try {
+      await assert.rejects(
+        () => manager.install(createLockedArchive(workspace, "1.0.0", "new")),
+        /完全退出 SecAgent/
+      );
+    } finally {
+      (fs as unknown as { rmSync: typeof fs.rmSync }).rmSync = realRmSync;
+      (fs as unknown as { renameSync: typeof fs.renameSync }).renameSync = realRenameSync;
+    }
+    // 失败不破坏既有安装，且旧版本被自动重新激活——服务不停摆到重启
+    assert.equal(manager.list()[0].version, "1.0.0");
+    assert.equal((await manager.getPromptContributions())[0].text, "old");
+    await manager.shutdown();
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

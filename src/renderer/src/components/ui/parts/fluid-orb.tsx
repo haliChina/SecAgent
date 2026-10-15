@@ -1,168 +1,211 @@
 /**
- * FluidOrb —— RareUI 同源的"流体球"状态指示器（R58）。
+ * FluidOrb —— rare-ui 真源移植（R60，替换 R58 的 canvas2D 自研仿品）。
  *
- * 与 MatrixOrb（rareui matrixorb 直译）同一 prop 协议，composer 右下角
- * 状态球换装用：size / state(idle|listening|thinking) / level(0-1，缺省
- * 走 useStreamLevel 采集 stream) / color / stream。
+ * 来源：github.com/swamimalode07/rare-ui components/ui/fluid-orb.tsx（MIT）
+ * 逐行直译：WebGL 顶点/片元着色器（fbm 噪声流体 + 圆形边缘掩码）原样保留，
+ * props 协议 ComponentProps<'div'> & { size, color } 原样保留，默认导出
+ * 改为具名导出（本项目 Bits.js 具名约定）。
  *
- * 视觉：canvas 逐帧绘制"边界带谐波扰动的渐变流体球"——
- *  - 半径 r(θ,t) = R·(1 + Σ aₖ·sin(kθ + φₖ + ωₖt))，三层谐波叠出流体感
- *  - 径向渐变实心核 + 外圈柔光 halo + 上左高光次球（深度）
- *  - idle 慢速低幅；listening 幅度/呼吸随音频电平；thinking 中幅 + 高光绕行
- *  - 状态切换经权重插值平滑过渡（与 MatrixOrb 同思路）
- * prefers-reduced-motion：静态单帧。DPR 感知，zoom 缩放重建缓冲。
+ * Electron/无路由适配仅两处：'use client' 去除（非 Next）、cn 用 clsx
+ * （本项目无 Tailwind 类冲突合并需求，等价语义）。
+ * 状态表达（idle/listening/thinking）由调用侧组合完成：按状态传 color，
+ * listening 加 CSS 呼吸类——不改动组件本体（R60"禁止自研"约定）。
  */
-import { useEffect, useRef } from "react";
-import { useStreamLevel, useDevicePixelRatio, type OrbState } from "./matrix-orb.js";
-import { ACCENT } from "./theme.js";
+import React, { useEffect, useRef } from "react";
+import { clsx } from "clsx";
 
-const FO_STATES: OrbState[] = ["idle", "listening", "thinking"];
-/** 各状态的形态参数：基础半径比 / 谐波幅度 / 速度 / halo 透明度。 */
-const FO_SHAPE: Record<OrbState, { scale: number; amp: number; speed: number; halo: number }> = {
-  idle: { scale: 0.86, amp: 0.045, speed: 0.5, halo: 0.1 },
-  listening: { scale: 1, amp: 0.12, speed: 1.1, halo: 0.22 },
-  thinking: { scale: 0.93, amp: 0.09, speed: 0.85, halo: 0.16 }
+const cn = clsx;
+
+export type FluidOrbProps = React.ComponentProps<"div"> & {
+  size?: number;
+  color?: string;
 };
 
-function hexToRgb(hex: string): [number, number, number] {
-  const full = hex.replace(/^#/, "");
-  const expanded = full.length === 3 ? full.split("").map((c) => c + c).join("") : full;
-  const value = Number.parseInt(expanded.slice(0, 6) || "000000", 16);
-  return [(value >> 16) & 255, (value >> 8) & 255, value & 255];
+const VERT = `
+attribute vec2 a_pos;
+void main() {
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}
+`;
+
+const FRAG = `
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
+precision mediump float;
+#endif
+
+uniform vec2 u_resolution;
+uniform float u_time;
+uniform vec3 u_color;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
 }
 
-export function FluidOrb({ size = 240, state = "idle", level, color = ACCENT, stream }: {
-  size?: number;
-  state?: OrbState;
-  level?: number;
-  color?: string;
-  stream?: MediaStream | null;
-}) {
-  const streamLevel = useStreamLevel(state === "listening" ? stream : null);
-  const live = level ?? streamLevel;
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const dpr = useDevicePixelRatio();
-  const stateRef = useRef(state);
-  const levelRef = useRef(live);
+float noise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(
+    mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+    mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x),
+    u.y
+  );
+}
 
-  useEffect(() => {
-    stateRef.current = state;
-    levelRef.current = live;
-  }, [state, live]);
+float fbm(vec2 p) {
+  float v = 0.0;
+  float a = 0.6;
+  for (int i = 0; i < 3; i++) {
+    v += a * noise(p);
+    p *= 2.0;
+    a *= 0.5;
+  }
+  return v;
+}
+
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution.xy;
+  float t = u_time * 0.22;
+
+  vec2 drift = vec2(
+    sin(t) + 0.6 * sin(t * 1.7 + 1.3),
+    cos(t * 0.8) + 0.6 * cos(t * 1.3 + 2.1)
+  );
+
+  vec2 p = vec2(uv.x * 1.8, uv.y * 1.0) + drift * 0.7;
+
+  vec2 q = vec2(fbm(p + drift), fbm(p + vec2(3.2, 1.5) - drift));
+  float f = fbm(p + 1.2 * q);
+
+  float g = clamp(1.0 - uv.y, 0.0, 1.0);
+  float anchor = smoothstep(0.0, 0.3, uv.y);
+  float shade = clamp(g + (f - 0.5) * 0.8 * anchor, 0.0, 1.0);
+
+  vec3 white = vec3(0.99, 1.0, 1.0);
+  vec3 light = mix(white, u_color, 0.5);
+  vec3 dark = u_color;
+
+  vec3 col = white;
+  col = mix(col, light, smoothstep(0.28, 0.52, shade));
+  col = mix(col, dark, smoothstep(0.58, 0.88, shade));
+
+  float edge = smoothstep(0.5, 0.49, distance(uv, vec2(0.5)));
+
+  gl_FragColor = vec4(col * edge, edge);
+}
+`;
+
+function hexToRgb(hex: string): [number, number, number] {
+  let h = hex.replace("#", "").trim();
+  if (h.length === 3) {
+    h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  }
+  const n = parseInt(h, 16);
+  if (h.length !== 6 || Number.isNaN(n)) return [0.1, 0.45, 0.95];
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+function compile(gl: WebGLRenderingContext, type: number, src: string) {
+  const shader = gl.createShader(type);
+  if (!shader) return null;
+  gl.shaderSource(shader, src);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    console.error(gl.getShaderInfoLog(shader));
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+}
+
+export const FluidOrb = ({
+  size = 240,
+  color = "#1A73F2",
+  className,
+  style,
+  ...props
+}: FluidOrbProps) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx) return;
-    const buffer = Math.max(1, Math.round(size * dpr));
-    canvas.width = buffer;
-    canvas.height = buffer;
-    ctx.setTransform(buffer / size, 0, 0, buffer / size, 0, 0);
-    const [r, g, b] = hexToRgb(color);
-    const rgba = (alpha: number) => `rgba(${r},${g},${b},${alpha})`;
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    const center = size / 2;
-    const baseR = (size / 2) * 0.78;
-    // 状态权重（平滑过渡）
-    const weights: Record<OrbState, number> = { idle: 0, listening: 0, thinking: 0 };
-    weights[stateRef.current] = 1;
-    let raf = 0;
+    if (!canvas) return;
+
+    const gl = canvas.getContext("webgl", { antialias: true, alpha: true });
+    if (!gl) return;
+
+    const program = gl.createProgram();
+    const vert = compile(gl, gl.VERTEX_SHADER, VERT);
+    const frag = compile(gl, gl.FRAGMENT_SHADER, FRAG);
+    if (!program || !vert || !frag) return;
+
+    gl.attachShader(program, vert);
+    gl.attachShader(program, frag);
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+      console.error(gl.getProgramInfoLog(program));
+      return;
+    }
+    gl.useProgram(program);
+
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW
+    );
+    const aPos = gl.getAttribLocation(program, "a_pos");
+    gl.enableVertexAttribArray(aPos);
+    gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+    const uResolution = gl.getUniformLocation(program, "u_resolution");
+    const uTime = gl.getUniformLocation(program, "u_time");
+    gl.uniform3f(gl.getUniformLocation(program, "u_color"), ...hexToRgb(color));
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const px = Math.round(size * dpr);
+    canvas.width = px;
+    canvas.height = px;
+    gl.viewport(0, 0, px, px);
+    gl.uniform2f(uResolution, px, px);
+
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const start = performance.now();
+    let raf = 0;
 
-    // 谐波参数（固定相位差避免同频对齐的机械感）
-    const harmonics = [
-      { k: 2, a: 1, speed: 1.0, phase: 0.0 },
-      { k: 3, a: 0.62, speed: -0.72, phase: 1.9 },
-      { k: 5, a: 0.38, speed: 0.55, phase: 4.1 }
-    ];
-
-    const blobPath = (t: number, scale: number, amp: number): void => {
-      ctx.beginPath();
-      const steps = 72;
-      for (let i = 0; i <= steps; i += 1) {
-        const angle = (i / steps) * Math.PI * 2;
-        let wobble = 0;
-        for (const h of harmonics) wobble += h.a * Math.sin(h.k * angle + h.phase + t * h.speed * (1 + amp));
-        const radius = baseR * scale * (1 + wobble * amp);
-        const x = center + Math.cos(angle) * radius;
-        const y = center + Math.sin(angle) * radius;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
+    const render = (now: number) => {
+      gl.uniform1f(uTime, reduce ? 0 : (now - start) / 1000);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+      if (!reduce) raf = requestAnimationFrame(render);
     };
+    render(start);
 
-    const draw = (now: number): void => {
-      const t = reduce ? 0 : (now - start) / 1000;
-      // 状态权重向当前状态松弛（~200ms 过渡）
-      const target = stateRef.current;
-      for (const key of FO_STATES) {
-        const goal = key === target ? 1 : 0;
-        weights[key] += (goal - weights[key]) * 0.16;
-      }
-      let scale = 0;
-      let amp = 0;
-      let halo = 0;
-      for (const key of FO_STATES) {
-        const w = weights[key];
-        if (w <= 0.001) continue;
-        scale += FO_SHAPE[key].scale * w;
-        amp += FO_SHAPE[key].amp * w;
-        halo += FO_SHAPE[key].halo * w;
-      }
-      // listening 电平呼吸：幅度与尺度随电平抬升（平滑）
-      const lvl = stateRef.current === "listening" ? levelRef.current : 0;
-      const breathe = 1 + lvl * 0.16;
-      scale *= breathe;
-
-      ctx.clearRect(0, 0, size, size);
-
-      // 外圈柔光 halo（径向渐变环）
-      const haloR = baseR * scale * (1.34 + lvl * 0.2);
-      const haloGrad = ctx.createRadialGradient(center, center, baseR * scale * 0.6, center, center, haloR);
-      haloGrad.addColorStop(0, rgba(halo * 0.35));
-      haloGrad.addColorStop(1, rgba(0));
-      ctx.fillStyle = haloGrad;
-      ctx.beginPath();
-      ctx.arc(center, center, haloR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 主体流体渐变
-      const grad = ctx.createRadialGradient(center - baseR * 0.22, center - baseR * 0.26, baseR * 0.1, center, center, baseR * scale * 1.18);
-      grad.addColorStop(0, rgba(0.95));
-      grad.addColorStop(0.45, rgba(0.55));
-      grad.addColorStop(1, rgba(0.08));
-      ctx.fillStyle = grad;
-      blobPath(t, scale, amp);
-      ctx.fill();
-
-      // thinking：高光次球绕行（上左向）
-      if (weights.thinking > 0.02) {
-        const orbit = t * 1.6;
-        const hx = center - Math.cos(orbit) * baseR * 0.34 * weights.thinking;
-        const hy = center - Math.sin(orbit) * baseR * 0.3 * weights.thinking;
-        const hr = baseR * scale * 0.3 * (0.7 + 0.3 * weights.thinking);
-        const hg = ctx.createRadialGradient(hx, hy, 0, hx, hy, hr);
-        hg.addColorStop(0, `rgba(255,255,255,${0.5 * weights.thinking})`);
-        hg.addColorStop(1, "rgba(255,255,255,0)");
-        ctx.fillStyle = hg;
-        ctx.beginPath();
-        ctx.arc(hx, hy, hr, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 细描边（形态可读性）
-      ctx.strokeStyle = rgba(0.35);
-      ctx.lineWidth = Math.max(1, size * 0.006);
-      blobPath(t, scale, amp);
-      ctx.stroke();
-
-      if (!reduce) raf = requestAnimationFrame(draw);
+    return () => {
+      cancelAnimationFrame(raf);
+      gl.deleteProgram(program);
+      gl.deleteShader(vert);
+      gl.deleteShader(frag);
+      gl.deleteBuffer(buffer);
     };
+  }, [size, color]);
 
-    raf = requestAnimationFrame(draw);
-    return () => cancelAnimationFrame(raf);
-  }, [size, dpr, color]);
+  return (
+    <div
+      data-slot="fluid-orb"
+      className={cn("fluid-orb relative overflow-hidden rounded-full", className)}
+      style={{
+        width: size,
+        height: size,
+        ...style,
+      }}
+      {...props}
+    >
+      <canvas ref={canvasRef} className="h-full w-full" />
+    </div>
+  );
+};
 
-  return <canvas ref={canvasRef} className="fluid-orb" width={size} height={size} style={{ width: size, height: size }} aria-hidden="true" />;
-}
+export default FluidOrb;

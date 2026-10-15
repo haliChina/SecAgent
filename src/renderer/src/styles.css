@@ -698,6 +698,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 常驻状态球（composer 上方，会话开始后出现）：出现走过渡，不瞬移 */
 .composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); }
 .composer-orb-dock .matrix-orb, .composer-orb-dock .fluid-orb { margin: 0; gap: 0; display: block; }
+/* R60：真源 FluidOrb（WebGL）listening 态呼吸——调用侧组合，组件本体零改动。 */
+.fluid-orb-pulse { animation: fluid-orb-pulse 1.6s ease-in-out infinite; }
+@keyframes fluid-orb-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
+@media (prefers-reduced-motion: reduce) { .fluid-orb-pulse { animation: none; } }
 .composer-orb-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 @keyframes orb-dock-in { from { opacity: 0; transform: translateY(8px) scale(.5); } }
 

@@ -187,19 +187,41 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
     // R57：offsetTop 依赖 offsetParent（.conversation），布局微调即错位；改用
     // rect 差值计算相对滚动量，并夹取到 [0, maxScrollTop]——末节内容不足一屏时
     // 目标不再越过最大滚动量，日期分隔条落在视野内而非"压到底部被遮挡一半"。
+    // R60：单次 rect 计算在 content-visibility:auto（R59）下不可靠——离屏消息
+    // 高度还是 contain-intrinsic-size 估计值，落点按估计算、跳过去后真实高度
+    // 展开导致目标节漂移（"点击后页面不对"复发根因）。两段式纠偏：
+    // ① behavior:auto 直达估计位置（顺带触发该区域渲染展开）；
+    // ② 连续 3 帧复测目标 rect，按真实布局修正落点（位移 <2px 即早停）。
     const target = document.getElementById(id)
     const container = containerRef?.current
     if (target && container && container.contains(target)) {
-      const top =
-        target.getBoundingClientRect().top -
-        container.getBoundingClientRect().top +
-        container.scrollTop -
-        24
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
-      container.scrollTo({
-        top: Math.max(0, Math.min(top, maxScrollTop)),
-        behavior: reduceMotion ? "auto" : "smooth",
-      })
+      const clamp = (value: number) => {
+        const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight)
+        return Math.max(0, Math.min(value, maxScrollTop))
+      }
+      const measureTop = () =>
+        clamp(
+          target.getBoundingClientRect().top -
+          container.getBoundingClientRect().top +
+          container.scrollTop -
+          24
+        )
+      container.scrollTo({ top: measureTop(), behavior: "auto" })
+      let framesLeft = 3
+      let settledFrames = 0
+      const correct = () => {
+        const next = measureTop()
+        const delta = Math.abs(next - container.scrollTop)
+        container.scrollTo({ top: next, behavior: "auto" })
+        if (delta < 2) {
+          settledFrames += 1
+          if (settledFrames >= 2) return
+        } else {
+          settledFrames = 0
+        }
+        if (framesLeft-- > 0) requestAnimationFrame(correct)
+      }
+      requestAnimationFrame(correct)
     } else {
       target?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" })
     }
