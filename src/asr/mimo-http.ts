@@ -32,7 +32,7 @@ export const MIMO_ASR_DEFAULTS = {
   language: "auto"
 } as const;
 
-export interface MimoAsrProviderOptions {
+interface MimoAsrProviderOptions {
   getSettings(): MimoAsrSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
@@ -45,14 +45,14 @@ function text(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export interface ResolvedMimoAsrConfig {
+interface ResolvedMimoAsrConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
   language: string;
 }
 
-export function resolveMimoAsrConfig(settings: MimoAsrSettings | undefined, getApiKey: (name: string) => string | undefined, env: NodeJS.ProcessEnv = process.env): ResolvedMimoAsrConfig | null {
+function resolveMimoAsrConfig(settings: MimoAsrSettings | undefined, getApiKey: (name: string) => string | undefined, env: NodeJS.ProcessEnv = process.env): ResolvedMimoAsrConfig | null {
   const apiKey = (text(settings?.apiKeyEnv) && getApiKey(text(settings!.apiKeyEnv)!)) || text(env.MIMO_API_KEY);
   if (!apiKey) return null;
   return {
@@ -70,7 +70,7 @@ interface MimoAsrSessionDeps {
   log(message: string): void;
 }
 
-export class MimoAsrSession implements AsrSession {
+class MimoAsrSession implements AsrSession {
   readonly providerId = "mimo";
   private readonly deps: MimoAsrSessionDeps;
   private buffer: Float32Array = new Float32Array(0);

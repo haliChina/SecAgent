@@ -9,7 +9,8 @@ export type AssistantActivity =
   | { kind: "thinking" | "summary" | "answer"; content: string; turn?: number }
   | { kind: "skill-auto-load"; name: string; path: string }
   | { kind: "tool"; name: string; arguments: unknown; result?: unknown };
-export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean }
+export interface HallucinationNotice { score: number; signals: Array<{ id: string; detail: string }> }
+export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: HallucinationNotice; fallbackNotice?: string }
 export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[] }
 export interface SessionRuntimeEvent { sequence: number; at: string; stage: string; data: unknown }
 
@@ -22,6 +23,17 @@ export class SessionStore {
   list(): SessionMeta[] {
     const index = this.readIndex();
     return index.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  }
+
+  /** 会话列表预览：最后一条含文本的消息，压缩空白后截断（无消息返回空串）。 */
+  previewOf(id: string): string {
+    try {
+      const data = this.get(id);
+      const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
+      return last ? last.content.replace(/\s+/g, " ").trim().slice(0, 72) : "";
+    } catch {
+      return "";
+    }
   }
   create(title = "新会话", options: { listed?: boolean } = {}): SessionData {
     const now = new Date().toISOString();
@@ -45,10 +57,10 @@ export class SessionStore {
     fs.rmSync(this.sessionDir(id), { recursive: true, force: true });
     this.writeIndex(sessions.filter((item) => item.id !== id));
   }
-  appendMessage(id: string, role: SessionMessage["role"], content: string, toolCalls?: ToolCallRecord[], activities?: AssistantActivity[], attachments?: ChatAttachment[], stopped = false): SessionData {
+  appendMessage(id: string, role: SessionMessage["role"], content: string, toolCalls?: ToolCallRecord[], activities?: AssistantActivity[], attachments?: ChatAttachment[], stopped = false, hallucination?: HallucinationNotice, fallbackNotice?: string): SessionData {
     const session = this.get(id);
     const now = new Date().toISOString();
-    session.messages.push({ id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}) });
+    session.messages.push({ id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}), ...(hallucination?.signals.length ? { hallucination } : {}), ...(fallbackNotice ? { fallbackNotice } : {}) });
     session.meta.updatedAt = now;
     if (role === "user" && session.meta.title === "新会话") session.meta.title = content.replace(/\s+/g, " ").slice(0, 28) || "新会话";
     this.writeSession(session);

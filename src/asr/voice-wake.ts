@@ -14,12 +14,12 @@ const KWS_DIR = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20";
 type Kws = ReturnType<typeof import("sherpa-onnx")["createKws"]>;
 type KwsStream = ReturnType<Kws["createStream"]>;
 
-export interface VoiceWakeOptions {
+interface VoiceWakeOptions {
   extraRoots?: string[];
   log?: (message: string) => void;
 }
 
-export function keywordTokens(phrase: string): string {
+function keywordTokens(phrase: string): string {
   const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "symbol", type: "array" }) as string[];
   const initials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
   return syllables.map((syllable) => {
@@ -76,8 +76,12 @@ export class VoiceWakeEngine {
       },
       maxActivePaths: 4,
       numTrailingBlanks: 1,
-      keywordsScore: 1.5,
-      keywordsThreshold: 0.55,
+      /* R59：实测"根本唤醒不了"——此前 keywordsThreshold 0.55 远高于 sherpa
+         默认 0.25（3M 小模型 + 近讲麦很难过 0.55 的置信门），回落到官方默认
+         （score 1.0 / threshold 0.25）保召回；误触由 numTrailingBlanks 与
+         唤醒词长度天然兜底。 */
+      keywordsScore: 1.0,
+      keywordsThreshold: 0.25,
       keywords: `${keywordTokens(phrase)} @${phrase}`
     });
     this.stream = this.kws.createStream();

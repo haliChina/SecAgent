@@ -87,8 +87,27 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
   if (key === "bash") {
     const command = String(args.command || "");
     if (!command) throw new Error("bash 需要 command");
-    const result = await execAsync(command, { cwd: workspace, timeout: Number(args.timeout) || 120_000, maxBuffer: 10 * 1024 * 1024 });
-    return { cwd: workspace, stdout: result.stdout, stderr: result.stderr };
+    /* R59：中文 Windows 的 cmd 输出是 GBK（cp936），exec 默认按 UTF-8 解码
+       会出乱码（"系统找不到指定的路径" → "ϵͳ..."）。改 buffer 原始字节回传，
+       先严格 UTF-8（跨平台 UTF-8 输出不受影响），失败再按 GBK 解。 */
+    const result = await execAsync(command, { cwd: workspace, timeout: Number(args.timeout) || 120_000, maxBuffer: 10 * 1024 * 1024, encoding: "buffer" });
+    return { cwd: workspace, stdout: decodeShellBytes(result.stdout), stderr: decodeShellBytes(result.stderr) };
   }
   throw new Error(`未知 Pi 工具：${key}`);
+}
+
+/** shell 输出解码：UTF-8 严格优先，GBK 兜底（Node/Electron 全 ICU 支持）。 */
+function decodeShellBytes(bytes: unknown): string {
+  if (typeof bytes === "string") return bytes;
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes ?? ""));
+  if (buffer.length === 0) return "";
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    try {
+      return new TextDecoder("gbk").decode(buffer);
+    } catch {
+      return buffer.toString("utf8");
+    }
+  }
 }

@@ -70,6 +70,7 @@ contextBridge.exposeInMainWorld("secagent", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   completeOnboarding: () => ipcRenderer.invoke("oobe:complete"),
   createSession: () => ipcRenderer.invoke("sessions:create"),
+  syncWindowChrome: (colors: { background: string; symbol: string }) => ipcRenderer.invoke("window:chrome-sync", colors),
   deleteSession: (id: string) => ipcRenderer.invoke("sessions:delete", id),
   getSession: (id: string) => ipcRenderer.invoke("sessions:get", id),
   getRuntimeEvents: (id: string) => ipcRenderer.invoke("sessions:runtime-events", id),

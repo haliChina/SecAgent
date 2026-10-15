@@ -170,3 +170,7 @@ SecAgent 会优先读取签名的 `updates.json` 通道清单；清单暂不可�
 更新设置页面中的“打开日志目录”可直接打开工作区的 `logs` 目录；“导出诊断日志”会生成脱敏 ZIP，适合提交故障信息。日志位于上文“数据目录”表格中对应平台的 `<工作区>/logs`。
 
 发布者如需启用签名清单，应将与 `src/update-public-key.ts` 匹配的私钥配置为 GitHub Actions Secret：`SECAGENT_UPDATE_PRIVATE_KEY`。私钥不得提交到仓库。
+
+## 开源致谢
+
+本项目的部分界面组件（滚动进度、空状态球体、侧导航、删除确认、数字滚动、语音消息等）按 [Rare UI](https://rareui.com/)（[GitHub](https://github.com/swamimalode07/rare-ui)，MIT）的源码移植，动效使用同款 [Motion](https://motion.dev/) 引擎；消息操作、日期分隔、错误状态、工具失败卡等交互模式参考自 [assistant-ui](https://www.assistant-ui.com/)（[GitHub](https://github.com/assistant-ui/assistant-ui)）；录音状态、思考折叠线等动效参考自 [React Bits](https://reactbits.dev/)（[GitHub](https://github.com/DavidHDev/react-bits)）。感谢这些项目带来的设计启发。
