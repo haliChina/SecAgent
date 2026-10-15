@@ -3,6 +3,23 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R60 · 2026-10-15）
+
+1. **FluidOrb 换真源**：R58 的 canvas2D 谐波自研仿品整体删除，逐行直译
+   rare-ui components/ui/fluid-orb.tsx（WebGL fbm 流体着色器，MIT）。
+   props 协议 ComponentProps<'div'>&{size,color} 原样；三态表达改调用侧
+   组合（按状态传 color、listening 加 .fluid-orb-pulse 呼吸类），组件本体
+   零改动。useDevicePixelRatio 随之去 export（死导出扫描）
+2. **滚动指示器点击落点**（R59 content-visibility 引入的回归）：单次 rect
+   计算在离屏消息仍是估计高度时不可靠，跳转后真实高度展开导致目标节漂移。
+   selectSection 改两段式纠偏——behavior:auto 直达估计位 + 连续 3 帧复测
+   rect 修正落点（位移 <2px 连续 2 帧早停）
+3. **合并上游 master**（#5 插件升级 EPERM 修复 + #6 overlay 绝对定位协议）：
+   冲突两处保 HEAD（本分支已拆 windows.ts），上游 overlay:move-to IPC 与
+   setBounds anchor="bottom-right" 右下角锚定移植进 windows.ts 对应位置；
+   overlay-preload/plugin-manager 自动合并
+4. 验证：scan 0/0 · tsc/build 交 CI（Actions）
+
 ## 本轮（R59 · 2026-10-14）
 
 1. **长内容滚动卡顿**：.message content-visibility:auto + contain-intrinsic-size

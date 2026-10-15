@@ -138,8 +138,9 @@ function subscribeToZoom(onChange: () => void): () => void {
   return () => window.removeEventListener("resize", onChange);
 }
 
-/** R58：FluidOrb 复用（DPR 感知，zoom 缩放重建画布缓冲）。 */
-export function useDevicePixelRatio(): number {
+/** DPR 感知（zoom 缩放重建画布缓冲）。R60：FluidOrb 换 rare-ui 真源后此
+    hook 仅 MatrixOrb 自用，去 export（死导出扫描）。 */
+function useDevicePixelRatio(): number {
   return useSyncExternalStore(
     subscribeToZoom,
     () => Math.min(window.devicePixelRatio || 1, 4),

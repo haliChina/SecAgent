@@ -122,5 +122,6 @@
   "resolveModelConfig",
   "resolveWorkspacePath",
   "resumeVoiceWake",
-  "useStreamLevel"
+  "useStreamLevel",
+  "FluidOrbProps"
 ]
