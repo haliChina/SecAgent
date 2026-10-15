@@ -347,7 +347,9 @@ export function SettingsApp() {
     { value: "bailian", label: "阿里云百炼 CosyVoice（云端，需 API Key）" }
   ];
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
-    <div className="settings-window-title">SecAgent设置</div>
+    {/* R61：设置窗顶栏——与主窗 .topbar 同语言（实底 bg-1/下边线/品牌位/拖拽区）。
+        原 57px 透明浮字无栏感，Windows 上系统窗控直接压在设置内容上。 */}
+    <div className="settings-window-title"><span className="settings-brand">SecAgent</span><span className="settings-window-title-sub">设置</span></div>
     {!isOobe && <HookSidebar
       activeId={activePage}
       onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }}

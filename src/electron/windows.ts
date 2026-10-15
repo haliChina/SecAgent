@@ -302,7 +302,9 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
     minHeight: 560,
     title: "SecAgent设置",
     skipTaskbar: false,
-    parent: windowRef && !windowRef.isDestroyed() && windowRef.isVisible() ? windowRef : undefined,
+    /* R61：设置窗独立化——此前 parent 挂主窗，Windows 把 owned 窗口视为
+       附属于主窗（永不进任务栏、主窗隐藏时被连带藏起）。去掉后为独立
+       顶层窗口：任务栏有自己图标，主窗最小化/隐藏不再影响设置窗。 */
     modal: false,
     backgroundColor: "#FFFFFF",
     ...windowChromeOptions(),

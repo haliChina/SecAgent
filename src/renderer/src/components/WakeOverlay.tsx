@@ -1,6 +1,5 @@
 import { ACCENT, ACCENT_DEEP, ACCENT_SKY, ACCENT_PALE } from "./ui/parts/theme.js";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { X } from "lucide-react";
 import { MarkdownContent } from "./MarkdownContent.js";
 import type { TraceEvent } from "../constants.js";
 
@@ -15,16 +14,6 @@ const WAKE_RESULT_GRACE_MS = 2_000;
 const VOICE_RMS_THRESHOLD = 0.015;
 /** 有过"声音"但始终无转录时的静音收敛窗口（ms）——到点直接关窗，不再空转。 */
 const WAKE_SILENCE_CLOSE_MS = 2_200;
-
-/** R59：顶栏状态播报文案（与卡片内状态同步的短词）。 */
-const WAKE_STATUS_LABELS: Record<WakeStatus, string> = {
-  listening: "正在聆听",
-  transcribing: "识别中",
-  submitting: "提交中",
-  streaming: "回答中",
-  completed: "已完成",
-  error: "出错",
-};
 
 function isVoiceActive(samples: Float32Array): boolean {
   let energy = 0;
@@ -514,13 +503,6 @@ const submitTranscript = async () => {
       <rect className="wake-edge-svg-near" x="7" y="7" width="calc(100% - 14px)" height="calc(100% - 14px)" rx="28" fill="none" stroke="url(#wake-edge-gradient)" strokeWidth="12" filter="url(#wake-edge-blur-near)" />
       <rect className="wake-edge-svg-crisp" x="7" y="7" width="calc(100% - 14px)" height="calc(100% - 14px)" rx="28" fill="none" stroke="url(#wake-edge-gradient)" strokeWidth="7" />
     </svg>
-    {/* R59：语音窗顶栏——与主窗 topbar 同语言（bg-1/下边线/品牌位），左侧品牌、
-        中间状态播报、右侧关闭；此前全屏浮层无任何窗体归属感。 */}
-    <header className="wake-topbar">
-      <span className="wake-topbar-brand"><img src="/icon.svg" alt="" /><strong>SecAgent</strong><span>语音助手 · 随时唤醒</span></span>
-      <span className="wake-topbar-status" aria-hidden="true">{WAKE_STATUS_LABELS[status] || status}{error ? `：${error.slice(0, 60)}` : ""}</span>
-      <button type="button" className="wake-topbar-close" aria-label="关闭（Esc）" onClick={() => void bridge.closeWake()}><X size={15} strokeWidth={2.2} /></button>
-    </header>
     <div className="wake-dismiss-area" aria-hidden="true" onMouseDown={() => void bridge.closeWake()} />
     <div className={`wake-stack ${agentStarted ? "agent-started" : ""}`}>
       <div className={`wake-user-bubble ${agentStarted ? "submitted" : ""}`}>
