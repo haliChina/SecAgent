@@ -13,5 +13,11 @@ contextBridge.exposeInMainWorld("__secagentOverlay", {
    * 从机制上消灭 DPI 缩放导致的反向移动/棘轮漂移。
    */
   moveTo: (offsetX: number, offsetY: number) =>
-    ipcRenderer.send("overlay:move-to", Number(offsetX) || 0, Number(offsetY) || 0)
+    ipcRenderer.send("overlay:move-to", Number(offsetX) || 0, Number(offsetY) || 0),
+  /**
+   * 窗口绝对定位（桌宠 0.5.0 甩出物理）：渲染端在屏幕坐标系积分出窗口原点，
+   * 主进程直接落位。用于抛掷飞行——飞行中没有光标锚点，绝对位置由渲染端计算。
+   */
+  setPosition: (x: number, y: number) =>
+    ipcRenderer.send("overlay:set-position", Math.round(Number(x)) || 0, Math.round(Number(y)) || 0)
 });
