@@ -96,7 +96,7 @@ export async function startSpeech(window: BrowserWindow | undefined): Promise<{ 
     const previous = speechWindow;
     const session = currentSession;
     currentSession = undefined;
-    try { session.cancel(); } catch { /* best effort */ }
+    try { session.session.cancel(); } catch { /* best effort */ }
     send(previous, { type: "stopped" });
   }
   speechWindow = window;
