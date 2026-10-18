@@ -1,5 +1,9 @@
 [
   "ActivityPhase",
+  "AiStatusIconProps",
+  "AiStatusProps",
+  "AiStatusState",
+  "AiStatusStateConfig",
   "AnimatedCounterProps",
   "AuiReaction",
   "CLASSISLAND_PLUGIN_ID",
@@ -34,6 +38,7 @@
   "ERROR_RED",
   "FailureKind",
   "FailureRecord",
+  "FluidOrbProps",
   "GuardDecision",
   "HallucinationNotice",
   "HallucinationSignal",
@@ -104,6 +109,11 @@
   "TelemetryEvent",
   "ToolResultParts",
   "TurnEvidence",
+  "WebSearchAnswerProps",
+  "WebSearchCitationProps",
+  "WebSearchProps",
+  "WebSearchStatus",
+  "WebSource",
   "WindowsUpdateManagerOptions",
   "WorkspaceFileKind",
   "approvalSignature",
@@ -122,6 +132,5 @@
   "resolveModelConfig",
   "resolveWorkspacePath",
   "resumeVoiceWake",
-  "useStreamLevel",
-  "FluidOrbProps"
+  "useStreamLevel"
 ]

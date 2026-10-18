@@ -17,7 +17,7 @@
  *  - 官方中继（SECTL_OFFICIAL_TOKEN + SECTL_OFFICIAL_API_URL）：可选——若中继
  *    已配置且提供搜索端点则优先（登录用户零配置），失败静默回落直连 API。
  */
-export interface WebSearchHit {
+interface WebSearchHit {
   title: string;
   url: string;
   snippet: string;
@@ -26,7 +26,7 @@ export interface WebSearchHit {
   publishDate: string | null;
 }
 
-export interface WebSearchOutcome {
+interface WebSearchOutcome {
   provider: "official" | "bigmodel" | "deepseek" | "local";
   query: string;
   hits: WebSearchHit[];

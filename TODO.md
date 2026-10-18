@@ -3,6 +3,30 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R62 · 2026-10-19）
+
+1. ✓ **语音双窗打架修复**：startSpeech 换窗先 cancel 旧会话并回 stopped——
+   主页听写被重路由"啥也没有"+快捷键唤出后双窗音频同灌一个 ASR（"明天什么课/
+   明天什么课？"交替刷）两大症状同根
+2. ✓ **唤醒词根因**：KWS 词表是无调拼音（263 token 无带调韵母），keywordTokens
+   由 toneType symbol（iao3）改 none（iao）——词表外 token 让关键词图永不拼出
+3. ✓ **web_search 工具**：BigModel/DeepSeek API 兼容（文档核对）+官方中继+
+   自研本地 Bing 抓取兜底（零密钥）；pi-tools 注册；消息渲染 rare-ui WebSearch 卡片
+4. ✓ **rare-ui 真源两组件**：ai-status（流式占位替换 ThoughtLine，中文状态+计时）、
+   web-search（工具结果卡片）逐行直译；Bits 具名导出
+5. ✓ **模型回退链自定义**：fallbackModelIds 编辑器入"模型稳定性"卡（同 ASR 链交互）
+6. ✓ **设置零间距修复**：.settings-section-active 改 grid gap 12px；致谢卡移出诊断页
+7. ✓ **安装器 UI 重做**：UiX/UiY/UiFontSize 改 DPI 等比（96dpi 不变，缩放屏等比放大，
+   小屏钳制）——修"各种大小莫名其妙"+缩放错位遮挡；蓝虚线=最高档 spark 粒子静止沉积
+   （用户报"非最高"实为档位标签显示"高"），已改空闲停孵化
+8. ✓ **合并 fork/master**：27f7f33 桌宠甩出物理 set-position 手工移植（ours 策略）
+9. 验证：scan 0/0 · tsc/build 交 CI（Actions）；唤醒词/打架修复待装机实测
+
+## 待续（下一轮）
+
+- ☐ 蓝虚线与唤醒词修复的装机实测反馈
+- ☐ web_search 本地 Bing 抓取在目标网络环境的实测（反爬策略）
+
 ## 本轮（R61 · 2026-10-15）
 
 1. **撤语音浮层顶栏**（R59 误加）：wake-topbar JSX/CSS/WAKE_STATUS_LABELS

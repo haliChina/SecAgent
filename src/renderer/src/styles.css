@@ -464,7 +464,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .provider-model-add-row { grid-template-columns: minmax(200px, 1fr) auto auto; }
 .provider-model-add-row input { width: 100%; min-width: 0; padding: 8px 9px; border: 1px solid var(--accent); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 /* Speech recognition (ASR) settings */
-.asr-provider-grid { grid-template-columns: minmax(240px, 2fr) minmax(160px, 1fr); }
+
 .asr-openai-config { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
 .asr-openai-config .card-heading { margin-bottom: 10px; }
 .asr-openai-config .form-grid { margin-top: 10px; }
@@ -690,7 +690,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 设计 token：主蓝 var(--accent) · 文字 var(--text-1) / 次要 var(--text-3) · 线 var(--line)   */
 /* ================================================================== */
 
-
 /* ---- MatrixOrb (rareui matrixorb · size prop 定尺寸，动画在 JS 内逐点计算) ---- */
 .matrix-orb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 0 auto 18px; }
 .matrix-orb-canvas { display: block; }
@@ -721,11 +720,9 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
    StoppedRunTag/BranchedMenu 的类规则已删（对应组件零引用，见
    UI-REWRITE-PLAN.md 死组件清单；Aui* 新版用 data-slot + Tailwind）。 */
 
-
 /* ---- 设置页控件微修：边框 hover 暗示 + 下拉框 focus 环（对齐 rareui 控件手感） ---- */
 .settings-shell select:hover, .settings-shell input:hover, .settings-shell textarea:hover { border-color: var(--line); }
 .settings-shell select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
-
 
 /* ---- 读屏专用（视觉隐藏） ---- */
 .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; clip: rect(0 0 0 0); clip-path: inset(50%); overflow: hidden; white-space: nowrap; }
