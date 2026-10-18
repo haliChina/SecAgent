@@ -340,6 +340,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-section:not(.settings-section-active) { display: none; }
 .settings-shell:not(.oobe-shell) .settings-window-title { z-index: 4; }
 .settings-empty-card { display: grid; place-items: center; min-height: 92px; color: var(--text-3); font-size: 13px; }
+/* R62：设置分页卡片零间距修复——激活段改 grid 行距 12px（原 block 流里
+   直接子卡片 article 无 margin，上下贴死）。标题自带 margin-bottom 13px，
+   与 gap 叠加 ~25px，标题区隔略大于卡片间距，符合层级。 */
+.settings-section-active { display: grid; gap: 12px; align-content: start; }
 .settings-shell:not(.oobe-shell) .settings-error,
 .settings-shell:not(.oobe-shell) .settings-success,
 .settings-shell:not(.oobe-shell) .settings-section { max-width: 1000px; }
@@ -465,6 +469,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .asr-openai-config .card-heading { margin-bottom: 10px; }
 .asr-openai-config .form-grid { margin-top: 10px; }
 .asr-openai-config .wide-field { grid-column: 1 / -1; }
+.asr-advanced-details { margin-top: 4px; }
+.asr-advanced-details > summary { padding: 12px 14px; border: 1px dashed var(--line-strong); border-radius: 10px; background: var(--bg-2); color: var(--text-2); font-size: 13px; font-weight: 600; cursor: pointer; list-style: none; user-select: none; }
+.asr-advanced-details > summary::-webkit-details-marker { display: none; }
+.asr-advanced-details > summary::before { content: "▸ "; color: var(--text-3); }
+.asr-advanced-details[open] > summary::before { content: "▾ "; }
+.asr-advanced-details > summary:hover { border-color: var(--accent-border); color: var(--text-1); }
+.asr-advanced-details[open] > summary { border-style: solid; border-bottom-color: transparent; border-radius: 10px 10px 0 0; }
+.asr-advanced-details > .settings-card { border-top: 0; border-radius: 0 0 12px 12px; }
 .asr-test-row { display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); flex-wrap: wrap; }
 .asr-test-results { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .asr-test-results li { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--text-2); }
@@ -691,10 +703,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 常驻状态球（composer 上方，会话开始后出现）：出现走过渡，不瞬移 */
 .composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); }
 .composer-orb-dock .matrix-orb, .composer-orb-dock .fluid-orb { margin: 0; gap: 0; display: block; }
+/* R62：FluidOrb 白底白球看不清——orb 外框加弱描边+内高光+微投影（凸起感）。
+   打在 .fluid-orb 根节点（组件 className 透传），组件本体零改动。 */
+.composer-orb-dock .fluid-orb { border: 1px solid color-mix(in srgb, var(--text-3) 38%, transparent); box-shadow: inset 0 1px 2px rgba(255, 255, 255, .55), 0 2px 6px rgba(15, 23, 42, .16); background: var(--bg-2); }
 /* R60：真源 FluidOrb（WebGL）listening 态呼吸——调用侧组合，组件本体零改动。 */
 .fluid-orb-pulse { animation: fluid-orb-pulse 1.6s ease-in-out infinite; }
 @keyframes fluid-orb-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
 @media (prefers-reduced-motion: reduce) { .fluid-orb-pulse { animation: none; } }
+.composer-orb-dock:not(:has(.composer-orb-label)) { padding-right: 6px; }
 .composer-orb-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 @keyframes orb-dock-in { from { opacity: 0; transform: translateY(8px) scale(.5); } }
 

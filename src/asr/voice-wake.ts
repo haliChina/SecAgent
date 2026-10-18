@@ -20,7 +20,12 @@ interface VoiceWakeOptions {
 }
 
 function keywordTokens(phrase: string): string {
-  const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "symbol", type: "array" }) as string[];
+  /* R62 修复"唤醒词不凑效"根因：sherpa-onnx-kws-zipformer-zh-en-3M 词表是
+     无调拼音（iao/ong/ue…，263 个 token 里没有任何带调韵母），而这里原先
+     toneType:"symbol" 生成 iao3/e2/ong2 —— 词表外的 token 让 KWS 关键词图
+     永远拼不出来，阈值调到 0.25 也没用（R59 的误诊）。改 toneType:"none"
+     输出无调音节，再按声母+韵母切分（与词表 token 一一对应）。 */
+  const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "none", type: "array" }) as string[];
   const initials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
   return syllables.map((syllable) => {
     const initial = initials.find((candidate) => syllable.startsWith(candidate)) || "";

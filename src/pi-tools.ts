@@ -37,12 +37,15 @@ export async function readImageFile(workspace: string, filePath: string): Promis
   return { filePath: resolved, name: path.basename(resolved), mimeType: mediaType, base64: (await fs.readFile(resolved)).toString("base64") };
 }
 
+import { runWebSearch } from "./web-search.js";
+
 export const piTools: AgentTool[] = [
   { key: "look_at", description: "查看本地图片并把图片内容直接提供给模型。path 可使用绝对路径或相对于工作区的路径；仅支持 png、jpg、jpeg、webp、gif 图片。需要理解图片内容时必须调用此工具，不要只读取图片文件的二进制内容。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", description: "图片的绝对路径或相对于工作区的路径" } } } },
   { key: "read", description: "读取文件内容。path 可使用绝对路径或相对于工作区的路径。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } } } },
   { key: "write", description: "写入文件内容；父目录不存在时自动创建。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } },
   { key: "edit", description: "将文件中唯一匹配的 oldText 替换为 newText。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "oldText", "newText"], properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } } } },
-  { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } }
+  { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } },
+  { key: "web_search", description: "联网搜索最新信息（新闻、政策、价格、日期等时效性内容）。返回标题、链接与摘要列表；回答中引用来源并把链接给用户。", inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "搜索词，1～128 个字符" }, count: { type: "integer", minimum: 1, maximum: 10, description: "返回条数，默认 6" } } } },
 ];
 
 function resolvePath(workspace: string, filePath: string): string { return path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath); }
@@ -84,7 +87,14 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     await fs.writeFile(filePath, content.replace(oldText, String(args.newText ?? "")), "utf8");
     return { path: filePath, replaced: 1 };
   }
-  if (key === "bash") {
+if (key === "web_search") {
+    const query = typeof args.query === "string" ? args.query : "";
+    const count = typeof args.count === "number" && Number.isFinite(args.count) ? args.count : 6;
+    /* R62：runWebSearch 自带 官方中继→BigModel→DeepSeek→本地 Bing 抓取 的
+       分层回退，零密钥也能出结果（兜底层）。 */
+    return await runWebSearch(query, count);
+  }
+    if (key === "bash") {
     const command = String(args.command || "");
     if (!command) throw new Error("bash 需要 command");
     /* R59：中文 Windows 的 cmd 输出是 GBK（cp936），exec 默认按 UTF-8 解码

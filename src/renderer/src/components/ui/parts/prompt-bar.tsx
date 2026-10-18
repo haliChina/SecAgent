@@ -492,9 +492,13 @@ export const PromptBar = ({
       const energy = typed.energy * gain;
       speed += (1 + energy * 6 - speed) * (1 - Math.exp(-dt / 0.15));
       due += dt;
+      /* R62：空闲（typing energy 衰减到 <0.05）不再持续孵化粒子——此前空闲也
+         常驻一排静止微光，在部分渲染路径下被读成"底部蓝色虚线"（用户截图
+         1px 虚线、全宽、accent 色）。粒子只在打字能量期出现，停手即清场。 */
+      const idle = typed.energy < 0.05;
       while (due > 0.14) {
         due -= 0.14;
-        if (parts.length < 30) spawn(false);
+        if (!idle && parts.length < 30) spawn(false);
       }
       ctx.clearRect(0, 0, w, h);
       /* R57：逐粒子 shadowBlur（每帧 30 次离屏模糊合成）是粒子动画卡顿的主因。
