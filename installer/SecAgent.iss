@@ -176,16 +176,19 @@ begin
     Result := 96;
   { Cap so the scaled card always fits the primary work area with margin:
     UI_WIDTH * UI_SCALE_PCT * dpi / 9600 <= WorkAreaWidth - 80. }
+  { Inno Pascal Script does not expose the VCL Screen global; the wizard
+    form's monitor is the reliable work-area source (form exists whenever
+    UiX is called - all call sites run after the wizard is created). }
   try
-    if Screen.WorkAreaWidth > 0 then begin
-      MaxDpi := (Screen.WorkAreaWidth - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
+    if (WizardForm.Monitor.WorkAreaWidth > 0) and (WizardForm.Monitor.WorkAreaHeight > 0) then begin
+      MaxDpi := (WizardForm.Monitor.WorkAreaWidth - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
       if MaxDpi < 96 then
         MaxDpi := 96;
       if Result > MaxDpi then
         Result := MaxDpi;
     end;
   except
-    { Screen metrics unavailable - keep the raw DPI }
+    { Monitor metrics unavailable - keep the raw DPI }
   end;
 end;
 

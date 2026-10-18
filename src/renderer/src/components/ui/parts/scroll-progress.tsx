@@ -95,12 +95,19 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
        .message 的 content-visibility:auto（styles.css），离屏消息免布局
        免绘制，长思考/长输出滚动回到流畅。 */
     let raf = 0
+    let settleTimer: ReturnType<typeof setTimeout> | undefined
     const schedule = () => {
       if (raf) return
       raf = requestAnimationFrame(() => {
         raf = 0
         update()
       })
+      /* R62：容器消息流开 content-visibility:auto（R59 性能优化）——离屏
+         消息首次进入渲染区域时"估高 → 实高"切换，单帧 rect 会漂。滚动
+         停止 150ms 后补一次复测，让 activeId 落到渲染稳定后的真实分节。
+         上游无此场景（纯静态页）；这是本宿主环境必要补丁。 */
+      if (settleTimer) clearTimeout(settleTimer)
+      settleTimer = setTimeout(update, 150)
     }
 
     update()
@@ -108,6 +115,7 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
     window.addEventListener("resize", schedule)
     return () => {
       cancelAnimationFrame(raf)
+      if (settleTimer) clearTimeout(settleTimer)
       scroller.removeEventListener("scroll", schedule)
       window.removeEventListener("resize", schedule)
     }
@@ -207,7 +215,12 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
           24
         )
       container.scrollTo({ top: measureTop(), behavior: "auto" })
-      let framesLeft = 3
+      /* R62：3 帧窗口不够——cv:auto 的估高→实高切换可能跨多帧渐进展开
+       （Chromium 渐进渲染 + scrollLock 内的 measure 又会触发新区域渲染），
+       帧数耗尽即残留漂移。改 600ms 时间预算 + 连续 3 帧收敛早停，
+       迭代上限 40 帧防病理死循环；scrollLock 700ms 已覆盖预算。 */
+      const deadline = performance.now() + 600
+      let iterations = 0
       let settledFrames = 0
       const correct = () => {
         const next = measureTop()
@@ -215,11 +228,11 @@ export function ScrollProgress({ className, sections = [], containerRef, offset 
         container.scrollTo({ top: next, behavior: "auto" })
         if (delta < 2) {
           settledFrames += 1
-          if (settledFrames >= 2) return
+          if (settledFrames >= 3) return
         } else {
           settledFrames = 0
         }
-        if (framesLeft-- > 0) requestAnimationFrame(correct)
+        if (performance.now() < deadline && iterations++ < 40) requestAnimationFrame(correct)
       }
       requestAnimationFrame(correct)
     } else {
