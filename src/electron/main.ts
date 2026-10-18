@@ -710,6 +710,13 @@ function registerOverlayIpcOnce(): void {
       y: Math.round(cursor.y - (Number(offsetY) || 0))
     });
   });
+  // 窗口绝对定位（桌宠 0.5.0 甩出物理）：渲染端积分出窗口原点直接落位。
+  // 渲染进程 screenX/setBounds 均为 DIP，坐标系一致；仅信任发送者自己的窗口。
+  ipcMain.on("overlay:set-position", (event, x: unknown, y: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    win.setPosition(Math.round(Number(x)) || 0, Math.round(Number(y)) || 0);
+  });
 }
 
 /**
