@@ -217,6 +217,14 @@ export function registerOverlayIpcOnce(): void {
       y: Math.round(cursor.y - (Number(offsetY) || 0))
     });
   });
+  /* 桌宠 0.5.0 甩出物理（27f7f33 直译移植）：松手后渲染端在屏幕坐标系
+     积分窗口轨迹，需要绝对落位接口。渲染进程 screenX 与主进程
+     setPosition 均为 DIP，坐标系一致；只作用于发送者自己的窗口。 */
+  ipcMain.on("overlay:set-position", (event, x: unknown, y: unknown) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    win.setPosition(Math.round(Number(x)) || 0, Math.round(Number(y)) || 0);
+  });
 }
 
 /**

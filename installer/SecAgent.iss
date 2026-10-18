@@ -94,8 +94,13 @@ Filename: "{app}\SecAgent.exe"; Description: "启动 SecAgent"; Flags: nowait po
   an 820x629 borderless rounded card with a white 347px header (bare logo
   mark + "SecAgent" wordmark), an #ECECEC body and a centered 218x69
   "安装" pill in #8AABFF. All coordinates are design pixels scaled by
-  UI_SCALE_PCT via UiX/UiY - deliberately independent of the system DPI so
-  the card keeps one constant physical size everywhere.
+  UI_SCALE_PCT via UiX/UiY AND the system DPI (R62 redo: the old build froze
+  the card at one physical size and counter-scaled fonts, which read "random
+  sizes" on any 125-150% display and let DPI-scaled stock controls overlap
+  custom ones).  At 96 DPI the visuals are pixel-identical to the previous
+  build; on scaled displays everything - card, fonts, pills, hit areas -
+  grows proportionally, like a normal DPI-aware app.  The scale is capped so
+  the card always fits the work area.
 
   Inno's script engine exposes no mouse-down events (PS_MINIVCL build), so
   the borderless window is dragged via a WH_MOUSE_LL hook: press on the
@@ -160,29 +165,49 @@ external 'SetWindowRgn@user32.dll stdcall';
 
 { --- small helpers ------------------------------------------------------- }
 
+function UiDpiPercent: Integer;
+var
+  MaxDpi: Integer;
+begin
+  { System DPI in percent-of-96.  ScaleX(96) returns the physical width of a
+    96-logical-px rule, i.e. 144 at 150%.  Guard non-scaled runtimes. }
+  Result := ScaleX(96);
+  if Result < 96 then
+    Result := 96;
+  { Cap so the scaled card always fits the primary work area with margin:
+    UI_WIDTH * UI_SCALE_PCT * dpi / 9600 <= WorkAreaWidth - 80. }
+  try
+    if Screen.WorkAreaWidth > 0 then begin
+      MaxDpi := (Screen.WorkAreaWidth - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
+      if MaxDpi < 96 then
+        MaxDpi := 96;
+      if Result > MaxDpi then
+        Result := MaxDpi;
+    end;
+  except
+    { Screen metrics unavailable - keep the raw DPI }
+  end;
+end;
+
 function UiX(Value: Integer): Integer;
 begin
-  { Design pixels -> physical pixels: fixed scale, no DPI growth.  Keeps the
-    Figma card at one constant physical size on every machine. }
-  Result := Value * UI_SCALE_PCT div 100;
+  { Design pixels -> physical pixels: design scale x system DPI (R62 redo -
+    proportional on every display; at 96 dpi identical to the old fixed build). }
+  Result := Value * UI_SCALE_PCT * UiDpiPercent div 9600;
 end;
 
 function UiY(Value: Integer): Integer;
 begin
-  Result := Value * UI_SCALE_PCT div 100;
+  Result := Value * UI_SCALE_PCT * UiDpiPercent div 9600;
 end;
 
 function UiFontSize(DesignSize: Integer): Integer;
-var
-  DpiScale, Scaled: Integer;
 begin
-  { TFont.Size is interpreted in points and grows with the system DPI, so
-    counter-scale it, then apply the same UI scale as the geometry. }
-  DpiScale := ScaleX(96);
-  if DpiScale < 1 then
-    DpiScale := 1;
-  Scaled := DesignSize * 96 div DpiScale;
-  Result := Scaled * UI_SCALE_PCT div 100;
+  { TFont.Size is in points, and 1 pt renders DPI-physically (pt x dpi/72 px).
+    Geometry scales as design*scale*dpi/96, so the matching point size is
+    DPI-independent: design x scale x 72/96 = design x scale x 3/400.
+    At 96 dpi this reproduces the old rendering exactly. }
+  Result := DesignSize * UI_SCALE_PCT * 3 div 400;
   if Result < 1 then
     Result := 1;
 end;
