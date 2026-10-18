@@ -165,9 +165,13 @@ external 'SetWindowRgn@user32.dll stdcall';
 
 { --- small helpers ------------------------------------------------------- }
 
+{ Win32 metrics for the work-area clamp (Inno PS has no Screen/Monitor). }
+function GetSystemMetrics(nIndex: Integer): Integer;
+  external 'GetSystemMetrics@user32.dll stdcall';
+
 function UiDpiPercent: Integer;
 var
-  MaxDpi: Integer;
+  MaxDpi, WaW, WaH: Integer;
 begin
   { System DPI in percent-of-96.  ScaleX(96) returns the physical width of a
     96-logical-px rule, i.e. 144 at 150%.  Guard non-scaled runtimes. }
@@ -176,19 +180,23 @@ begin
     Result := 96;
   { Cap so the scaled card always fits the primary work area with margin:
     UI_WIDTH * UI_SCALE_PCT * dpi / 9600 <= WorkAreaWidth - 80. }
-  { Inno Pascal Script does not expose the VCL Screen global; the wizard
-    form's monitor is the reliable work-area source (form exists whenever
-    UiX is called - all call sites run after the wizard is created). }
+  { Inno Pascal Script exposes neither the VCL Screen global nor
+    WizardForm.Monitor.  Win32 GetSystemMetrics(SM_CXFULLSCREEN=16 /
+    SM_CYFULLSCREEN=17) gives the primary-monitor work area (taskbar and
+    appbars excluded) in physical pixels - the same units UiX produces,
+    since the Inno wizard itself is DPI-aware. }
   try
-    if (WizardForm.Monitor.WorkAreaWidth > 0) and (WizardForm.Monitor.WorkAreaHeight > 0) then begin
-      MaxDpi := (WizardForm.Monitor.WorkAreaWidth - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
+    WaW := GetSystemMetrics(16);
+    WaH := GetSystemMetrics(17);
+    if (WaW > 0) and (WaH > 0) then begin
+      MaxDpi := (WaW - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
       if MaxDpi < 96 then
         MaxDpi := 96;
       if Result > MaxDpi then
         Result := MaxDpi;
     end;
   except
-    { Monitor metrics unavailable - keep the raw DPI }
+    { Metrics unavailable - keep the raw DPI }
   end;
 end;
 
