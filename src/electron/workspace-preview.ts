@@ -8,7 +8,7 @@
 import { createServer } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
-import { BrowserWindow } from "electron";
+import { BrowserWindow, shell } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 
 function workspaceFilePath(relativePath: string): string {
@@ -33,6 +33,15 @@ export async function openWorkspaceFilePreview(relativePath: string): Promise<{ 
   const previewWindow = new BrowserWindow({ width: 1080, height: 820, minWidth: 640, minHeight: 480, title: path.basename(filePath), backgroundColor: "#fff", autoHideMenuBar: true, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
   previewWindow.on("page-title-updated", (event) => event.preventDefault());
   previewWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  /* R59 同款外链守卫的预览窗版本：页内链接点击走 will-navigate，不拦会
+     在窗内直接导航外站。本地预览服务器的同源跳转放行，其余 http/https
+     转交系统浏览器，file:/data: 等一律拦截。 */
+  let allowedOrigin: string | undefined;
+  previewWindow.webContents.on("will-navigate", (event, url) => {
+    if (allowedOrigin && url.startsWith(`${allowedOrigin}/`)) return;
+    event.preventDefault();
+    if (/^https?:/i.test(url)) void shell.openExternal(url).catch(() => undefined);
+  });
   let server: ReturnType<typeof createServer> | undefined;
   try {
     if (extension === ".html" || extension === ".htm") {
@@ -50,6 +59,7 @@ export async function openWorkspaceFilePreview(relativePath: string): Promise<{ 
       await new Promise<void>((resolve, reject) => { server!.once("error", reject); server!.listen(0, "127.0.0.1", resolve); });
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("无法启动本地预览服务器");
+      allowedOrigin = `http://127.0.0.1:${address.port}`;
       const urlPath = "/" + path.relative(root, filePath).split(path.sep).map(encodeURIComponent).join("/");
       await previewWindow.loadURL(`http://127.0.0.1:${address.port}${urlPath}`);
     } else if (extension === ".svg") {

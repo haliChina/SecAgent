@@ -88,13 +88,13 @@ function hitsFromDeepSeek(payload: unknown): WebSearchHit[] {
     url: String(item.url ?? ""),
     snippet: typeof item.snippet === "string" ? item.snippet : typeof item.summary === "string" ? item.summary.slice(0, 300) : "",
     siteName: typeof item.site_name === "string" ? item.site_name : null,
-    siteIcon: typeof item.site_icon === "string" ? item_site_icon(item) : null,
+    siteIcon: item_site_icon(item),
     publishDate: typeof item.date === "string" ? item.date : null
   })).filter((hit) => hit.url);
 }
 
-function item_site_icon(item: Record<string, unknown>): string {
-  return typeof item.site_icon === "string" ? item.site_icon : "";
+function item_site_icon(item: Record<string, unknown>): string | null {
+  return typeof item.site_icon === "string" && item.site_icon ? item.site_icon : null;
 }
 
 /** 自研兜底：直接抓取 Bing 网页版结果页并解析（零密钥、零配置）。
@@ -122,6 +122,11 @@ async function localBingSearch(query: string, count: number): Promise<WebSearchH
     });
     if (!response.ok) throw new Error(`Bing HTTP ${response.status}`);
     const html = await response.text();
+    /* 相关性校验：Bing 反爬/验证页也返回 200，但没有结果容器。无 b_results
+       即视为拦截页，直接抛可读错误，不再静默返回空数组让上层误报"未命中"。 */
+    if (!html.includes("b_results")) {
+      throw new Error("Bing 返回了非结果页（验证/拦截页），本地抓取被反爬拦截");
+    }
     const hits: WebSearchHit[] = [];
     /* b_algo 卡片：h2>a（标题+链接），.b_caption p（摘要）。正则解析刻意
        保守——解析不到就返回空数组让上层报可读错误，绝不抛半截数据。 */
@@ -131,7 +136,23 @@ async function localBingSearch(query: string, count: number): Promise<WebSearchH
       const block = match[1];
       const link = /<h2[^>]*><a[^>]+href="(https?:\/\/[^"]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/.exec(block);
       if (!link) continue;
-      const strip = (value: string): string => value.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
+      /* 实体解码顺序：先具名/数字实体，最后 &amp;，避免 "&amp;#39;" 被二次解码。
+         数字实体过滤孤立代理项（0xD800–0xDFFF，fromCodePoint 不抛但会产生非法字符）。 */
+      const strip = (value: string): string => {
+        const decodeNumeric = (code: number): string => (code > 0 && code < 0x110000 && !(code >= 0xD800 && code <= 0xDFFF) ? String.fromCodePoint(code) : "");
+        return value
+          .replace(/<[^>]+>/g, "")
+          .replace(/&nbsp;/gi, " ")
+          .replace(/&quot;/g, "\"")
+          .replace(/&#0?39;/g, "'")
+          .replace(/&#x27;/gi, "'")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&#(\d+);/g, (_m, digits: string) => decodeNumeric(Number(digits)))
+          .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => decodeNumeric(parseInt(hex, 16)))
+          .replace(/&amp;/g, "&")
+          .trim();
+      };
       const snippetMatch = /<p[^>]*>([\s\S]*?)<\/p>/.exec(block);
       let host: string | null = null;
       try { host = new URL(link[1]).hostname; } catch { host = null; }
@@ -171,21 +192,29 @@ export async function runWebSearch(query: string, count = 6): Promise<WebSearchO
 
   const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
   if (bigModelKey) {
-    const payload = await postJson("https://open.bigmodel.cn/api/paas/v4/web_search", bigModelKey, {
-      search_query: trimmed,
-      search_engine: "search_std",
-      search_intent: false,
-      count: capped
-    });
-    const hits = hitsFromBigModel(payload);
-    if (hits.length) return { provider: "bigmodel", query: trimmed, hits };
+    try {
+      const payload = await postJson("https://open.bigmodel.cn/api/paas/v4/web_search", bigModelKey, {
+        search_query: trimmed,
+        search_engine: "search_std",
+        search_intent: false,
+        count: capped
+      });
+      const hits = hitsFromBigModel(payload);
+      if (hits.length) return { provider: "bigmodel", query: trimmed, hits };
+    } catch {
+      /* BigModel 失败（401/网络/解析）→ 继续下一层，不直接上抛。 */
+    }
   }
 
   const deepSeekKey = envKey("DEEPSEEK_API_KEY");
   if (deepSeekKey) {
-    const payload = await postJson("https://api.deepseek.com/v1/tools/search", deepSeekKey, { query: trimmed, count: capped });
-    const hits = hitsFromDeepSeek(payload);
-    if (hits.length) return { provider: "deepseek", query: trimmed, hits };
+    try {
+      const payload = await postJson("https://api.deepseek.com/v1/tools/search", deepSeekKey, { query: trimmed, count: capped });
+      const hits = hitsFromDeepSeek(payload);
+      if (hits.length) return { provider: "deepseek", query: trimmed, hits };
+    } catch {
+      /* DeepSeek 失败 → 继续下一层，不直接上抛。 */
+    }
   }
 
   /* 自研兜底：零密钥时（以及所有配置层失败时）本地抓取 Bing 结果页。

@@ -4,6 +4,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
+import { runWebSearch } from "./web-search.js";
 
 const execAsync = promisify(exec);
 
@@ -36,8 +37,6 @@ export async function readImageFile(workspace: string, filePath: string): Promis
   if (stat.size > MAX_IMAGE_BYTES) throw new Error("图片不能超过 12 MB");
   return { filePath: resolved, name: path.basename(resolved), mimeType: mediaType, base64: (await fs.readFile(resolved)).toString("base64") };
 }
-
-import { runWebSearch } from "./web-search.js";
 
 export const piTools: AgentTool[] = [
   { key: "look_at", description: "查看本地图片并把图片内容直接提供给模型。path 可使用绝对路径或相对于工作区的路径；仅支持 png、jpg、jpeg、webp、gif 图片。需要理解图片内容时必须调用此工具，不要只读取图片文件的二进制内容。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", description: "图片的绝对路径或相对于工作区的路径" } } } },
@@ -87,14 +86,14 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     await fs.writeFile(filePath, content.replace(oldText, String(args.newText ?? "")), "utf8");
     return { path: filePath, replaced: 1 };
   }
-if (key === "web_search") {
+  if (key === "web_search") {
     const query = typeof args.query === "string" ? args.query : "";
     const count = typeof args.count === "number" && Number.isFinite(args.count) ? args.count : 6;
     /* R62：runWebSearch 自带 官方中继→BigModel→DeepSeek→本地 Bing 抓取 的
        分层回退，零密钥也能出结果（兜底层）。 */
     return await runWebSearch(query, count);
   }
-    if (key === "bash") {
+  if (key === "bash") {
     const command = String(args.command || "");
     if (!command) throw new Error("bash 需要 command");
     /* R59：中文 Windows 的 cmd 输出是 GBK（cp936），exec 默认按 UTF-8 解码

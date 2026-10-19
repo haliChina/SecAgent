@@ -179,7 +179,9 @@ const pathAt = (a: number[], b: number[], t: number) => {
 };
 
 const parseToken = (draft: string): Token | null => {
-  const m = /(^|\s)([@/])([\w-]*)$/.exec(draft);
+  /* \w 不含 CJK：中文用户名需显式纳入，否则 `@张三` 永远触发不了 @ 面板。
+     基本区 + 扩展 A 覆盖常用与生僻汉字。 */
+  const m = /(^|\s)([@/])([\w\u3400-\u4dbf\u4e00-\u9fa5-]*)$/.exec(draft);
   if (!m) return null;
   return { kind: m[2] === '@' ? 'at' : 'slash', query: m[3].toLowerCase(), start: m.index + m[1].length };
 };
@@ -358,6 +360,21 @@ export const PromptBar = ({
   const maxed = efforts.length > 1 && safeEffortIndex === efforts.length - 1;
 
   const focusInput = () => inputRef.current?.focus({ preventScroll: true });
+  /* 菜单按钮点开菜单后需要把焦点还给输入框以便继续键盘筛选，但 textarea 的
+     onFocus={closeMenus} 会把刚点开的菜单立刻关掉（输入框此前未聚焦时）。
+     此标志让下面三处菜单按钮的程序化 focus 跳过那一次 closeMenus。 */
+  const skipFocusClose = useRef(false);
+  const focusInputKeepMenus = () => {
+    /* 已聚焦时 focus() 不会触发 focus 事件，标志会残留并误伤下一次真实获焦；
+       先判 activeElement 根除该类残留。 */
+    if (document.activeElement === inputRef.current) return;
+    skipFocusClose.current = true;
+    inputRef.current?.focus({ preventScroll: true });
+  };
+  const onInputFocus = () => {
+    if (skipFocusClose.current) { skipFocusClose.current = false; return; }
+    closeMenus();
+  };
   const closeMenus = useCallback(() => {
     setPlusOpen(false);
     setModelOpen(false);
@@ -652,6 +669,9 @@ export const PromptBar = ({
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (open && list.length) {
+      /* IME 选词中（isComposing）的 Enter/方向键先让输入法消费，避免中文
+         选词回车同时触发菜单 pick。 */
+      if (e.nativeEvent.isComposing) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
         setActive((cursor + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length);
@@ -886,7 +906,7 @@ export const PromptBar = ({
             closeMenus();
             setActive(0);
           }}
-          onFocus={closeMenus}
+          onFocus={onInputFocus}
           onKeyDown={onKeyDown}
         />
 
@@ -903,7 +923,7 @@ export const PromptBar = ({
               setEffortOpen(false);
               setActive(0);
               setPlusOpen(v => !v);
-              focusInput();
+              focusInputKeepMenus();
             }}
           >
             <PlusIcon size={16} strokeWidth={2} />
@@ -921,7 +941,7 @@ export const PromptBar = ({
                 setEffortOpen(false);
                 setActive(Math.max(0, models.indexOf(model)));
                 setModelOpen(v => !v);
-                focusInput();
+                focusInputKeepMenus();
               }}
             >
               <span>{model.name}</span>
@@ -941,7 +961,7 @@ export const PromptBar = ({
                 setPlusOpen(false);
                 setModelOpen(false);
                 setEffortOpen(v => !v);
-                focusInput();
+                focusInputKeepMenus();
               }}
             >
               <SparklesIcon size={13} strokeWidth={2} />

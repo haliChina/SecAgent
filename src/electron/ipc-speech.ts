@@ -17,13 +17,14 @@ import { recordTelemetryFailure } from "./main-telemetry.js";
 export function registerSpeechIpc(deps: {
   getWakeWindow: () => BrowserWindow | undefined;
   getVoiceWakeWindow: () => BrowserWindow | undefined;
+  getMainWindow: () => BrowserWindow | undefined;
   openWakeWindow: () => Promise<void>;
 }): void {
-  const { getWakeWindow, getVoiceWakeWindow, openWakeWindow } = deps;
+  const { getWakeWindow, getVoiceWakeWindow, getMainWindow, openWakeWindow } = deps;
 
   ipcMain.handle("speech:start", async (event) => {
     const wakeWindow = getWakeWindow();
-    const target = wakeWindow?.webContents.id === event.sender.id ? wakeWindow : undefined;
+    const target = wakeWindow?.webContents.id === event.sender.id ? wakeWindow : getMainWindow();
     logMain("speech.start", { window: target === wakeWindow ? "wake" : "main" });
     try {
       const result = await startSpeech(target);
