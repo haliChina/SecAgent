@@ -105,8 +105,10 @@ const hostOf = (url: string) => {
 };
 
 // without an href an anchor keeps its look but goes nowhere, for previews that shouldn't send visitors away
+// source.url 是不可信输入（Bing 抓取/搜索 API）：只接受 http/https，javascript:/data: 等
+// scheme 直接降级为无 href，避免投毒 URL 在 renderer 上下文执行。
 const linkTo = (url: string, linked: boolean) =>
-  linked ? { href: url, target: "_blank", rel: "noreferrer" } : {};
+  linked && /^https?:/i.test(url.trim()) ? { href: url.trim(), target: "_blank", rel: "noreferrer" } : {};
 
 // developer.mozilla.org reads as "mozilla", the way people say it
 const siteName = (url: string) => {

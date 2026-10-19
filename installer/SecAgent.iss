@@ -97,10 +97,13 @@ Filename: "{app}\SecAgent.exe"; Description: "启动 SecAgent"; Flags: nowait po
   UI_SCALE_PCT via UiX/UiY AND the system DPI (R62 redo: the old build froze
   the card at one physical size and counter-scaled fonts, which read "random
   sizes" on any 125-150% display and let DPI-scaled stock controls overlap
-  custom ones).  At 96 DPI the visuals are pixel-identical to the previous
-  build; on scaled displays everything - card, fonts, pills, hit areas -
-  grows proportionally, like a normal DPI-aware app.  The scale is capped so
-  the card always fits the work area.
+  custom ones).  At 96 DPI the geometry is pixel-identical to the previous
+  build; fonts render at 75% of the old size on purpose — the old build
+  passed design px straight into TFont.Size (pt), inflating glyphs by 4/3,
+  while UiFontSize now converts design px x scale to true points
+  (design x scale x 3/400). On scaled displays everything - card, fonts,
+  pills, hit areas - grows proportionally, like a normal DPI-aware app.
+  The scale is capped so the card always fits the work area.
 
   Inno's script engine exposes no mouse-down events (PS_MINIVCL build), so
   the borderless window is dragged via a WH_MOUSE_LL hook: press on the
@@ -217,7 +220,8 @@ begin
   { TFont.Size is in points, and 1 pt renders DPI-physically (pt x dpi/72 px).
     Geometry scales as design*scale*dpi/96, so the matching point size is
     DPI-independent: design x scale x 72/96 = design x scale x 3/400.
-    At 96 dpi this reproduces the old rendering exactly. }
+    Note: this is intentionally 75% of the old build's glyph size at 96 dpi —
+    the old code fed design px into TFont.Size as if they were points. }
   Result := DesignSize * UI_SCALE_PCT * 3 div 400;
   if Result < 1 then
     Result := 1;
