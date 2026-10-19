@@ -196,12 +196,14 @@ export class ModelToolAgent {
     if (this.agent.provider === "openai-responses") return this.runOpenAIResponses(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
     return this.runOpenAICompatible(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
   }
-  /** 每次请求前从插件收集提示词并拼接到系统提示词最后；无插件提示词时原样返回。 */
+  /** 每次请求前从插件收集提示词并拼接到系统提示词最后；无插件提示词时原样返回。
+   * 另注入当前日期（模型无实时时钟，"今天/明天/本周"类表述以此为准）。 */
   private async resolveSystemPrompt(): Promise<string> {
+    const dateLine = `\n\n当前日期：${new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}。`;
     const contributions = await this.getExtraPrompts?.() || [];
-    if (!contributions.length) return this.agent.systemPrompt;
+    if (!contributions.length) return `${this.agent.systemPrompt}${dateLine}`;
     const catalog = contributions.map(({ pluginId, name, text }) => `[${pluginId}/${name}]\n${text}`).join("\n\n");
-    return `${this.agent.systemPrompt}\n\n## 插件注入的提示词\n${catalog}`;
+    return `${this.agent.systemPrompt}${dateLine}\n\n## 插件注入的提示词\n${catalog}`;
   }
   private async request(url: string, headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<unknown> {
     this.trace?.("model.request", { url, body });
