@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """B1-2：从 classwidgets.ts 机械提取通用函数 → companion-installer-shared.ts。
 提取原则：函数体逐字搬运（Python 读原文区间），仅做参数化替换；
-替换规则显式列出，可 diff 复核。"""
+替换规则显式列出，可 diff 复核。
+
+注意：一次性脚本。输入 tmp/classwidgets.orig.ts 不在仓库中，从干净克隆
+不可重跑；生成结果已落盘为 src/companion-installer-shared.ts，后续请直接
+改生成文件。"""
 import re, sys
 
 SRC = "tmp/classwidgets.orig.ts"
@@ -85,13 +89,8 @@ for name in ["discoverRunningProcesses", "discoverWindowsExternalPaths",
 # —— defaultVersionOf（classisland/classwidgets 长版）——
 blocks["defaultVersionOf"] = fn_block("defaultVersionOf")
 
-# —— waitForInstalledPlugin：版本比较器注入 ——
+# —— waitForInstalledPlugin：版本比较器直接用模块级 compareVersions ——
 w = fn_block("waitForInstalledPlugin")
-w = w.replace("async function waitForInstalledPlugin(",
-              "async function waitForInstalledPlugin<T extends (a: string, b: string) => number>(", 1) if False else w
-# 简化：compareVersions 作为末参注入
-w = re.sub(r"^async function waitForInstalledPlugin\(([^)]*)\):",
-           lambda m: "async function waitForInstalledPlugin(" + m.group(1).rstrip(", ") + ", compareVersions: (a: string, b: string) => number):", w, count=1)
 w = w.replace("compareClassWidgetsVersions(current, expectedVersion)", "compareVersions(current, expectedVersion)")
 blocks["waitForInstalledPlugin"] = w
 
@@ -100,7 +99,7 @@ d = fn_block("downloadLatestClassWidgetsPlugin")
 DSUBS = [
     ("async function downloadLatestClassWidgetsPlugin(fetcher: Fetcher, now: () => number, onProgress?: (phase: ClassWidgetsInstallPhase, message?: string) => void, onRoute?: DownloadAttemptLogger): Promise<{ bytes: Buffer; version: string; sha256: string }> {",
      "async function downloadLatestCompanionPlugin(fetcher: Fetcher, now: () => number, onProgress: ((phase: string, message?: string) => void) | undefined, onRoute: DownloadAttemptLogger | undefined, spec: CompanionDownloadSpec): Promise<{ bytes: Buffer; version: string; sha256: string }> {"),
-    ('"正在通过 ghproxy.sectl.cn 下载最新 Class Widgets 插件"', 'awaiting' if False else "`正在通过 ghproxy.sectl.cn 下载最新 ${spec.productName} 插件`"),
+    ('"正在通过 ghproxy.sectl.cn 下载最新 Class Widgets 插件"', "`正在通过 ghproxy.sectl.cn 下载最新 ${spec.productName} 插件`"),
     ("[CLASSWIDGETS_RELEASE_API_URL]", "[spec.releaseApiUrl]"),
     ("await fetchReleasePageMetadata(fetcher, now)", "await fetchReleasePageMetadata(fetcher, now, spec.releasePageUrl, spec.repository, spec.assetName)"),
     ("无法读取 Class Widgets 最新 Release", "无法读取 ${spec.productName} 最新 Release"),

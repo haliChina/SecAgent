@@ -34,9 +34,9 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
   const { sendToAppWindows } = deps;
 
   function store(): SessionStore { return new SessionStore(DEFAULT_WORKSPACE); }
-  const sessionPreview = (id: string): string => { try { return store().previewOf(id); } catch { return ""; } };
-
-  ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); return store().list().map((meta) => ({ ...meta, preview: sessionPreview(meta.id) })); });
+  /* sessions:list：复用同一个 store 实例，避免每个会话各 new 一次 SessionStore
+     再逐个同步读盘（N+1）。previewOf 内部仍逐文件读——会话数大时可再做批量化。 */
+  ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); const sessionStore = store(); return sessionStore.list().map((meta) => ({ ...meta, preview: sessionStore.previewOf(meta.id) })); });
   ipcMain.handle("sessions:create", () => { const session = store().create(); logMain("ipc.sessions.create", { sessionId: session.meta.id }); return session; });
   ipcMain.handle("sessions:delete", (_event, id: string) => { store().delete(id); logMain("ipc.sessions.delete", { sessionId: id }); return store().list(); });
   ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return store().get(id); });

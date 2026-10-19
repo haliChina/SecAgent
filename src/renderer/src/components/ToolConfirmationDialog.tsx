@@ -22,13 +22,21 @@ export function ToolConfirmationDialog({ confirmation, onResolve }: {
   const cardRef = useRef<HTMLDivElement | null>(null);
   const onResolveRef = useRef(onResolve);
   onResolveRef.current = onResolve;
+  /* 首次落定后忽略后续触发：快速 Enter→Shift+Enter 连击会把"允许一次"
+     升级成"总是允许"；按钮双击同理。 */
+  const resolvedRef = useRef(false);
+  const resolveOnce = (approved: boolean, always?: boolean) => {
+    if (resolvedRef.current) return;
+    resolvedRef.current = true;
+    onResolveRef.current(approved, always);
+  };
 
   // 键盘接管在组件内部完成：弹层挂载期生效，卸载自动解绑
   useEffect(() => {
     cardRef.current?.focus();
     const onKeydown = (event: KeyboardEvent) => {
-      if (event.key === "Enter") { event.preventDefault(); onResolveRef.current(true, event.shiftKey); }
-      else if (event.key === "Escape") { event.preventDefault(); onResolveRef.current(false); }
+      if (event.key === "Enter") { event.preventDefault(); resolveOnce(true, event.shiftKey); }
+      else if (event.key === "Escape") { event.preventDefault(); resolveOnce(false); }
     };
     document.addEventListener("keydown", onKeydown, true);
     return () => document.removeEventListener("keydown", onKeydown, true);
@@ -42,9 +50,9 @@ export function ToolConfirmationDialog({ confirmation, onResolve }: {
       <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
       <p className="tool-confirmation-keys">Enter 允许一次 · Shift+Enter 总是允许此类 · Esc 拒绝</p>
       <div className="tool-confirmation-actions">
-        <button type="button" className="secondary-button" onClick={() => onResolve(false)}>拒绝</button>
-        <button type="button" className="secondary-button" onClick={() => onResolve(true, true)}>总是允许此类</button>
-        <button type="button" className="primary-button" onClick={() => onResolve(true)}>允许一次</button>
+        <button type="button" className="secondary-button" onClick={() => resolveOnce(false)}>拒绝</button>
+        <button type="button" className="secondary-button" onClick={() => resolveOnce(true, true)}>总是允许此类</button>
+        <button type="button" className="primary-button" onClick={() => resolveOnce(true)}>允许一次</button>
       </div>
     </div>
   </div>;

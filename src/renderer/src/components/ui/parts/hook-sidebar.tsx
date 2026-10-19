@@ -4,7 +4,8 @@
  * 逐行直译自 swamimalode07/rare-ui components/ui/hook-sidebar.tsx：1px 虚线轨
  * （repeating-gradient）+ 12×7 SVG 圆弧钩，双轨（灰 hover / 彩 active）均 spring
  * 420/34/0.7 驱动 top/height。适配本项目：去 next 路由（usePathname/Link），
- * 受控 activeId 模式；items 支持 group（R49 分组标签）与 dividerBefore（分隔线）。
+ * 受控 activeId 模式。注：items 仅支持 { id, label }（曾计划的 group/
+ * dividerBefore 未实现，调用方勿传）。
  *
  * 健壮性（前几代真机事故沉淀，勿删）：
  *  - 设置窗常以 hidden 创建、ready-to-show 后才显示：首次布局时容器 width=0、

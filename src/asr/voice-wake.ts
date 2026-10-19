@@ -20,16 +20,22 @@ interface VoiceWakeOptions {
 }
 
 function keywordTokens(phrase: string): string {
-  /* R62 修复"唤醒词不凑效"根因：sherpa-onnx-kws-zipformer-zh-en-3M 词表是
-     无调拼音（iao/ong/ue…，263 个 token 里没有任何带调韵母），而这里原先
-     toneType:"symbol" 生成 iao3/e2/ong2 —— 词表外的 token 让 KWS 关键词图
-     永远拼不出来，阈值调到 0.25 也没用（R59 的误诊）。改 toneType:"none"
-     输出无调音节，再按声母+韵母切分（与词表 token 一一对应）。 */
-  const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "none", type: "array" }) as string[];
+  /* R62 唤醒词修复补遗（此前注释的两处断言经实测不成立，已订正）：
+     - 词表 models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/tokens.txt
+       （263 token）并非"无任何带调韵母"——约 135 个 token 含带调韵母
+       （iǎo/ué/óng/é…）；pinyin-pro 的 toneType:"symbol" 生成的是带调符号
+       （xiǎo/zé/tóng/xué），不是数字调（iao3/e2/ong2）。
+     - toneType:"none" 下 pinyin("女")="nü"(U+00FC)，按声母+韵母切成 "n ü"；
+       但词表没有裸 ü（ü 系只有 ǘ/ǚ/ǜ 与 üè/üě），含女/绿/吕/旅/律的自定
+       义唤醒词永远拼不出关键词图。修：含 ü 的音节单独保留声调。 */
+  const cleaned = phrase.replace(/\s+/g, "");
+  const toneless = pinyin(cleaned, { toneType: "none", type: "array" }) as string[];
+  const toned = pinyin(cleaned, { toneType: "symbol", type: "array" }) as string[];
   const initials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
-  return syllables.map((syllable) => {
-    const initial = initials.find((candidate) => syllable.startsWith(candidate)) || "";
-    return `${initial} ${syllable.slice(initial.length)}`;
+  return toneless.map((syllable, index) => {
+    const source = syllable.includes("ü") ? toned[index] : syllable;
+    const initial = initials.find((candidate) => source.startsWith(candidate)) || "";
+    return `${initial} ${source.slice(initial.length)}`.trim();
   }).join(" ");
 }
 

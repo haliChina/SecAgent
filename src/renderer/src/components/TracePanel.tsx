@@ -19,6 +19,23 @@ interface TraceTurn {
   events: Array<{ item: TraceEvent; gapMs: number }>;
 }
 
+/* 密钥脱敏：mcp.tools/call 等事件的 data 可能含用户让 agent 使用的密码/API Key
+   （面板文案自述事件会保存到会话目录），渲染与摘要前统一掩码，key 命中即整
+   值替换，不猜测值的格式。 */
+const SECRET_KEY_PATTERN = /api[_-]?key|password|passwd|pwd|token|secret|credential|access[_-]?key/i;
+const MASKED_SECRET = "••••••••";
+function maskSecretsDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(maskSecretsDeep);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = SECRET_KEY_PATTERN.test(key) ? MASKED_SECRET : maskSecretsDeep(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
 function summarizeData(data: unknown): string | null {
   if (typeof data === "string") return `${stripAnsi(data).length} 字符`;
   if (data && typeof data === "object") {
@@ -78,13 +95,15 @@ export function TracePanel({ activeTrace, isExecuting = false }: { activeTrace: 
           <strong>{turn.index === 0 ? "准备" : `回合 ${turn.index}`}</strong>
           <span>{turn.events.length} 个事件{turn.events.length > 1 && ` · ${((Date.parse(turn.events.at(-1)!.item.at) - turn.startedAt) / 1000).toFixed(1)}s`}</span>
         </header>
-        {turn.events.map(({ item, gapMs }) => <details key={`${item.sequence}-${item.stage}`} className={`trace-item ${item.stage.startsWith("mcp.tools/") ? "tool-event" : ""}`}>
+        {turn.events.map(({ item, gapMs }) => {
+          const safeData = maskSecretsDeep(item.data);
+          return <details key={`${item.sequence}-${item.stage}`} className={`trace-item ${item.stage.startsWith("mcp.tools/") ? "tool-event" : ""}`}>
           <summary><span className="trace-order">{item.sequence}</span><span>{traceLabel[item.stage] || item.stage}</span><time>{new Date(item.at).toLocaleTimeString()}{gapMs >= 100 ? ` · +${gapMs < 1000 ? `${Math.round(gapMs)}ms` : `${(gapMs / 1000).toFixed(1)}s`}` : ""}</time></summary>
           <div className="trace-data">
-            {summarizeData(item.data) && <p className="trace-data-summary">{summarizeData(item.data)}</p>}
-            <pre>{JSON.stringify(stripAnsiDeep(item.data), null, 2)}</pre>
+            {summarizeData(safeData) && <p className="trace-data-summary">{summarizeData(safeData)}</p>}
+            <pre>{JSON.stringify(stripAnsiDeep(safeData), null, 2)}</pre>
           </div>
-        </details>)}
+        </details>;})}
       </section>)}
     </div>
   </aside>;
