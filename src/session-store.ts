@@ -14,6 +14,25 @@ export interface SessionMessage { id: string; role: "user" | "assistant"; conten
 export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[] }
 export interface SessionRuntimeEvent { sequence: number; at: string; stage: string; data: unknown }
 
+/* 密钥脱敏：工具调用参数/结果可能含用户口令与 API Key。runtime.jsonl 落盘、
+   renderer 历史（sessions:runtime-events）与诊断上传都读同一份数据，写入前
+   统一掩码；key 命中即整值替换，不猜测值的格式。归一化 key 再匹配，防零宽
+   字符/软连字符/空格/点号绕过（如 api\u200bkey）。 */
+const SECRET_KEY_PATTERN = /api[_-]?key|password|passwd|pwd|token|secret|credential|access[_-]?key|authorization|private[_-]?key|passphrase/i;
+export const MASKED_SECRET = "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022";
+export function maskSecretsDeep(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(maskSecretsDeep);
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+      const normalizedKey = key.replace(/[\u200b-\u200d\ufeff\xad\s.\u00b7]/g, "");
+      out[key] = SECRET_KEY_PATTERN.test(normalizedKey) ? MASKED_SECRET : maskSecretsDeep(entry);
+    }
+    return out;
+  }
+  return value;
+}
+
 export class SessionStore {
   private root: string;
   constructor(workspace: string) {
@@ -78,7 +97,9 @@ export class SessionStore {
     return session;
   }
   appendRuntimeEvent(id: string, event: { sequence?: number; at?: string; stage: string; data: unknown }): void {
-    const entry = JSON.stringify({ at: new Date().toISOString(), ...event }) + "\n";
+    /* 落盘前脱敏：同一事件还会经 IPC 直播给 renderer（渲染层另行掩码）与进入
+       遥测，此处只保证磁盘文件不含明文密钥。注意不改变 event 本体，只写掩码副本。 */
+    const entry = JSON.stringify({ at: new Date().toISOString(), ...event, data: maskSecretsDeep(event.data) }) + "\n";
     fs.appendFileSync(path.join(this.sessionDir(id), "runtime.jsonl"), entry, "utf8");
   }
   getRuntimeEvents(id: string): SessionRuntimeEvent[] {

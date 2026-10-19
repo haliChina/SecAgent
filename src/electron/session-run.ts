@@ -12,7 +12,7 @@ import { AuditStore } from "../audit.js";
 import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import { generateSessionTitle } from "../session-title.js";
 import { normalizeReasoningEffort } from "../reasoning.js";
-import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
+import { SessionStore, maskSecretsDeep, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
 import { loadEnabledSkills } from "../skills.js";
 import { hashIdentifier } from "../telemetry.js";
 import { logMain } from "./main-log.js";
@@ -172,7 +172,8 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     if (ordered.stage === "model.response" && typeof data.status === "number" && data.status >= 400) {
       recordTelemetryFailure({ type: data.status === 408 || data.status === 504 ? "model.timeout" : data.status === 429 ? "model.rate_limited" : data.status === 401 || data.status === 403 ? "model.auth_failed" : data.status === 400 ? "model.response.invalid" : "model.request.failed", context: { sessionId: hashIdentifier(id), status: data.status } });
     }
-    logMain("session.runtime", { sessionId: id, ...ordered });
+    /* 主进程日志同样落盘：data 先脱敏再记，避免与 runtime.jsonl 同一事件在此处泄漏明文密钥。 */
+    logMain("session.runtime", { sessionId: id, ...ordered, data: maskSecretsDeep(ordered.data) });
     deps.sendToAppWindows("sessions:runtime-event", { sessionId: id, ...ordered });
   };
   try {

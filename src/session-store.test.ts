@@ -61,3 +61,42 @@ test("appendMessage 不传 fallbackNotice 时消息无该字段（向后兼容�
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("masks secrets in runtime events before writing them to disk", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-mask-"));
+  try {
+    const store = new SessionStore(workspace);
+    const session = store.create();
+    const eventData = {
+      name: "db.query",
+      arguments: { host: "db.internal", password: "s3cr3t!", nested: { apiKey: "ak-live-123" } },
+      note: "plain text stays",
+    };
+    store.appendRuntimeEvent(session.meta.id, {
+      sequence: 1,
+      at: "2026-10-19T00:00:00.000Z",
+      stage: "mcp.tools/call",
+      data: eventData,
+    });
+    /* 写入的是掩码副本，调用方对象本体保持明文（直播 IPC 与终端打印仍用原文）。 */
+    assert.equal((eventData.arguments as Record<string, unknown>).password, "s3cr3t!");
+    const raw = fs.readFileSync(path.join(workspace, "sessions", session.meta.id, "runtime.jsonl"), "utf8");
+    assert.ok(!raw.includes("s3cr3t!"), "password must not hit disk in plaintext");
+    assert.ok(!raw.includes("ak-live-123"), "apiKey must not hit disk in plaintext");
+    assert.ok(raw.includes("db.internal") && raw.includes("plain text stays"), "non-secret fields preserved");
+    const events = store.getRuntimeEvents(session.meta.id);
+    const args = (events[0].data as { arguments: Record<string, unknown> }).arguments;
+    assert.equal(args.password, "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+    assert.equal((args.nested as Record<string, unknown>).apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+    assert.equal(args.host, "db.internal");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("maskSecretsDeep ignores zero-width characters in key names", async () => {
+  const { maskSecretsDeep } = await import("./session-store.js");
+  const out = maskSecretsDeep({ "api\u200bkey": "hidden", normal: "shown" }) as Record<string, unknown>;
+  assert.equal(out["api\u200bkey"], "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+  assert.equal(out.normal, "shown");
+});
