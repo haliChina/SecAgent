@@ -162,7 +162,8 @@ export async function openPluginSvgPreview(request: SvgPreviewRequest): Promise<
     webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
   });
   previewWindow.on("page-title-updated", (event) => event.preventDefault());
-  previewWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  /* R59 外链守卫：SVG 内 <a> 点击走 will-navigate，不拦会在窗内导航外站。 */
+  installExternalLinkGuard(previewWindow);
   try {
     await previewWindow.loadFile(request.filePath);
     const isSvgDocument = await previewWindow.webContents.executeJavaScript("document.documentElement?.namespaceURI === 'http://www.w3.org/2000/svg'", true);

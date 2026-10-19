@@ -240,13 +240,21 @@ export function parseWindowsCommandLine(commandLine: string | undefined): string
 }
 
 export function compareVersions(left: string, right: string): number {
-  const parse = (value: string) => value.trim().replace(/^v/i, "").split(/[.+-]/).map((part) => Number(part) || 0);
+  /* 朴素分段比较 + 预发布降级：semver 语义里 "2.0.0-beta" < "2.0.0"，避免
+     beta 构建被误判满足正式版要求（iccce/secrandom 的最低版本门禁依赖此语义）。 */
+  const parse = (value: string) => {
+    const cleaned = value.trim().replace(/^v/i, "").split("+")[0]; // 先剥构建元数据（+build 不参与比较）
+    const dash = cleaned.indexOf("-");
+    const core = dash >= 0 ? cleaned.slice(0, dash) : cleaned;
+    return { parts: core.split(".").map((part) => Number(part) || 0), prerelease: dash >= 0 };
+  };
   const a = parse(left);
   const b = parse(right);
-  for (let index = 0; index < Math.max(a.length, b.length); index++) {
-    const difference = (a[index] || 0) - (b[index] || 0);
+  for (let index = 0; index < Math.max(a.parts.length, b.parts.length); index++) {
+    const difference = (a.parts[index] || 0) - (b.parts[index] || 0);
     if (difference) return difference > 0 ? 1 : -1;
   }
+  if (a.prerelease !== b.prerelease) return a.prerelease ? -1 : 1;
   return 0;
 }
 

@@ -240,7 +240,7 @@ async function startApplication(): Promise<void> {
   registerSettingsIpc({ getUpdateManager: () => updateManager, openSettings });
   registerWakeIpc();
   registerSessionsIpc({ getPluginManager: () => pluginManager, sendToAppWindows, getUpdateManager: () => updateManager, toolConfirmWindowHooks: { raiseAppWindows, yieldForeground: yieldAppForeground } });
-  registerSpeechIpc({ getWakeWindow: getWakeWindow, getVoiceWakeWindow: getVoiceWakeWindow, openWakeWindow });
+  registerSpeechIpc({ getWakeWindow: getWakeWindow, getVoiceWakeWindow: getVoiceWakeWindow, getMainWindow: getMainWindow, openWakeWindow });
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
   // Apply the persisted ASR preference before any speech session can start.
