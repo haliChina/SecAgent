@@ -29,7 +29,9 @@ function maskSecretsDeep(value: unknown): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = SECRET_KEY_PATTERN.test(key) ? MASKED_SECRET : maskSecretsDeep(entry);
+      /* 归一化 key 再匹配：防零宽字符/软连字符/空格/点号绕过（如 api‌key） */
+      const normalizedKey = key.replace(/[\u200b-\u200d\ufeff\xad\s.·]/g, "");
+      out[key] = SECRET_KEY_PATTERN.test(normalizedKey) ? MASKED_SECRET : maskSecretsDeep(entry);
     }
     return out;
   }
