@@ -22,7 +22,7 @@ interface TraceTurn {
 /* 密钥脱敏：mcp.tools/call 等事件的 data 可能含用户让 agent 使用的密码/API Key
    （面板文案自述事件会保存到会话目录），渲染与摘要前统一掩码，key 命中即整
    值替换，不猜测值的格式。 */
-const SECRET_KEY_PATTERN = /api[_-]?key|password|passwd|pwd|token|secret|credential|access[_-]?key/i;
+const SECRET_KEY_PATTERN = /api[_-]?key|password|passwd|pwd|token|secret|credential|access[_-]?key|authorization|private[_-]?key|passphrase/i;
 const MASKED_SECRET = "••••••••";
 function maskSecretsDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(maskSecretsDeep);
