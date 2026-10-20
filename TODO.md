@@ -17,6 +17,21 @@
 4. ✓ **测试按钮名实相符**：「测试服务连通」+「不验证实际识别效果」注（第七轮 inline）
 5. 验证：build:cli 0 错 · 274 测试全过（含 4 个新防护回归）· 双扫描 0/0
 
+## 本轮（R64 · 2026-10-20 装机反馈三连修）
+
+1. ✓ **会话侧栏回退**：7b5dd17 的展开态视觉重做实机破碎（⋯ 按钮 inset:-5px -6px
+   拉伸成整行点击面 + 菜单在滚动容器内绝对定位遮盖列表 + 删除流被重写）——
+   SessionSidebar.tsx 与侧栏 CSS 块整体回退到评审过的 0810071 形态
+   （DeleteButton 悬停浮现 + 两步确认，日期右列常驻）
+2. ✓ **联网搜索配置页**（第五轮 review #1 MEDIUM 遗留）：设置新增「联网搜索」页
+   （模型与服务组），BigModel/DeepSeek 密钥输入；载流字段保存时写工作区 .env
+   （writeWorkspaceEnv 即时注入 process.env，免重启生效），不落 config.yaml；
+   配置状态由 apiKeyConfigured 派生
+3. ✓ **「Searched 0 sites」**：normalizeWebSearchSources 只认 results 键，而
+   runWebSearch 返回 {provider,query,hits} → 恒空。兼容三形状（裸数组/results/hits）
+   + siteIcon 字段补认
+4. 验证：build:cli 0 错 · 274 测试全过 · 双扫描 0/0
+
 ## 本轮（R62 · 2026-10-19）
 
 1. ✓ **语音双窗打架修复**：startSpeech 换窗先 cancel 旧会话并回 stopped——

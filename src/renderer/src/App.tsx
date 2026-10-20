@@ -26,13 +26,17 @@ import { AiStatus, AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixO
 /** web_search 工具结果 → rare-ui WebSearch 组件的 WebSource 归一化
  * （兼容 BigModel search_result 与 DeepSeek results 两种载荷）。 */
 function normalizeWebSearchSources(result: unknown): WebSource[] {
-  const list: unknown[] = Array.isArray(result) ? result : result && typeof result === "object" && Array.isArray((result as { results?: unknown[] }).results) ? (result as { results: unknown[] }).results : [];
+  /* R64：runWebSearch 返回 { provider, query, hits }（hits 才是结果数组），
+     此前只认 results → 恒空 → 「Searched 0 sites」。兼容三种形状：
+     裸数组 / { results }（MCP 类工具）/ { hits }（自研 web_search）。 */
+  const source = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
+  const list: unknown[] = Array.isArray(result) ? result : source && Array.isArray(source.results) ? source.results : source && Array.isArray(source.hits) ? source.hits : [];
   return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item, index) => ({
     id: String(item.id ?? index),
     title: String(item.title ?? "无标题"),
     url: String(item.url ?? item.link ?? ""),
     snippet: typeof item.snippet === "string" ? item.snippet : typeof item.content === "string" ? String(item.content).slice(0, 200) : undefined,
-    favicon: typeof item.favicon === "string" ? item.favicon : typeof item.site_icon === "string" ? String(item.site_icon) : undefined,
+    favicon: typeof item.favicon === "string" ? item.favicon : typeof item.site_icon === "string" ? String(item.site_icon) : typeof item.siteIcon === "string" ? String(item.siteIcon) : undefined,
   })).filter((source) => source.url);
 }
 
