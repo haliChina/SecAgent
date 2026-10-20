@@ -4,7 +4,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
-import { runWebSearch } from "./web-search.js";
+import { runWebFetch, runWebSearch } from "./web-search.js";
 
 const execAsync = promisify(exec);
 
@@ -45,6 +45,7 @@ export const piTools: AgentTool[] = [
   { key: "edit", description: "将文件中唯一匹配的 oldText 替换为 newText。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "oldText", "newText"], properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } } } },
   { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } },
   { key: "web_search", description: "联网搜索最新信息（新闻、政策、价格、日期等时效性内容）。返回标题、链接与摘要列表；回答中引用来源并把链接给用户。", inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "搜索词，1～128 个字符" }, count: { type: "integer", minimum: 1, maximum: 10, description: "返回条数，默认 6" } } } },
+  { key: "web_fetch", description: "抓取网页正文（Markdown/纯文本）。当 web_search 摘要不够、需要读页面全文时调用。", inputSchema: { type: "object", additionalProperties: false, required: ["url"], properties: { url: { type: "string", description: "http(s) 网页链接，≤8192 字符" } } } },
 ];
 
 function resolvePath(workspace: string, filePath: string): string { return path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath); }
@@ -92,6 +93,11 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     /* R62：runWebSearch 自带 官方中继→BigModel→DeepSeek→本地 Bing 抓取 的
        分层回退，零密钥也能出结果（兜底层）。 */
     return await runWebSearch(query, count);
+  }
+  if (key === "web_fetch") {
+    const url = typeof args.url === "string" ? args.url : "";
+    /* R63：DeepSeek fetch API 优先，本地直抓兜底（见 web-search.ts）。 */
+    return await runWebFetch(url);
   }
   if (key === "bash") {
     const command = String(args.command || "");

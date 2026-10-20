@@ -20,23 +20,9 @@ interface TraceTurn {
 }
 
 /* 密钥脱敏：mcp.tools/call 等事件的 data 可能含用户让 agent 使用的密码/API Key
-   （面板文案自述事件会保存到会话目录），渲染与摘要前统一掩码，key 命中即整
-   值替换，不猜测值的格式。 */
-const SECRET_KEY_PATTERN = /api[_-]?key|password|passwd|pwd|token|secret|credential|access[_-]?key|authorization|private[_-]?key|passphrase/i;
-const MASKED_SECRET = "••••••••";
-function maskSecretsDeep(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(maskSecretsDeep);
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-      /* 归一化 key 再匹配：防零宽字符/软连字符/空格/点号绕过（如 api‌key） */
-      const normalizedKey = key.replace(/[\u200b-\u200d\ufeff\xad\s.·]/g, "");
-      out[key] = SECRET_KEY_PATTERN.test(normalizedKey) ? MASKED_SECRET : maskSecretsDeep(entry);
-    }
-    return out;
-  }
-  return value;
-}
+   （面板文案自述事件会保存到会话目录），渲染与摘要前统一掩码。R63 起内核
+   抽到 src/redact.ts 与主进程落盘共用同一份（含环引用防护与深度上限）。 */
+import { MASKED_SECRET, maskSecretsDeep } from "../../../redact.js";
 
 function summarizeData(data: unknown): string | null {
   if (typeof data === "string") return `${stripAnsi(data).length} 字符`;

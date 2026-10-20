@@ -3,6 +3,20 @@
 > 每轮对话更新本文件：完成打 ✓，进行中标 🔶，未动留 ☐。
 > 约定：每轮对话（用户发一次）tool_call 上限 100 次，做不完的顺延下一轮。
 
+## 本轮（R63 · 2026-10-20）
+
+1. ✓ **review 后代码审计**（用户判「大部分不佳」）：逐 hunk 过完 0810071→b97068e
+   全部 12 提交（+341/−103）。实判：主体合格（speech 主窗兜底/linkTo scheme/回退链
+   try-catch/脱敏/对比度三处/N+1 注释化/IME 守护均正确落地，CI 绿+274 测试过）；
+   真遗留两处半：maskSecretsDeep 无环引用/深递归防护（主进程热路径栈溢出风险）、
+   SECRET_KEY_PATTERN 双份漂移隐患、测试按钮名实不符（第七轮 inline）——均已修
+2. ✓ **共享脱敏内核**：src/redact.ts（无 node 依赖，主/渲染两用）——WeakSet 环剪枝、
+   深度上限 64、key 噪声归一化；session-store/TracePanel 双份实现删除，单一事实源
+3. ✓ **web_fetch 工具**（第六轮 review 建议项）：DeepSeek /v1/tools/fetch（文档核对）
+   + 本地直抓兜底；pi-tools 注册；120k 字符截断
+4. ✓ **测试按钮名实相符**：「测试服务连通」+「不验证实际识别效果」注（第七轮 inline）
+5. 验证：build:cli 0 错 · 274 测试全过（含 4 个新防护回归）· 双扫描 0/0
+
 ## 本轮（R62 · 2026-10-19）
 
 1. ✓ **语音双窗打架修复**：startSpeech 换窗先 cancel 旧会话并回 stopped——

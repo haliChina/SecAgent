@@ -11,6 +11,9 @@
  *    响应 { results: [{ title, url, snippet, summary, content, site_name, site_icon, date }] }
  *    （api-docs.deepseek.com/zh-cn/api/search）
  *
+ * R63 增补：web_fetch（DeepSeek /v1/tools/fetch，返回 Markdown 正文）——
+ * 第六轮 review 建议项；web_search 只给摘要，模型要读全文时用 fetch。
+ *
  * 密钥沿用应用的 env 隔离约定（.env，与模型 provider 一致）：
  *  - BigModel：ZAI_API_KEY / BIGMODEL_API_KEY / GLM_API_KEY / ZHIPU_API_KEY（任一）
  *  - DeepSeek：DEEPSEEK_API_KEY
@@ -232,4 +235,63 @@ export async function runWebSearch(query: string, count = 6): Promise<WebSearchO
       ? "各搜索服务均未返回结果（额度耗尽或网络受限），已尝试本地抓取也未命中；可稍后重试。"
       : "搜索失败：本地抓取未命中。要更稳定的结果，可在 .env 配置 ZAI_API_KEY（智谱）或 DEEPSEEK_API_KEY 后重启。"
   );
+}
+
+interface WebFetchOutcome {
+  provider: "deepseek" | "local";
+  url: string;
+  title: string;
+  content: string;
+}
+
+/** 网页抓取（R63）：DeepSeek /v1/tools/fetch 优先（Markdown 正文，文档核对：
+ *  body { url }，响应 { title, content }；url 须含 host 的 http(s) 且不带凭据，
+ *  ≤8192 字符）；无密钥时本地直抓 HTML 去标签兜底（粗文本，仅供模型阅读）。 */
+export async function runWebFetch(rawUrl: string): Promise<WebFetchOutcome> {
+  const url = rawUrl.trim();
+  if (!/^https?:\/\//i.test(url) || url.length > 8192) throw new Error("web_fetch 需要合法的 http(s) 链接（≤8192 字符）。");
+  try { if (new URL(url).username || new URL(url).password) throw new Error("链接不能携带用户名或密码。"); } catch (error) {
+    if (error instanceof TypeError) throw new Error("链接格式不合法。");
+    throw error;
+  }
+
+  const deepSeekKey = envKey("DEEPSEEK_API_KEY");
+  if (deepSeekKey) {
+    try {
+      const payload = await postJson("https://api.deepseek.com/v1/tools/fetch", deepSeekKey, { url });
+      const title = String((payload as { title?: unknown } | null)?.title ?? "");
+      const content = String((payload as { content?: unknown } | null)?.content ?? "");
+      if (content) return { provider: "deepseek", url, title, content: content.slice(0, 120_000) };
+    } catch {
+      /* DeepSeek 失败（额度/网络）→ 本地兜底。 */
+    }
+  }
+
+  /* 本地兜底：直接抓 HTML，剥脚本/样式/标签出粗文本。超时与 web_search 共用。 */
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", "Accept-Language": "zh-CN,zh;q=0.9" },
+      signal: controller.signal
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const html = (await response.text()).slice(0, 2_000_000);
+    const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1]?.replace(/<[^>]+>/g, "").trim() ?? "";
+    const text = html
+      .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n\s*\n+/g, "\n")
+      .trim();
+    if (!text) throw new Error("页面无正文（可能被反爬或为纯脚本渲染页）。");
+    return { provider: "local", url, title, content: text.slice(0, 120_000) };
+  } finally {
+    clearTimeout(timer);
+  }
 }

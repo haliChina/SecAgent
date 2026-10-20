@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { SessionStore } from "./session-store.js";
+import { MASKED_SECRET, maskSecretsDeep } from "./redact.js";
 
 test("restores only the latest session run from the runtime log", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-store-"));
@@ -99,4 +100,26 @@ test("maskSecretsDeep ignores zero-width characters in key names", async () => {
   const out = maskSecretsDeep({ "api\u200bkey": "hidden", normal: "shown" }) as Record<string, unknown>;
   assert.equal(out["api\u200bkey"], "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
   assert.equal(out.normal, "shown");
+});
+
+test("maskSecretsDeep 剪枝循环引用不栈溢出（R63 防护回归）", () => {
+  const cyclic: Record<string, unknown> = { apiKey: "sk-live" };
+  cyclic.self = cyclic;
+  const out = maskSecretsDeep(cyclic) as Record<string, unknown>;
+  assert.strictEqual(out.apiKey, MASKED_SECRET);
+  assert.strictEqual(out.self, "[循环引用]");
+});
+
+test("maskSecretsDeep 深度截断防解析炸弹", () => {
+  let deep: unknown = { apiKey: "sk-live" };
+  for (let i = 0; i < 100; i += 1) deep = { nested: deep };
+  const out = maskSecretsDeep(deep) as Record<string, unknown>;
+  assert.ok(JSON.stringify(out).includes("[深度截断]"));
+});
+
+test("maskSecretsDeep 零宽字符 key 归一化仍命中", () => {
+  const out = maskSecretsDeep({ "api\u200bkey": "x", "pass\u00b7word": "y", normal: 1 }) as Record<string, unknown>;
+  assert.strictEqual(out["api\u200bkey"], MASKED_SECRET);
+  assert.strictEqual(out["pass\u00b7word"], MASKED_SECRET);
+  assert.strictEqual(out.normal, 1);
 });
