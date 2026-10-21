@@ -1,4 +1,4 @@
-interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string }
+interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string; archived?: boolean }
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }
@@ -110,6 +110,7 @@ interface Window {
     /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
     syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
     deleteSession(id: string): Promise<SessionMeta[]>;
+    archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;
     getSession(id: string): Promise<SessionData>;
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;

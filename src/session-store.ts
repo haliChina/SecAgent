@@ -3,7 +3,16 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ChatAttachment } from "./types.js";
 
-export interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string }
+/* R65：preview 落进 index.json——此前 sessions:list 对每个会话全量 JSON.parse
+   session.json（含所有消息/toolCalls/附件），会话一多主进程同步阻塞数秒（鼠标不跟手、
+   OOBE 读取排队更慢）。现在 preview 随 meta 一起存 index，list 只读一个小文件。 */
+/** R65：从内存会话算列表预览（最后一条含文本消息，压缩空白截断）。 */
+function previewOfSession(data: SessionData): string {
+  const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
+  return last ? (last.content as string).replace(/\s+/g, " ").trim().slice(0, 72) : "";
+}
+
+export interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string; /** R65：归档会话不出现在常规列表，可在「已归档」分组查看/恢复。 */ archived?: boolean }
 export interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 export type AssistantActivity =
   | { kind: "thinking" | "summary" | "answer"; content: string; turn?: number }
@@ -31,15 +40,25 @@ export class SessionStore {
     return index.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 
-  /** 会话列表预览：最后一条含文本的消息，压缩空白后截断（无消息返回空串）。 */
+  /** 会话列表预览（index 优先；存量会话首次打开时懒回填）。 */
   previewOf(id: string): string {
+    const indexed = this.readIndex().find((meta) => meta.id === id)?.preview;
+    if (typeof indexed === "string") return indexed;
     try {
-      const data = this.get(id);
-      const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
-      return last ? last.content.replace(/\s+/g, " ").trim().slice(0, 72) : "";
+      return previewOfSession(this.get(id));
     } catch {
       return "";
     }
+  }
+
+  /** R65：把 preview 一起写进 index（写盘顺带，读列表零成本）。 */
+  private touchIndex(session: SessionData): void {
+    const meta = { ...session.meta, preview: previewOfSession(session) };
+    const index = this.readIndex();
+    const at = index.findIndex((item) => item.id === meta.id);
+    if (at >= 0) index[at] = { ...index[at], ...meta };
+    else index.push(meta);
+    this.writeIndex(index);
   }
   create(title = "新会话", options: { listed?: boolean } = {}): SessionData {
     const now = new Date().toISOString();
@@ -55,8 +74,22 @@ export class SessionStore {
     if (!fs.existsSync(file)) throw new Error(`会话不存在：${id}`);
     const session = JSON.parse(fs.readFileSync(file, "utf8")) as SessionData;
     if (this.hydrateLegacyToolCalls(session)) this.writeSession(session);
+    // R65 懒回填：存量会话 index 里没有 preview，打开时补上（get 本就读了全量）。
+    try {
+      const indexed = this.readIndex().find((meta) => meta.id === id);
+      if (indexed && typeof indexed.preview !== "string") this.touchIndex(session);
+    } catch { /* 索引回填失败不影响读取 */ }
     return session;
   }
+  /** R65：归档/取消归档（不删数据，只翻 index 标记）。 */
+  setArchived(id: string, archived: boolean): void {
+    const index = this.readIndex();
+    const at = index.findIndex((item) => item.id === id);
+    if (at < 0) return;
+    index[at] = { ...index[at], archived: archived || undefined };
+    this.writeIndex(index);
+  }
+
   delete(id: string): void {
     const sessions = this.readIndex();
     if (!sessions.some((item) => item.id === id)) throw new Error(`会话不存在：${id}`);
@@ -70,7 +103,7 @@ export class SessionStore {
     session.meta.updatedAt = now;
     if (role === "user" && session.meta.title === "新会话") session.meta.title = content.replace(/\s+/g, " ").slice(0, 28) || "新会话";
     this.writeSession(session);
-    this.writeIndex(this.readIndex().map((item) => item.id === id ? session.meta : item));
+    this.touchIndex(session);
     return session;
   }
   setTitle(id: string, title: string): SessionData {
@@ -80,7 +113,7 @@ export class SessionStore {
     session.meta.title = cleanTitle;
     session.meta.updatedAt = new Date().toISOString();
     this.writeSession(session);
-    this.writeIndex(this.readIndex().map((item) => item.id === id ? session.meta : item));
+    this.touchIndex(session);
     return session;
   }
   appendRuntimeEvent(id: string, event: { sequence?: number; at?: string; stage: string; data: unknown }): void {
@@ -117,7 +150,7 @@ export class SessionStore {
     session.autoLoadedSkills = [...new Set(skills)];
     session.meta.updatedAt = new Date().toISOString();
     this.writeSession(session);
-    this.writeIndex(this.readIndex().map((item) => item.id === id ? session.meta : item));
+    this.touchIndex(session);
   }
   private readIndex(): SessionMeta[] {
     const file = path.join(this.root, "index.json");

@@ -38,5 +38,7 @@
   "wake-agent-avatar",
   "wake-edge-pulse",
   "wake-edge-sharp",
-  "wake-edge-soft"
+  "wake-edge-soft",
+  ".tool-name",
+  ".tool-state"
 ]

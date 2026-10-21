@@ -36,9 +36,14 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
   function store(): SessionStore { return new SessionStore(DEFAULT_WORKSPACE); }
   /* sessions:list：复用同一个 store 实例，避免每个会话各 new 一次 SessionStore
      再逐个同步读盘（N+1）。previewOf 内部仍逐文件读——会话数大时可再做批量化。 */
-  ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); const sessionStore = store(); return sessionStore.list().map((meta) => ({ ...meta, preview: sessionStore.previewOf(meta.id) })); });
+  ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); const sessionStore = store(); return sessionStore.list(); });
   ipcMain.handle("sessions:create", () => { const session = store().create(); logMain("ipc.sessions.create", { sessionId: session.meta.id }); return session; });
   ipcMain.handle("sessions:delete", (_event, id: string) => { store().delete(id); logMain("ipc.sessions.delete", { sessionId: id }); return store().list(); });
+  ipcMain.handle("sessions:archive", (_event, id: string, archived: boolean) => {
+    store().setArchived(id, archived === true);
+    return { ok: true };
+  });
+
   ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return store().get(id); });
   ipcMain.handle("sessions:runtime-events", (_event, id: string) => { logMain("ipc.sessions.runtime-events", { sessionId: id }); return store().getRuntimeEvents(id).map((item) => ({ sessionId: id, ...item })); });
   ipcMain.handle("sessions:diagnostic-upload", async (_event, id: string) => {

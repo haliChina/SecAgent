@@ -6,6 +6,8 @@ export const traceLabel: Record<string, string> = {
   "secagent.skills/list": "发现 Skills",
   "model.agent.request": "准备模型请求",
   "model.request": "发送模型请求",
+  "model.request/failed": "模型请求失败",
+  "model.fallback/switch": "切换备用模型",
   "model.output.delta": "模型正在生成",
   "model.output.reset": "开始调用工具",
   "model.response": "收到完整模型响应",

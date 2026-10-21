@@ -84,17 +84,30 @@ function removeAutostartTask(): void {
 }
 
 /** Runs one schtasks command inside an elevated PowerShell (one UAC prompt).
- *  Returns false when the user declines the prompt or the command fails. */
+ *  Returns false when the user declines the prompt or the command fails.
+ *
+ *  R65 修复「开机自启动不弹窗开关是摆设」：旧实现在 -Command 字符串里做三层
+ *  引号拼接，PowerShell 把 -ArgumentList 的单个字符串按空格拆开传给 schtasks，
+ *  /TR 的 `"exe --autostart"` 被截成两半——任务能建成功（所以 UI 显示自启动
+ *  已开），但 TR 里丢了 --autostart → 开机 argv 无此参数 → 主窗照弹。
+ *  改用 -EncodedCommand（UTF-16LE base64）整段脚本，参数逐个单引号包裹，
+ *  引号地狱根治。 */
 async function runSchtasksElevated(args: string[]): Promise<boolean> {
-  const quoted = args.map((a) => (a.includes(" ") || a.includes('"') ? `'${a.replaceAll("'", "''").replaceAll('"', '`"')}'` : a)).join(" ");
-  const script = `Start-Process -FilePath schtasks.exe -ArgumentList '${quoted.replaceAll("'", "''")}' -Verb RunAs -Wait -WindowStyle Hidden -PassThru | ForEach-Object { exit $_.ExitCode }`;
+  const script = `& schtasks.exe ${args.map((a) => `'${a.replaceAll("'", "''")}'`).join(" ")}; exit $LASTEXITCODE`;
+  const encoded = Buffer.from(script, "utf16le").toString("base64");
   try {
-    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script], { encoding: "utf8", windowsHide: true, timeout: 120_000 });
+    await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded], { encoding: "utf8", windowsHide: true, timeout: 120_000 });
     return true;
   } catch (error) {
     logMain("autostart.elevated.failed", { error: error instanceof Error ? error.message : String(error), args: args[0] });
     return false;
   }
+}
+
+/** Query the task's stored command line (XML) to verify --autostart survived. */
+function autostartTaskCarriesFlag(): boolean {
+  const xml = runSchtasks(["/Query", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/XML"]);
+  return xml.status === 0 && xml.stdout.includes(AUTO_START_ARG);
 }
 
 export function writeAutostart(enabled: boolean): void {
@@ -118,22 +131,29 @@ export function writeAutostart(enabled: boolean): void {
   const autostartTaskArgs = ["/Create", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/TR", `"${autostartExecutablePath()} ${AUTO_START_ARG}"`, "/SC", "ONLOGON", "/RL", "HIGHEST", "/F"];
   logMain("autostart.enable.begin", { elevated: getWindowsProcessElevationSync(), exe: autostartExecutablePath() });
   const create = runSchtasks(autostartTaskArgs);
-  if (create.status === 0 && windowsAutostartTaskExists()) {
+  if (create.status === 0 && windowsAutostartTaskExists() && autostartTaskCarriesFlag()) {
     logMain("autostart.task.created.direct");
     // task in place; make sure no stale Run-key entry also starts the app
     app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
     return;
+  }
+  if (create.status === 0 && windowsAutostartTaskExists()) {
+    // 任务建了但 TR 里没有 --autostart（历史提权转义坏掉的存量任务）：
+    // 删掉，走下面的 Run 键兜底，确保开机带参、不弹主窗。
+    logMain("autostart.task.stale.noarg.recreated");
+    removeAutostartTask();
   }
   logMain("autostart.task.create.failed", { status: create.status, stdout: create.stdout.slice(0, 300) });
   // Could not create the task directly (non-elevated): try once via UAC, and
   // fall back to a plain Run-key autostart when the user declines.
   void (async () => {
     const elevated = await runSchtasksElevated(autostartTaskArgs);
-    if (elevated && windowsAutostartTaskExists()) {
+    if (elevated && windowsAutostartTaskExists() && autostartTaskCarriesFlag()) {
       logMain("autostart.task.created.elevated");
       app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
       return;
     }
+    if (windowsAutostartTaskExists()) removeAutostartTask();
     logMain("autostart.elevated.declined", { elevatedRan: elevated });
     app.setLoginItemSettings({ openAtLogin: true, path: autostartExecutablePath(), args: AUTO_START_ARGS });
     logMain("autostart.fallback.runkey");

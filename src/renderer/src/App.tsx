@@ -25,19 +25,37 @@ import { AiStatus, AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixO
 
 /** web_search 工具结果 → rare-ui WebSearch 组件的 WebSource 归一化
  * （兼容 BigModel search_result 与 DeepSeek results 两种载荷）。 */
-function normalizeWebSearchSources(result: unknown): WebSource[] {
+/* R65：sources 的 React key 此前是「调用内 index」——同一消息多次调用 web_search
+   合并后 key 大量重复（两次调用都产 "0","1","2"…），popLayout 下 exit/enter 竞态，
+   这就是「show less 只收回部分、再 show more 卡片越叠越多」的根因。
+   现在的 id 带上调用序号与 URL，保证全局唯一且跨渲染稳定。 */
+function normalizeWebSearchSources(result: unknown, callIndex = 0): WebSource[] {
   /* R64：runWebSearch 返回 { provider, query, hits }（hits 才是结果数组），
      此前只认 results → 恒空 → 「Searched 0 sites」。兼容三种形状：
      裸数组 / { results }（MCP 类工具）/ { hits }（自研 web_search）。 */
   const source = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
   const list: unknown[] = Array.isArray(result) ? result : source && Array.isArray(source.results) ? source.results : source && Array.isArray(source.hits) ? source.hits : [];
   return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item, index) => ({
-    id: String(item.id ?? index),
+    id: `${callIndex}:${index}:${String(item.url ?? item.link ?? "")}`,
     title: String(item.title ?? "无标题"),
     url: String(item.url ?? item.link ?? ""),
     snippet: typeof item.snippet === "string" ? item.snippet : typeof item.content === "string" ? String(item.content).slice(0, 200) : undefined,
     favicon: typeof item.favicon === "string" ? item.favicon : typeof item.site_icon === "string" ? String(item.site_icon) : typeof item.siteIcon === "string" ? String(item.siteIcon) : undefined,
   })).filter((source) => source.url);
+}
+
+function webSearchSourcesFor(toolCalls: { name: string; result?: unknown }[] | undefined): WebSource[] {
+  return (toolCalls || []).filter((call) => call.name === "web_search").flatMap((call, callIndex) => normalizeWebSearchSources(call.result, callIndex));
+}
+
+/* R65：正文引用——assistant 回答里的 [1] [2] 标注替换为指向对应搜索结果的
+   markdown 链接（rareui 演示同款「回答有引用」体验）。围栏代码块内不替换。 */
+function citationify(content: string, sources: WebSource[]): string {
+  if (!sources.length) return content;
+  return content.split(/(```[\s\S]*?```)/g).map((part) => part.startsWith("```") ? part : part.replace(/\[(\d{1,2})\]/g, (match, digits: string) => {
+    const source = sources[Number(digits) - 1];
+    return source && /^https?:/i.test(source.url) ? `[${digits}](${source.url})` : match;
+  })).join("");
 }
 
 type VoiceInputMode = "streaming" | "hold";
@@ -102,6 +120,23 @@ export function App() {
   // Codex-style sensitive tool-call confirmation, pending user decision.
   const [toolConfirmation, setToolConfirmation] = useState<{ confirmationId: string; tool: string; arguments: Record<string, unknown>; reason: string } | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
+  /* R65 模型回退链详细进度（用户点名）：主进程 model.request/failed +
+     model.fallback/switch 事件早就有，但渲染层只显示最终 fallbackNotice——
+     中间每一步失败/切换用户全程不可见。这里实时聚合当前会话的回退过程。 */
+  const [modelFallback, setModelFallback] = useState<{ sessionId: string; failed: Array<{ model: string; kind: string; message: string }>; current?: string; switchCount: number } | null>(null);
+  /* R65：web_search 执行中的实时卡——工具一开跑就显示 Searching（rareui 演示
+     行为），result 事件落地即切 Searched N，消息落库后由消息内卡片接管。 */
+  const liveWebSearch = useMemo(() => {
+    if (!sessionRunning || !session) return null;
+    for (let i = trace.length - 1; i >= 0; i--) {
+      const item = trace[i];
+      if (item.sessionId !== session.meta.id) continue;
+      const data = (item.data ?? {}) as { name?: unknown; arguments?: { query?: unknown } | undefined; result?: unknown };
+      if (item.stage === "secagent.tools/result" && data.name === "web_search") return { searching: false, query: undefined as string | undefined, sources: normalizeWebSearchSources(data.result, 0) };
+      if (item.stage === "secagent.tools/call" && data.name === "web_search") return { searching: true, query: typeof data.arguments?.query === "string" ? data.arguments.query : undefined, sources: [] as WebSource[] };
+    }
+    return null;
+  }, [trace, session, sessionRunning]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const answerContentRef = useRef<HTMLDivElement>(null);
   const executionSummaryRef = useRef<HTMLButtonElement>(null);
@@ -329,6 +364,17 @@ export function App() {
     return bridge.onRuntimeEvent((event) => {
       const item = event as TraceEvent;
       setTrace((current) => [...current, item]);
+      if (item.stage === "model.request/failed") {
+        const data = (item.data ?? {}) as { model?: unknown; kind?: unknown; error?: unknown };
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [...current.failed, { model: String(data.model ?? "未知模型"), kind: String(data.kind ?? "unknown"), message: String(data.error ?? "") }] } : current);
+      } else if (item.stage === "model.fallback/switch") {
+        const data = (item.data ?? {}) as { to?: unknown; modelId?: unknown };
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, current: String(data.to ?? ""), switchCount: current.switchCount + 1 } : { sessionId: item.sessionId, failed: [], current: String(data.to ?? ""), switchCount: 1 });
+      } else if (item.stage === "model.agent.request") {
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [], current: undefined } : current);
+      } else if (item.stage === "assistant.response" || item.stage === "runtime.stopped" || item.stage === "runtime.error") {
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? null : current);
+      }
     });
   }, [bridge]);
 
@@ -538,6 +584,16 @@ export function App() {
     setTrace([]);
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
+  /* R65：归档/取消归档——只翻标记，本地即时更新（不用等 IPC 往返重拉全列表）。 */
+  const archiveSession = async (id: string, archived: boolean) => {
+    try {
+      await bridge.archiveSession(id, archived);
+      setSessions((current) => current.map((meta) => meta.id === id ? { ...meta, archived: archived || undefined } : meta));
+    } catch (reason) {
+      console.error("archiveSession failed", reason);
+    }
+  };
+
   const deleteSession = async (id: string) => {
     if (!bridge) return;
     const remaining = await bridge.deleteSession(id);
@@ -971,7 +1027,7 @@ export function App() {
       </section>
     </div>}
     <section className="workspace">
-      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onArchive={(id, archived) => void archiveSession(id, archived)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
         <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
@@ -987,10 +1043,14 @@ export function App() {
             const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
             // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
             const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
-            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={(message.toolCalls || []).filter((call) => call.name === "web_search").flatMap((call) => normalizeWebSearchSources(call.result))} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
-          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={activeStepKind === "tool" ? "researching" : "thinking"} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
+          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={activeStepKind === "tool" ? "researching" : "thinking"} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
+            {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
+              {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
+              {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}
+            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}</div></article>}
           <div />
         </div>
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}

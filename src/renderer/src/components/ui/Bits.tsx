@@ -11,6 +11,8 @@ export * from "./parts/day-separator.js";
 export * from "./parts/thought-line.js";
 export * from "./parts/voice-pill.js";
 export * from "./parts/delete-button.js";
+export * from "./parts/call-chip.js";
+export * from "./parts/fuse-button.js";
 export * from "./parts/animated-counter.js";
 export * from "./parts/aui-shared.js";
 export * from "./parts/tool-error.js";

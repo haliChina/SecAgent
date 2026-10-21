@@ -293,6 +293,7 @@ export const PromptBar = ({
   const typing = useRef({ energy: 0, strokes: 0 });
   const boost = useRef(sparkBoost);
   boost.current = sparkBoost;
+  const sparkWakeRef = useRef<() => void>(() => {});
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const lastOpen = useRef<string | null>(null);
   const dictation = useRef(0);
@@ -441,7 +442,12 @@ export const PromptBar = ({
   useEffect(() => {
     const canvas = sparkRef.current;
     if (!maxed || reduce || !canvas) return undefined;
-    const ctx = canvas.getContext('2d');
+    /* R65 离屏渲染策略修复：
+       1) rAF 懒启动——此前空闲也常驻循环，每帧 clearRect 空转合成；
+       2) 零尺寸守卫——canvas 未布局（rect=0）时 spawn 会把初始 burst 全堆在
+          (0,0) 左上角闪一坨，改为首次拿到非零尺寸再放 burst；
+       3) 页面隐藏（document.hidden）暂停，回来再续。 */
+    const ctx = canvas.getContext('2d', { desynchronized: true });
     if (!ctx) return undefined;
     typing.current.strokes = 0;
     let raf = 0;
@@ -451,6 +457,8 @@ export const PromptBar = ({
     let due = 0;
     let speed = 1;
     let pulse = 0;
+    let booted = false;
+    let running = false;
     const parts: Spark[] = [];
     /* R57 粒子精灵：sparkColor 的径向渐变（实心核 + 柔光衰减）预渲染一次，
     tick 里 drawImage 复用，替代逐粒子 shadowBlur。 */
@@ -479,11 +487,17 @@ export const PromptBar = ({
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       w = rect.width;
       h = rect.height;
+      if (w <= 0 || h <= 0) return;
       canvas.width = Math.round(w * dpr);
       canvas.height = Math.round(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      if (!booted) {
+        booted = true;
+        for (let i = 0; i < 26; i += 1) spawn(true);
+      }
     };
     const spawn = (burst: boolean) => {
+      if (w <= 0 || h <= 0) return;
       parts.push({
         x: Math.random() * w,
         y: burst ? h * (0.2 + Math.random() * 0.8) : h + 3,
@@ -548,15 +562,31 @@ export const PromptBar = ({
         );
       }
       ctx.globalAlpha = 1;
+      const idleQuiet = typed.energy < 0.02 && parts.length === 0 && pulse < 0.02;
+      if (idleQuiet || document.hidden) {
+        running = false;
+        return;
+      }
       raf = requestAnimationFrame(tick);
     };
+    const wake = () => {
+      if (running || document.hidden) return;
+      running = true;
+      last = performance.now();
+      raf = requestAnimationFrame(tick);
+    };
+    sparkWakeRef.current = wake;
+    const onVisibility = () => { if (!document.hidden) wake(); };
     resize();
-    for (let i = 0; i < 26; i += 1) spawn(true);
     const ro = new ResizeObserver(resize);
     ro.observe(canvas);
-    raf = requestAnimationFrame(tick);
+    wake();
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelAnimationFrame(raf);
+      running = false;
+      sparkWakeRef.current = () => {};
+      document.removeEventListener('visibilitychange', onVisibility);
       ro.disconnect();
       ctx.clearRect(0, 0, w, h);
     };
@@ -902,6 +932,7 @@ export const PromptBar = ({
             latest.current.onDraftChange?.(e.target.value);
             typing.current.energy = Math.min(1.6, typing.current.energy + 0.22);
             typing.current.strokes = Math.min(4, typing.current.strokes + 1);
+            sparkWakeRef.current();
             setDismissed(false);
             closeMenus();
             setActive(0);

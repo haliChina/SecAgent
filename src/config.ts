@@ -87,14 +87,19 @@ const template = (workspace: string): SecAgentConfig => ({
   version: 1,
   workspace,
   agent: {
+    /* R65：初始模板此前写死 gpt-5 + api.openai.com——用户没配 OpenAI 密钥时会
+       看到一个「意义不明的 gpt-5」还不可用。改为指向官方中继的虚拟快线层
+       （virtual-fast，实际由 DeepSeek V4 Flash 服务）；未登录时模型层会引导
+       OAuth，而不是假装有一个不可用的 OpenAI 模型。OOBE 完成后 saveSettings
+       会按用户实际选择覆盖这份兜底。 */
     models: [{
       id: "default",
-      name: "gpt-5",
-      provider: "openai-compatible",
-      model: "gpt-5",
-      apiKeyEnv: "OPENAI_API_KEY",
-      baseUrl: "https://api.openai.com/v1",
-      endpoint: "/chat/completions",
+      name: "SecAgent 官方服务（快线）",
+      provider: "openai-responses",
+      model: "virtual-fast",
+      apiKeyEnv: "SECTL_OFFICIAL_TOKEN",
+      baseUrl: "https://secagent-api.sectl.cn/v1",
+      endpoint: "/responses",
       maxTokens: DEFAULT_MAX_TOKENS
     }]
   } as SecAgentConfig["agent"],

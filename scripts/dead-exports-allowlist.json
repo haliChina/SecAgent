@@ -132,5 +132,14 @@
   "resolveModelConfig",
   "resolveWorkspacePath",
   "resumeVoiceWake",
-  "useStreamLevel"
+  "useStreamLevel",
+  "CallChipStatus",
+  "CallChipIcon",
+  "CallChipProps",
+  "FusePosition",
+  "FuseCommitOn",
+  "FuseSettle",
+  "FusePhase",
+  "FuseSize",
+  "FuseButtonProps"
 ]

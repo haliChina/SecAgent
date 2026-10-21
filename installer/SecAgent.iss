@@ -799,11 +799,25 @@ begin
     WizardForm.CancelButton.Left := WizardForm.ClientWidth + UiX(400);
   end else begin
     case CurPageID of
-      wpSelectDir, wpReady, wpPreparing, wpInstalling, wpFinished:
+      wpSelectDir, wpReady, wpInstalling, wpFinished:
         begin
           WizardForm.BackButton.Visible := False;
           WizardForm.NextButton.Visible := False;
           WizardForm.CancelButton.Visible := False;
+        end;
+      wpPreparing:
+        begin
+          { R65 修复「关闭进程」页无按钮可点：Preparing 页是 Restart Manager
+            的原生确认页（选 是/否 关闭锁定进程 → 点 Next 确认），自定义 UI
+            没有为它画替代按钮，此前 NextButton 被一并隐藏 → 用户选完没有任何
+            按钮确认，只能 X 掉安装器。现在把 stock NextButton 移到主按钮的
+            设计位置、贴中文文案，可见可点；Cancel 同步隐藏（顶栏 × 已可退）。 }
+          WizardForm.BackButton.Visible := False;
+          WizardForm.CancelButton.Visible := False;
+          WizardForm.NextButton.SetBounds(UiX(301 - 2), UiY(506 - 2),
+            UiX(218 + 4), UiY(69 + 4));
+          WizardForm.NextButton.Caption := '继续';
+          WizardForm.NextButton.Visible := True;
         end;
     end;
   end;

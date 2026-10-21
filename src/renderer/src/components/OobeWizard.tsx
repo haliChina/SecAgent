@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
 import { PresetCombobox } from "./PresetCombobox.js";
 import { SelectCombobox } from "./SelectCombobox.js";
@@ -9,15 +9,21 @@ import { OobePluginCard } from "./OobePluginCard.js";
 
 type SourcePath = "official" | "custom";
 type OobeStep = "source" | "config" | "plugins";
-type OobePageDirection = "forward" | "back";
 
 const OOBE_STEP_ORDER: OobeStep[] = ["source", "config", "plugins"];
 
 export function OobeWizard() {
   const bridge = window.secagent;
   const [step, setStep] = useState<OobeStep>("source");
-  const [pageTransition, setPageTransition] = useState<"idle" | "exit" | "enter">("idle");
-  const [pageDirection, setPageDirection] = useState<OobePageDirection>("forward");
+  /* R65 转场重写（reactbits Stepper View 模型）：此前 exit→setTimeout→enter→setTimeout
+     双 timer 编排 + splash 三重动画（icon 飞出/title 移栏/content 滑入）叠加是
+     「动效出现两次」的来源。改为单动画系统：view.id 每次切换只递增一次，
+     useLayoutEffect 里用 Web Animations API 对进/出两个 pane 各注册一次动画，
+     首次挂载（id===0）不播；CSS 不再持有会重复触发的 animation class。 */
+  const [view, setView] = useState<{ step: OobeStep; previous: OobeStep | null; direction: number; id: number }>({ step: "source", previous: null, direction: 1, id: 0 });
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const leavingRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const transitionTimer = useRef<number | undefined>(undefined);
   const [introPhase, setIntroPhase] = useState<"intro" | "transition" | "complete">("intro");
   const introTimer = useRef<number | undefined>(undefined);
@@ -98,20 +104,31 @@ export function OobeWizard() {
   };
 
   const goToStep = (nextStep: OobeStep) => {
-    if (nextStep === step || pageTransition !== "idle") return;
-    const currentIndex = OOBE_STEP_ORDER.indexOf(step);
+    if (nextStep === view.step) return;
+    const currentIndex = OOBE_STEP_ORDER.indexOf(view.step);
     const nextIndex = OOBE_STEP_ORDER.indexOf(nextStep);
-    setPageDirection(nextIndex > currentIndex ? "forward" : "back");
-    setPageTransition("exit");
-    transitionTimer.current = window.setTimeout(() => {
-      setStep(nextStep);
-      setPageTransition("enter");
-      transitionTimer.current = window.setTimeout(() => {
-        setPageTransition("idle");
-        transitionTimer.current = undefined;
-      }, 240);
-    }, 160);
+    setView((current) => ({ step: nextStep, previous: current.step, direction: nextIndex > currentIndex ? 1 : -1, id: current.id + 1 }));
   };
+
+  /* 进出场动画：Web Animations API 单次注册（自动覆盖旧动画），先 cancel 残留，
+     reduced-motion 降级为纯淡入淡出。动画结束后清 previous（卸载离场 pane）。 */
+  useLayoutEffect(() => {
+    if (view.id === 0 || view.previous === null) return;
+    const pane = paneRef.current;
+    const leaving = leavingRef.current;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const element of [pane, leaving]) element?.getAnimations().forEach((animation) => animation.cancel());
+    const finish = () => setView((current) => (current.id === view.id ? { ...current, previous: null } : current));
+    if (!pane || typeof pane.animate !== "function") { finish(); return; }
+    const shift = reduced ? 0 : 28;
+    if (shift) pane.animate([{ transform: `translateX(${view.direction * shift}px)`, opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 360, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    else pane.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+    if (leaving && typeof leaving.animate === "function") {
+      const exit = leaving.animate([{ transform: "none", opacity: 1 }, { transform: `translateX(${-view.direction * shift}px)`, opacity: 0 }], { duration: 200, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" });
+      exit.onfinish = finish;
+      window.setTimeout(finish, 400);
+    } else finish();
+  }, [view.id]);
 
   useEffect(() => {
     let disposed = false;
@@ -187,6 +204,7 @@ export function OobeWizard() {
       const progress = savedProgress || (status.loggedIn ? { step: "config" as const, source: "official" as const } : undefined);
       if (progress) {
         setStep(progress.step);
+        setView((current) => ({ step: progress.step, previous: null, direction: 1, id: current.id + 1 }));
         setSource(progress.source || null);
         if (progress.provider) setProvider({ ...emptyProvider(), ...progress.provider, models: progress.provider.models.map((model) => ({ ...model })) });
         setIntroPhase("complete");
@@ -906,31 +924,8 @@ export function OobeWizard() {
     });
   }, [apps, classIslandTargets, iccceTargets, cwTargets, plugins, secRandomTargets]);
 
-  if (!settings || !progressReady) return <main className="settings-shell oobe-shell has-window-title"><p>正在读取配置…</p></main>;
-
-  return <main className={`settings-shell oobe-shell has-window-title ${introPhase === "intro" ? "oobe-intro-active" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
-    <div className={`settings-window-title oobe-window-title ${introPhase === "intro" ? "oobe-window-title-intro" : introPhase === "transition" ? "oobe-window-title-transition" : "oobe-window-title-ready"}`}>欢迎使用 SecAgent</div>
-    {introPhase !== "complete" && <section className={`oobe-splash ${introPhase === "transition" ? "oobe-splash-exit" : ""}`} aria-label="SecAgent 欢迎页">
-      <img className="oobe-splash-icon" src="/icon.svg" alt="SecAgent" />
-      <button className="oobe-splash-start" type="button" aria-label="开始配置 SecAgent" onClick={beginIntro}><ArrowRight aria-hidden="true" size={30} strokeWidth={1.8} /></button>
-    </section>}
-    <div className={`oobe-content ${introPhase === "intro" ? "oobe-content-hidden" : introPhase === "transition" ? "oobe-content-intro-enter" : "oobe-content-ready"}`}>
-    <div className={`oobe-page ${pageTransition === "exit" ? "oobe-page-exit" : pageTransition === "enter" ? "oobe-page-enter" : ""} oobe-page-${pageDirection} ${step === "plugins" ? "oobe-page-plugins" : ""} ${pluginsReveal ? "oobe-plugins-reveal" : ""}`}>
-    <header className="oobe-header">
-      <div className="oobe-progress" role="progressbar" aria-label="OOBE 步骤进度" aria-valuemin={1} aria-valuemax={OOBE_STEP_ORDER.length} aria-valuenow={OOBE_STEP_ORDER.indexOf(step) + 1}>
-        {OOBE_STEP_ORDER.map((item, index) => <span className={`oobe-progress-segment ${index <= OOBE_STEP_ORDER.indexOf(step) ? "is-active" : ""}`} key={item} />)}
-      </div>
-      <p className="oobe-step-label">第 {step === "source" ? "1" : step === "config" ? "2" : "3"} / 3 步</p>
-      {step === "plugins" ? <div className="oobe-plugin-heading"><h1>安装课堂联动插件</h1><button className="secondary-button oobe-install-all-button" type="button" disabled={!companionDetectionReady || Boolean(installingId) || busy || allDetectedCompanionsInstalled || recommended.length === 0} onClick={() => void installAllPlugins()}>{!companionDetectionReady ? "检测本机应用中…" : allDetectedCompanionsInstalled ? <><Check aria-hidden="true" size={16} strokeWidth={2.5} />已安装所有</> : "一键安装所有"}</button></div> : <h1>{step === "source" ? "选择模型服务" : "配置模型服务"}</h1>}
-      {step !== "plugins" && <p>{step === "source"
-        ? "先选择使用 SECTL 官方模型服务，还是接入自己的模型提供商。"
-        : step === "config"
-          ? "完成模型服务的登录或接口配置，之后即可开始使用 SecAgent。"
-          : ""}</p>}
-    </header>
-    {error && <div className="settings-error">{error}</div>}
-
-    {step === "source" && <>
+  const renderStep = (s: OobeStep) => <>
+    {s === "source" && <>
       <div className="oobe-choice-grid">
         <button type="button" className="oobe-choice" onClick={() => void chooseSource("official")}>
           <span className="oobe-choice-copy"><strong>登录官方服务</strong><span>使用 SECTL 账号使用官方模型，不必自己准备 API Key。默认关闭自定义模型模式。</span></span>
@@ -944,7 +939,7 @@ export function OobeWizard() {
 
     </>}
 
-    {step === "config" && <>
+    {s === "config" && <>
       {source === "official" && <article className="settings-card oobe-panel">
         <p>{officialLoggedIn ? `已登录 ${officialEmail || "SECTL 账号"}。继续后将使用官方模型服务。` : "将打开浏览器登录 SECTL。登录完成后会自动返回，并使用官方模型服务。"}</p>
         {!officialLoggedIn && <button className="primary-button" type="button" disabled={officialBusy} onClick={() => void loginOfficial()}>{officialBusy ? "等待浏览器授权…" : "打开浏览器登录 SECTL"}</button>}
@@ -987,7 +982,7 @@ export function OobeWizard() {
       </div>
     </>}
 
-    {step === "plugins" && <>
+    {s === "plugins" && <>
       {marketError && <div className="settings-error">{marketError}</div>}
       {!companionDetectionReady ? <div className="oobe-plugin-detection-loading" role="status" aria-live="polite">
         <span className="oobe-plugin-detection-spinner" aria-hidden="true" />
@@ -1011,6 +1006,31 @@ export function OobeWizard() {
         <button className="primary-button" type="button" disabled={busy} onClick={() => void finish()}>{busy ? "完成中…" : "完成并开始使用"}</button>
       </div>
     </>}
+  </>;
+
+  if (!settings || !progressReady) return <main className="settings-shell oobe-shell has-window-title"><p>正在读取配置…</p></main>;
+
+  return <main className={`settings-shell oobe-shell has-window-title ${introPhase === "intro" ? "oobe-intro-active" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
+    <div className={`settings-window-title oobe-window-title ${introPhase === "intro" ? "oobe-window-title-intro" : introPhase === "transition" ? "oobe-window-title-transition" : "oobe-window-title-ready"}`}>欢迎使用 SecAgent</div>
+    {introPhase !== "complete" && <section className={`oobe-splash ${introPhase === "transition" ? "oobe-splash-exit" : ""}`} aria-label="SecAgent 欢迎页">
+      <img className="oobe-splash-icon" src="/icon.svg" alt="SecAgent" />
+      <button className="oobe-splash-start" type="button" aria-label="开始配置 SecAgent" onClick={beginIntro}><ArrowRight aria-hidden="true" size={30} strokeWidth={1.8} /></button>
+    </section>}
+    <div className={`oobe-content ${introPhase === "intro" ? "oobe-content-hidden" : introPhase === "transition" ? "oobe-content-intro-enter" : "oobe-content-ready"}`}>
+    <div className={`oobe-page ${view.step === "plugins" ? "oobe-page-plugins" : ""} ${pluginsReveal ? "oobe-plugins-reveal" : ""}`}>
+    <header className="oobe-header">
+      {view.step === "plugins" ? <div className="oobe-plugin-heading"><h1>安装课堂联动插件</h1><button className="secondary-button oobe-install-all-button" type="button" disabled={!companionDetectionReady || Boolean(installingId) || busy || allDetectedCompanionsInstalled || recommended.length === 0} onClick={() => void installAllPlugins()}>{!companionDetectionReady ? "检测本机应用中…" : allDetectedCompanionsInstalled ? <><Check aria-hidden="true" size={16} strokeWidth={2.5} />已安装所有</> : "一键安装所有"}</button></div> : <h1>{view.step === "source" ? "选择模型服务" : "配置模型服务"}</h1>}
+      {view.step !== "plugins" && <p>{view.step === "source" ? "先选择使用 SECTL 官方模型服务，还是接入自己的模型提供商。" : "完成模型服务的登录或接口配置，之后即可开始使用 SecAgent。"}</p>}
+    </header>
+    {error && <div className="settings-error">{error}</div>}
+      <div className="oobe-progress" role="progressbar" aria-label="OOBE 步骤进度" aria-valuemin={1} aria-valuemax={OOBE_STEP_ORDER.length} aria-valuenow={OOBE_STEP_ORDER.indexOf(view.step) + 1}>
+        {OOBE_STEP_ORDER.map((item, index) => <span className={`oobe-progress-segment ${index <= OOBE_STEP_ORDER.indexOf(view.step) ? "is-active" : ""}`} key={item} />)}
+      </div>
+      <p className="oobe-step-label">第 {view.step === "source" ? "1" : view.step === "config" ? "2" : "3"} / 3 步</p>
+      <div className="oobe-viewport" ref={viewportRef}>
+        {view.previous !== null && <div className="oobe-pane oobe-pane-leaving" ref={leavingRef} aria-hidden="true">{renderStep(view.previous)}</div>}
+        <div className="oobe-pane" ref={paneRef}>{renderStep(view.step)}</div>
+      </div>
     </div>
     </div>
   </main>;

@@ -72,6 +72,7 @@ contextBridge.exposeInMainWorld("secagent", {
   createSession: () => ipcRenderer.invoke("sessions:create"),
   syncWindowChrome: (colors: { background: string; symbol: string }) => ipcRenderer.invoke("window:chrome-sync", colors),
   deleteSession: (id: string) => ipcRenderer.invoke("sessions:delete", id),
+    archiveSession: (id: string, archived: boolean) => ipcRenderer.invoke("sessions:archive", id, archived),
   getSession: (id: string) => ipcRenderer.invoke("sessions:get", id),
   getRuntimeEvents: (id: string) => ipcRenderer.invoke("sessions:runtime-events", id),
   uploadDiagnostic: (id: string) => ipcRenderer.invoke("sessions:diagnostic-upload", id),
