@@ -712,10 +712,20 @@ function registerOverlayIpcOnce(): void {
   });
   // 窗口绝对定位（桌宠 0.5.0 甩出物理）：渲染端积分出窗口原点直接落位。
   // 渲染进程 screenX/setBounds 均为 DIP，坐标系一致；仅信任发送者自己的窗口。
+  // 0.5.3（桌宠 #8 兜底）：混合 DPI 多显示器下渲染端与主进程坐标空间可能错位，
+  // 渲染端积分值若被错误映射会把窗口甩出屏幕——这里钳位到「最近显示器工作区
+  // 至少可见 64px」，窗口永不彻底离屏（插件侧另有每帧自愈，双保险）。
   ipcMain.on("overlay:set-position", (event, x: unknown, y: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return;
-    win.setPosition(Math.round(Number(x)) || 0, Math.round(Number(y)) || 0);
+    const wantX = Math.round(Number(x)) || 0;
+    const wantY = Math.round(Number(y)) || 0;
+    const [w, h] = win.getSize();
+    const wa = screen.getDisplayNearestPoint({ x: wantX + w / 2, y: wantY + h / 2 }).workArea;
+    const MARGIN = 64;
+    const cx = Math.max(wa.x - w + MARGIN, Math.min(wa.x + wa.width - MARGIN, wantX));
+    const cy = Math.max(wa.y - h + MARGIN, Math.min(wa.y + wa.height - MARGIN, wantY));
+    win.setPosition(cx, cy);
   });
 }
 
