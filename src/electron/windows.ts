@@ -190,6 +190,23 @@ function isOverlayAllowedUrl(value: string): boolean {
 }
 
 let overlayIpcRegistered = false;
+/* —— overlay 位置类 IPC 的 Wayland 能力门（上游 #12，Codex review PR#7/#8）——
+   原生 Wayland（ozone/wayland，无 DISPLAY）下窗口位置由合成器管理，
+   setPosition/setBounds 的位置分量无效——甩出物理循环会空转。X11/
+   Xwayland（DISPLAY 存在，Electron Linux 默认后端）不受影响。
+   检测到原生 Wayland 时跳过位置写入，警告只打一次。 */
+let warnedWaylandOverlay = false;
+function overlayPositionSupported(): boolean {
+  if (process.platform !== "linux") return true;
+  if (process.env.DISPLAY) return true;
+  const nativeWayland = process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY;
+  if (nativeWayland && !warnedWaylandOverlay) {
+    warnedWaylandOverlay = true;
+    logMain("plugin.overlay.wayland-position-unsupported", { hint: "原生 Wayland 会话：overlay 位置类 IPC 跳过（窗口位置由合成器管理）" });
+  }
+  return !nativeWayland;
+}
+
 /** overlay 桥接通道：只作用于发送者自己的窗口，防止跨窗口操作。 */
 export function registerOverlayIpcOnce(): void {
   if (overlayIpcRegistered) return;
@@ -200,7 +217,7 @@ export function registerOverlayIpcOnce(): void {
   });
   ipcMain.on("overlay:move", (event, dx: unknown, dy: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win && !win.isDestroyed()) {
+    if (win && !win.isDestroyed() && overlayPositionSupported()) {
       const bounds = win.getBounds();
       win.setBounds({ x: bounds.x + (Number(dx) || 0), y: bounds.y + (Number(dy) || 0) });
     }
@@ -211,7 +228,7 @@ export function registerOverlayIpcOnce(): void {
   // 此协议每次都从主进程的绝对坐标重算，无累积、自纠错。
   ipcMain.on("overlay:move-to", (event, offsetX: unknown, offsetY: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed()) return;
+    if (!win || win.isDestroyed() || !overlayPositionSupported()) return;
     const cursor = screen.getCursorScreenPoint();
     win.setBounds({
       x: Math.round(cursor.x - (Number(offsetX) || 0)),
@@ -221,10 +238,20 @@ export function registerOverlayIpcOnce(): void {
   /* 桌宠 0.5.0 甩出物理（27f7f33 直译移植）：松手后渲染端在屏幕坐标系
      积分窗口轨迹，需要绝对落位接口。渲染进程 screenX 与主进程
      setPosition 均为 DIP，坐标系一致；只作用于发送者自己的窗口。 */
+  /* 混合 DPI 多显示器下渲染端与主进程坐标空间可能错位，渲染端积分值若被
+     错误映射会把窗口甩出屏幕——钳位到「最近显示器工作区至少可见 64px」，
+     窗口永不彻底离屏（上游 #11；插件侧另有每帧自愈，双保险）。 */
   ipcMain.on("overlay:set-position", (event, x: unknown, y: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed()) return;
-    win.setPosition(Math.round(Number(x)) || 0, Math.round(Number(y)) || 0);
+    if (!win || win.isDestroyed() || !overlayPositionSupported()) return;
+    const wantX = Math.round(Number(x)) || 0;
+    const wantY = Math.round(Number(y)) || 0;
+    const [w, h] = win.getSize();
+    const wa = screen.getDisplayNearestPoint({ x: wantX + w / 2, y: wantY + h / 2 }).workArea;
+    const MARGIN = 64;
+    const cx = Math.max(wa.x - w + MARGIN, Math.min(wa.x + wa.width - MARGIN, wantX));
+    const cy = Math.max(wa.y - h + MARGIN, Math.min(wa.y + wa.height - MARGIN, wantY));
+    win.setPosition(cx, cy);
   });
 }
 
@@ -287,9 +314,11 @@ export async function openPluginOverlay(request: OverlayRequest): Promise<Plugin
       };
       // anchor="bottom-right"（上游 #6）：只改宽高时保持右下角不动（桌宠锚定
       // 窗口右下角，改尺寸时视觉位置保持原地；旧插件不传 anchor 行为不变）。
+      // （上游 #12，Codex review PR#8）：调用方显式给了 x/y 时不得用锚定值
+      // 覆盖——只对**未提供**的轴做右下角保持（修「锚定 resize 悄悄挪回旧角落」）。
       if ((bounds as { anchor?: string }).anchor === "bottom-right") {
-        next.x = current.x + current.width - next.width;
-        next.y = current.y + current.height - next.height;
+        if (bounds.x == null) next.x = current.x + current.width - next.width;
+        if (bounds.y == null) next.y = current.y + current.height - next.height;
       }
       win.setBounds(next);
     }
