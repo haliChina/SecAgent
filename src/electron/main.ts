@@ -690,9 +690,29 @@ function registerOverlayIpcOnce(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (win && !win.isDestroyed()) win.setIgnoreMouseEvents(!!ignore, { forward: true });
   });
+  // —— overlay 位置类 IPC 的 Wayland 能力门（Codex review PR#7/#8）——
+  // 原生 Wayland（ozone/wayland，无 DISPLAY）下窗口位置由合成器管理，
+  // setPosition/setBounds 的位置分量无效——甩出物理循环会空转。X11/
+  // Xwayland（DISPLAY 存在，Electron Linux 默认）不受影响。检测到原生
+  // Wayland 时跳过位置写入，警告只打一次。
+  let warnedWaylandOverlay = false;
+  function overlayPositionSupported(): boolean {
+    if (process.platform !== "linux") return true;
+    if (process.env.DISPLAY) return true;
+    const nativeWayland =
+      process.env.XDG_SESSION_TYPE === "wayland" || !!process.env.WAYLAND_DISPLAY;
+    if (nativeWayland && !warnedWaylandOverlay) {
+      warnedWaylandOverlay = true;
+      logMain("plugin.overlay.wayland-position-unsupported", {
+        hint: "原生 Wayland 会话：overlay 位置类 IPC 跳过（窗口位置由合成器管理）"
+      });
+    }
+    return !nativeWayland;
+  }
+
   ipcMain.on("overlay:move", (event, dx: unknown, dy: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (win && !win.isDestroyed()) {
+    if (win && !win.isDestroyed() && overlayPositionSupported()) {
       const bounds = win.getBounds();
       win.setBounds({ x: bounds.x + (Number(dx) || 0), y: bounds.y + (Number(dy) || 0) });
     }
@@ -703,7 +723,7 @@ function registerOverlayIpcOnce(): void {
   // 左下慢速漂移」。此协议每次都从主进程的绝对坐标重算，无累积、自纠错。
   ipcMain.on("overlay:move-to", (event, offsetX: unknown, offsetY: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed()) return;
+    if (!win || win.isDestroyed() || !overlayPositionSupported()) return;
     const cursor = screen.getCursorScreenPoint();
     win.setBounds({
       x: Math.round(cursor.x - (Number(offsetX) || 0)),
@@ -717,7 +737,7 @@ function registerOverlayIpcOnce(): void {
   // 至少可见 64px」，窗口永不彻底离屏（插件侧另有每帧自愈，双保险）。
   ipcMain.on("overlay:set-position", (event, x: unknown, y: unknown) => {
     const win = BrowserWindow.fromWebContents(event.sender);
-    if (!win || win.isDestroyed()) return;
+    if (!win || win.isDestroyed() || !overlayPositionSupported()) return;
     const wantX = Math.round(Number(x)) || 0;
     const wantY = Math.round(Number(y)) || 0;
     const [w, h] = win.getSize();
@@ -788,9 +808,11 @@ async function openPluginOverlay(request: OverlayRequest): Promise<PluginOverlay
       };
       // anchor="bottom-right"：只改宽高时保持右下角不动（桌宠锚定窗口右下角，
       // 改尺寸时视觉位置保持原地；旧插件不传 anchor 行为不变）。
+      // （Codex review PR#8）：调用方显式给了 x/y 时不得用锚定值覆盖——
+      // 只对**未提供**的轴做右下角保持。
       if ((bounds as { anchor?: string }).anchor === "bottom-right") {
-        next.x = current.x + current.width - next.width;
-        next.y = current.y + current.height - next.height;
+        if (bounds.x == null) next.x = current.x + current.width - next.width;
+        if (bounds.y == null) next.y = current.y + current.height - next.height;
       }
       win.setBounds(next);
     }
