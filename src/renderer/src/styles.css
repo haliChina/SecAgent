@@ -462,8 +462,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .tool-confirmation-keys { margin: 0; color: var(--text-3); font-size: 11px; text-align: center; letter-spacing: .01em; }
 .tool-confirmation-card:focus { outline: none; }
 .hallucination-notice { margin: 8px 0 0; padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-size: 12px; line-height: 1.6; }
-.hallucination-notice strong { display: block; margin-bottom: 2px; }
-.provider-list-item .card-heading { align-items: center; }
+.hallucination-notice strong { display: block; margin-bottom: 2px; }.provider-list-item .card-heading { align-items: center; }
 .provider-list-item .card-heading > div:first-child { display: grid; gap: 5px; }
 .provider-list-item .card-heading span { color: var(--text-3); font-size: 12px; }
 .provider-list-item.single-model .card-heading { margin-bottom: 0; }
@@ -519,8 +518,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .select-combobox-option { width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .select-combobox-option:hover, .select-combobox-option.active { background: var(--accent-soft); color: var(--accent-text); }
 .select-combobox-option.selected { color: var(--accent-text); font-weight: 650; }
-.select-combobox-empty { padding: 9px; color: var(--text-3); font-size: 12px; }
-.preset-combobox { position: relative; display: flex; }
+.select-combobox-empty { padding: 9px; color: var(--text-3); font-size: 12px; }.preset-combobox { position: relative; display: flex; }
 .preset-combobox > input { width: 100%; min-width: 0; min-height: 36px; padding: 8px 34px 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; }
 .preset-combobox > input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .preset-combobox-toggle { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 30px; padding: 0; border: 0; border-radius: 0 6px 6px 0; background: transparent; color: var(--text-3); cursor: pointer; }

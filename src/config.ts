@@ -576,22 +576,6 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     inputOpenAi.apiKeyEnv = envName;
     writeWorkspaceEnv(workspace, envName, inputOpenAi.apiKey.trim());
   }
-  // 百炼 uses the documented BAILIAN_API_KEY name so headless .env setups and
-  // the settings UI share one variable.
-  const inputBailian = payload.speech?.bailian;
-  if (inputBailian && typeof inputBailian.apiKey === "string" && inputBailian.apiKey.trim()) {
-    let envName = (inputBailian.apiKeyEnv || "").trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "BAILIAN_API_KEY";
-    inputBailian.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, inputBailian.apiKey.trim());
-  }
-  // MiMo ASR key: same convention, MIMO_API_KEY by default.
-  const inputMimo = payload.speech?.mimo;
-  if (inputMimo && typeof (inputMimo as { apiKey?: string }).apiKey === "string" && (inputMimo as { apiKey?: string }).apiKey!.trim()) {
-    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputMimo.apiKeyEnv || "") ? inputMimo.apiKeyEnv! : "MIMO_API_KEY";
-    inputMimo.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, (inputMimo as { apiKey?: string }).apiKey!.trim());
-  }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
   /* R64：联网搜索密钥 → 工作区 .env（同 provider 模式：写盘并即时注入
      process.env，web_search/web_fetch 无需重启即生效）。 */

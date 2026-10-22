@@ -155,8 +155,7 @@ export function App() {
   const orderedModels = useMemo(() => {
     const visible = models.filter((model) => !isOfficialVisionModel(model));
     const official = visible.filter(isOfficialModel);
-    const custom = visible.filter((model) => !isOfficialModel(model));
-    const clustered: ModelOption[] = [];
+    const custom = visible.filter((model) => !isOfficialModel(model));    const clustered: ModelOption[] = [];
     const byProvider = new Map<string, ModelOption[]>();
     for (const model of custom) {
       const group = model.providerLabel || "自定义模型";
@@ -1101,8 +1100,7 @@ export function App() {
             width={2000}
             radius={15}
             maxRows={5}
-          />}
-        </form>
+          />}        </form>
       </section>
       <TracePanel activeTrace={activeTrace} isExecuting={sessionRunning && !sessionFinishing} />
     </section>
