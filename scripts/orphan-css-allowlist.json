@@ -39,6 +39,6 @@
   "wake-edge-pulse",
   "wake-edge-sharp",
   "wake-edge-soft",
-  ".tool-name",
-  ".tool-state"
+  "tool-name",
+  "tool-state"
 ]
