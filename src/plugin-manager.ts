@@ -121,6 +121,14 @@ export interface OverlayRequest extends OverlayCreateOptions {
 /** Electron 主进程实现：创建隔离的 overlay 窗口。CLI 等无窗口环境不提供。 */
 export type OverlayHandler = (request: OverlayRequest) => Promise<PluginOverlayHandle>;
 
+/**
+ * 操作落点发光标记（computer-use 0.7.3+ 驱动）：宿主用透明置顶小窗闪现
+ * 视觉反馈。坐标为**物理像素**（多显示器绝对坐标），宿主内部换算 DIP。
+ * fire-and-forget：实现方必须吞掉一切错误，绝不影响插件动作本身。
+ */
+export type FlashMarkerKind = "click" | "type" | "focus" | "scroll";
+export type FlashHandler = (x: number, y: number, opts?: { kind?: FlashMarkerKind; radius?: number; ms?: number }) => void;
+
 export interface PluginHostApi {
   registerTool(definition: Omit<PluginToolDefinition, "key"> & { name: string }, call: (args: Record<string, unknown>) => Promise<unknown>): void;
   unregisterTool(name: string): void;
@@ -147,6 +155,14 @@ export interface PluginHostApi {
    * 插件停用/卸载时宿主自动关闭其 overlay。
    */
   createOverlay(input: OverlayCreateOptions): Promise<PluginOverlayHandle>;
+  /**
+   * Agent 操作的落点发光标记（点击/输入/聚焦/滚动）：宿主以透明置顶小窗
+   * 闪现 300~500ms 渐隐动画。坐标为物理像素（多显示器绝对坐标），跨平台。
+   * fire-and-forget：同步返回、绝不抛错、失败静默——绝不能因此拖累或打断
+   * 插件的实际操作。无 Electron 桌面端（纯服务端运行）时为 no-op。
+   * 无需专门权限：纯几何视觉反馈，不注入任何内容。
+   */
+  flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll"; radius?: number; ms?: number }): void;
   /**
    * 订阅 Agent 活动事件（回合/工具/审批/完成/失败）。
    * 事件是无内容投影：只有 kind/sessionId/at/label/reason，
@@ -189,7 +205,8 @@ export class PluginManager {
     oauthLogin: () => Promise<{ accessToken: string; userId?: string; email?: string; name?: string }>;
   } = { getSession: async () => null, oauthLogin: async () => { throw new Error("SECTL OAuth login unavailable"); } },
   private readonly previewHandler?: SvgPreviewHandler,
-  private readonly overlayHandler?: OverlayHandler) {
+  private readonly overlayHandler?: OverlayHandler,
+  private readonly flashHandler?: FlashHandler) {
     this.installedRoot = path.join(workspace, "plugins", "installed");
     this.runtimeRoot = path.join(workspace, ".secagent-runtime", "plugins");
     this.configRoot = path.join(workspace, "plugins", "config");
@@ -616,6 +633,16 @@ export class PluginManager {
       createOverlay: async (input) => {
         requirePermission("agent.overlay");
         return this.createPluginOverlay(plugin, input);
+      },
+      flashMarker: (x, y, opts) => {
+        // fire-and-forget：无 flashHandler（纯服务端环境）或参数非法一律静默，
+        // 绝不把视觉反馈的问题抛回给动作调用方。
+        try {
+          if (typeof this.flashHandler !== "function") return;
+          const nx = Number(x), ny = Number(y);
+          if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
+          this.flashHandler(Math.round(nx), Math.round(ny), opts);
+        } catch { /* ignore */ }
       },
       onActivity: (handler) => {
         requirePermission("agent.activity");
