@@ -589,10 +589,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .oobe-content-intro-enter { animation: oobe-content-intro-enter 420ms cubic-bezier(.2, .8, .2, 1) both; }
 @keyframes oobe-content-intro-enter { from { opacity: 0; transform: translateX(48px); } to { opacity: 1; transform: translateX(0); } }
 .oobe-page { min-height: 100%; will-change: transform, opacity; }
- to { opacity: 0; transform: translateX(-32px); } }
- to { opacity: 1; transform: translateX(0); } }
- to { opacity: 0; transform: translateX(32px); } }
- to { opacity: 1; transform: translateX(0); } }
 .oobe-shell .oobe-header { max-width: 760px; margin: 18px auto 22px; }
 .oobe-plugin-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .oobe-plugin-heading h1 { min-width: 0; }
