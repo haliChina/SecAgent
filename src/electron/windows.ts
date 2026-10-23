@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, Menu, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
-import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle } from "../plugin-manager.js";
+import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle, FlashMarkerKind, FlashHandler } from "../plugin-manager.js";
 import { logMain } from "./main-log.js";
 import { recordTelemetryFailure } from "./main-telemetry.js";
 import { normalizeMessage } from "../telemetry.js";
@@ -269,10 +269,10 @@ export function registerOverlayIpcOnce(): void {
  * 按「坐标所在显示器」的 scaleFactor 换算 DIP 后创建窗口。
  * fire-and-forget：吞掉一切错误，绝不影响插件动作。
  */
-export function showPluginFlash(x: number, y: number, opts?: { kind?: string; radius?: number; ms?: number }): void {
+export const showPluginFlash: FlashHandler = (x, y, opts) => {
   try {
     if (!app.isReady()) return;
-    const kind = ["click", "type", "focus", "scroll"].includes(String(opts?.kind)) ? String(opts?.kind) : "click";
+    const kind: FlashMarkerKind = (["click", "type", "focus", "scroll"] as FlashMarkerKind[]).includes(opts?.kind as FlashMarkerKind) ? (opts?.kind as FlashMarkerKind) : "click";
     const color = ({ click: "#ff5238", type: "#3f8cff", focus: "#ffb02e", scroll: "#a06bff" } as Record<string, string>)[kind];
     const radius = Math.max(4, Math.min(40, Number(opts?.radius) || 12));
     const ms = Math.max(120, Math.min(2000, Number(opts?.ms) || 420));
@@ -321,7 +321,7 @@ export function showPluginFlash(x: number, y: number, opts?: { kind?: string; ra
     }, Math.min(400, ms));
     if (typeof fallback.unref === "function") fallback.unref();
   } catch { /* 视觉反馈失败无碍 */ }
-}
+};
 
 /**
  * 插件 overlay 浮窗：透明、置顶、点击穿透的隔离窗口。
