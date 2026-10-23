@@ -211,6 +211,8 @@ export function App() {
     started: boolean;
     released: boolean;
     insert: { start: number; end: number };
+    originX: number;
+    originY: number;
     startPromise?: Promise<boolean>;
   }>(undefined);
   const voiceCancelZoneRef = useRef<HTMLDivElement>(null);
@@ -515,6 +517,28 @@ export function App() {
     if (last.stage === "model.output.delta") return (last.data as { kind?: string }).kind || "answer";
     return "tool";
   }, [activeTrace]);
+  /* R66：修「模型已输出完仍显示思考中 ~10s」——正文输出完毕后主进程还要
+     等 IPC 回包/落库/整会话回传，期间 trace 无新事件、activeStepKind 停在
+     最后一个 delta 的 kind（answer）上，而 AiStatus 把非 tool 一律显示
+     「正在思考」。两步修：①answer 阶段显示「正在撰写」（真在写）；
+     ②最后一个 delta 之后静默超过 2.5s（网络回程+落库的正常收尾窗口）
+     切「正在收尾」，不再假装思考。秒级 tick 仅运行期存在。 */
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!sessionRunning) return;
+    const timer = window.setInterval(() => setStatusTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionRunning]);
+  const lastDeltaAt = useMemo(() => {
+    for (let i = activeTrace.length - 1; i >= 0; i -= 1) {
+      if (activeTrace[i].stage === "model.output.delta") return new Date(activeTrace[i].at).getTime();
+    }
+    return undefined;
+  }, [activeTrace]);
+  const aiStatusState = activeStepKind === "tool" ? "researching"
+    : activeStepKind === "answer" ? "writing"
+    : lastDeltaAt && statusTick - lastDeltaAt > 2500 ? "finalizing"
+    : "thinking";
   // R56 流式自动跟随（原 settle-summary/summary-locked 机制移除）：思考/推理与工具
   // 调用内容流式增长时，若用户停留在底部附近（followOutputRef=true）则容器钉住
   // 底部，跟着最新内容往下滚；用户上滚离开底部即暂停（保留完整手动浏览能力），
@@ -952,7 +976,13 @@ export function App() {
     if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return;
     const textArea = textareaRef.current;
     const insert = { start: textArea?.selectionStart ?? draft.length, end: textArea?.selectionEnd ?? draft.length };
-    const press: NonNullable<typeof voicePressRef.current> = { pointerId: event.pointerId, timer: 0, started: false, released: false, insert };
+    /* R66：拖动选区不触发长按语音——pointerdown 时已有非空选区（正在做
+       文字选择/拖放），按住不动 700ms 会被误判为长按开录音。这里直接跳过；
+       移动超过 6px（拖拽/滑动意图）也取消计时器。正常「空选区长按输入框」
+       的语音入口不受影响。 */
+    const hadSelection = insert.end > insert.start;
+    if (hadSelection) return;
+    const press: NonNullable<typeof voicePressRef.current> = { pointerId: event.pointerId, timer: 0, started: false, released: false, insert, originX: event.clientX, originY: event.clientY };
     voicePressRef.current = press;
     try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is not available in every test environment. */ }
     press.timer = window.setTimeout(() => {
@@ -963,7 +993,15 @@ export function App() {
   };
   const handleMicPointerMove = (event: ReactPointerEvent<HTMLFormElement>) => {
     const press = voicePressRef.current;
-    if (!press || press.pointerId !== event.pointerId || !press.started) return;
+    if (!press || press.pointerId !== event.pointerId) return;
+    if (!press.started && Math.hypot(event.clientX - press.originX, event.clientY - press.originY) > 6) {
+      window.clearTimeout(press.timer);
+      press.released = true;
+      voicePressRef.current = undefined;
+      try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* ignore */ }
+      return;
+    }
+    if (!press.started) return;
     updateVoiceDropZone(event.clientX, event.clientY);
   };
   const handleMicPointerUp = (event: ReactPointerEvent<HTMLFormElement>) => {
@@ -1045,7 +1083,7 @@ export function App() {
             return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
-          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={activeStepKind === "tool" ? "researching" : "thinking"} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
+          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
             {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
               {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
               {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}

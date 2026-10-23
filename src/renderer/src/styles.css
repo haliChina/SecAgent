@@ -786,23 +786,32 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .call-chip__fill {
   position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
   background: linear-gradient(90deg, color-mix(in srgb, var(--cc-progress) var(--cc-progress-pct), transparent), color-mix(in srgb, var(--cc-progress) calc(var(--cc-progress-pct) * 2.4), transparent));
-  transform-origin: left center; transition: transform var(--cc-expected) cubic-bezier(.25, .46, .45, .94);
+  transform: scaleX(0); transform-origin: left center; clip-path: inset(0 0 0 0);
+  transition: transform var(--cc-expected) cubic-bezier(.25, .46, .45, .94);
 }
 .call-chip[data-status='idle'] .call-chip__fill, .call-chip:not([data-mounted]) .call-chip__fill { display: none; }
 .call-chip[data-status='running'] { color: var(--cc-color); }
-.call-chip[data-status='done'] .call-chip__fill { background: color-mix(in srgb, var(--cc-done) var(--cc-wash-pct), transparent); }
-.call-chip[data-status='error'] .call-chip__fill { background: color-mix(in srgb, var(--cc-error) var(--cc-wash-pct), transparent); }
-.call-chip__slot { position: relative; display: inline-flex; width: 1.35em; height: 1.35em; align-items: center; justify-content: center; }
-.call-chip__glyph { position: absolute; inset: 0; display: inline-flex; align-items: center; justify-content: center; }
-.call-chip__glyph[data-state='in'] { animation: call-chip-glyph-in .24s cubic-bezier(.23, 1, .32, 1) both; }
-.call-chip__glyph[data-state='out'] { animation: call-chip-glyph-out .2s ease both; }
-@keyframes call-chip-glyph-in { from { opacity: 0; transform: scale(.6) rotate(-20deg); } to { opacity: 1; transform: none; } }
-@keyframes call-chip-glyph-out { from { opacity: 1; } to { opacity: 0; transform: scale(.6) rotate(20deg); } }
+/* done：进度填充淡出后，完成色「水洗层」从底部上滑揭示（原版 clip-path 揭示动效）。 */
+.call-chip[data-status='done'] .call-chip__fill {
+  background: color-mix(in srgb, var(--cc-done) var(--cc-wash-pct), transparent);
+  clip-path: inset(100% 0 0 0);
+  transition: transform 200ms cubic-bezier(.23, 1, .32, 1), background-color 120ms ease, clip-path 400ms cubic-bezier(.23, 1, .32, 1) 200ms;
+}
+.call-chip[data-status='error'] .call-chip__fill { background: color-mix(in srgb, var(--cc-error) var(--cc-wash-pct), transparent); transition: background-color 200ms ease; }
+.call-chip:not([data-mounted]) .call-chip__glyph { transition: none !important; }
+/* 图标槽：固定字号相对尺寸 + overflow hidden，glyph 上下滚动进出（原版效果，
+   修 R66：非激活 glyph 未隐藏导致三图标叠加显示）。 */
+.call-chip__slot { position: relative; flex: none; width: calc(var(--cc-font) + 2px); height: calc(var(--cc-font) + 2px); overflow: hidden; }
+.call-chip__glyph { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transform: translateY(70%); filter: blur(3px); }
+.call-chip__glyph[data-state='in'] { opacity: 1; transform: none; filter: blur(0); transition: opacity 240ms cubic-bezier(.23, 1, .32, 1), transform 240ms cubic-bezier(.23, 1, .32, 1), filter 240ms cubic-bezier(.23, 1, .32, 1); }
+.call-chip__glyph[data-state='out'] { transform: translateY(-70%); transition: opacity 160ms cubic-bezier(.23, 1, .32, 1), transform 160ms cubic-bezier(.23, 1, .32, 1), filter 160ms cubic-bezier(.23, 1, .32, 1); }
+.call-chip[data-status='done'] .call-chip__glyph[data-state='in'] { color: var(--cc-done); }
+.call-chip[data-status='error'] .call-chip__glyph[data-state='in'] { color: var(--cc-error); }
 .call-chip__name { position: relative; font-weight: 600; }
-.call-chip__arg { position: relative; max-width: 26ch; overflow: hidden; color: var(--text-2); text-overflow: ellipsis; }
-.call-chip__timer { position: relative; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.call-chip__arg { position: relative; max-width: 26ch; overflow: hidden; color: var(--text-2); text-overflow: ellipsis; opacity: .72; }
+.call-chip__timer { position: relative; min-width: 6ch; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; opacity: .5; }
 .call-chip__sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-@media (prefers-reduced-motion: reduce) { .call-chip__fill { transition: none; } .call-chip__glyph { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .call-chip__fill { transition: none; } .call-chip__glyph { transition: none !important; transform: none !important; filter: none !important; } }
 
 /* ===== R65 FuseButton（react-bits Micro/FuseButton 移植，MIT）===== */
 .fuse-button {

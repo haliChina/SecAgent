@@ -27,7 +27,7 @@ import { registerSpeechIpc } from "./ipc-speech.js";
 import { registerSettingsIpc } from "./ipc-settings.js";
 import { closeVoiceWakeWindow, closeWakeWindow, getVoiceWakeWindow, getWakeWindow, openWakeWindow, registerWakeIpc, registerWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import { registerSessionsIpc } from "./ipc-sessions.js";
-import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, openPluginOverlay, openPluginSvgPreview, openSettings, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow } from "./windows.js";
+import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, openPluginOverlay, openPluginSvgPreview, openSettings, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash } from "./windows.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
@@ -253,7 +253,7 @@ async function startApplication(): Promise<void> {
       return accessToken ? { accessToken, userId: process.env.SECTL_OFFICIAL_USER_ID || undefined, email: process.env.SECTL_OFFICIAL_EMAIL || undefined } : null;
     },
     oauthLogin: runSectlOAuthLogin,
-  }, openPluginSvgPreview, openPluginOverlay);
+  }, openPluginSvgPreview, openPluginOverlay, showPluginFlash);
   try { await pluginManager.initialize(); }
   catch (error) {
     recordTelemetryFailure({ type: "plugin.start.failed", error, context: { phase: "initialize" } });

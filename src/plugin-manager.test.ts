@@ -531,3 +531,45 @@ test("when both deletion and quarantine fail on reinstall, install reports the r
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+// ---- flashMarker（操作落点发光标记，computer-use 0.7.3+）----
+
+test("flashMarker: 透传 flashHandler + kind/radius 归一，非法坐标静默", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const calls: unknown[][] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, undefined, (x, y, opts) => {
+    calls.push([x, y, opts]);
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { flashMarker(x: number, y: number, opts?: { kind?: string; radius?: number }): void } }).__overlayTestApi;
+    api.flashMarker(100, 200, { kind: "type" });
+    api.flashMarker(10.6, 20.4); // 非整数坐标四舍五入
+    api.flashMarker(Number.NaN, 1); // NaN 静默丢弃
+    api.flashMarker(3, Number.POSITIVE_INFINITY); // Infinity 静默丢弃
+    api.flashMarker(1, 2, { kind: "bogus" as unknown as string }); // kind 非法由宿主侧归一为 click（handler 原样收到，不抛错）
+    assert.equal(calls.length, 3);
+    assert.deepEqual(calls[0], [100, 200, { kind: "type" }]);
+    assert.deepEqual(calls[1], [11, 20, undefined]);
+    assert.deepEqual(calls[2], [1, 2, { kind: "bogus" }]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("flashMarker: 无 flashHandler（纯服务端）时为 no-op 不抛错", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { flashMarker(x: number, y: number): void } }).__overlayTestApi;
+    api.flashMarker(0, 0); // 不得抛错
+    api.flashMarker(Number.NaN, Number.NaN);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

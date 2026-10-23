@@ -256,6 +256,74 @@ export function registerOverlayIpcOnce(): void {
 }
 
 /**
+ * 插件操作落点发光标记（computer-use 0.7.3+，api.flashMarker）：
+ * 透明无边框置顶小窗 + CSS 发光动画，420ms 后自毁。
+ * （上游 #13，从巨石 main.ts 移植进模块化结构。）
+ *
+ * 为什么用 BrowserWindow 而不是插件侧 GDI/分层窗口：视觉反馈属于宿主
+ * UI 职责——Electron 透明窗口必然进 DWM/合成器，跨平台（Windows/macOS/
+ * Linux）且动画质感（光晕/渐隐/缩放）远超手写像素；插件（in-process）的
+ * koffi 原生窗口路径仅作老宿主兜底。
+ *
+ * 坐标约定：插件传**物理像素**（多显示器绝对坐标，与截图/点击同一空间）；
+ * 按「坐标所在显示器」的 scaleFactor 换算 DIP 后创建窗口。
+ * fire-and-forget：吞掉一切错误，绝不影响插件动作。
+ */
+export function showPluginFlash(x: number, y: number, opts?: { kind?: string; radius?: number; ms?: number }): void {
+  try {
+    if (!app.isReady()) return;
+    const kind = ["click", "type", "focus", "scroll"].includes(String(opts?.kind)) ? String(opts?.kind) : "click";
+    const color = ({ click: "#ff5238", type: "#3f8cff", focus: "#ffb02e", scroll: "#a06bff" } as Record<string, string>)[kind];
+    const radius = Math.max(4, Math.min(40, Number(opts?.radius) || 12));
+    const ms = Math.max(120, Math.min(2000, Number(opts?.ms) || 420));
+
+    // 物理像素 → DIP（按落点所在显示器的缩放比；近似即可，微小偏差不影响观感）
+    const disp = screen.getDisplayNearestPoint({ x, y });
+    const sf = disp.scaleFactor || 1;
+    const dipX = x / sf, dipY = y / sf;
+    const size = Math.round(radius * 2 + 44); // DIP 窗口边长（环 + 光晕余量）
+
+    const html =
+      `<!doctype html><html><head><meta charset="utf-8"><style>` +
+      `html,body{margin:0;padding:0;background:transparent;overflow:hidden;width:${size}px;height:${size}px}` +
+      `.ring{position:absolute;left:50%;top:50%;width:${radius * 2}px;height:${radius * 2}px;margin:-${radius}px 0 0 -${radius}px;` +
+      `border:3px solid ${color};border-radius:50%;box-shadow:0 0 18px 4px ${color},inset 0 0 10px ${color};` +
+      `opacity:.95;transform:scale(1.22);animation:fade ${ms}ms cubic-bezier(.2,.7,.3,1) forwards}` +
+      `.dot{position:absolute;left:50%;top:50%;width:7px;height:7px;margin:-3.5px 0 0 -3.5px;` +
+      `border-radius:50%;background:#fff;box-shadow:0 0 12px 2px ${color};opacity:.9;` +
+      `animation:fade ${Math.round(ms * 0.7)}ms ease-out forwards}` +
+      `@keyframes fade{to{transform:scale(.92);opacity:0}}` +
+      `</style></head><body><div class="ring"></div><div class="dot"></div></body></html>`;
+
+    const win = new BrowserWindow({
+      x: Math.round(dipX - size / 2), y: Math.round(dipY - size / 2),
+      width: size, height: size,
+      frame: false, transparent: true, resizable: false, movable: false,
+      skipTaskbar: true, focusable: false, alwaysOnTop: true, hasShadow: false,
+      show: false, acceptFirstMouse: false, backgroundColor: "#00000000",
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true }
+    });
+    win.setIgnoreMouseEvents(true, { forward: false });
+    // 透明窗在部分平台需要 after 修饰才稳定压在输入法/浮窗之上
+    win.setAlwaysOnTop(true, "screen-saver");
+    const kill = () => { if (!win.isDestroyed()) win.destroy(); };
+    const timer = setTimeout(kill, ms + 150);
+    if (typeof timer.unref === "function") timer.unref();
+    win.once("ready-to-show", () => {
+      if (win.isDestroyed()) return;
+      win.showInactive();
+    });
+    win.once("closed", () => clearTimeout(timer));
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(kill);
+    // ready-to-show 万一不来（加载失败等）：兜底时限后销毁
+    const fallback = setTimeout(() => {
+      if (!win.isDestroyed() && !win.isVisible()) kill();
+    }, Math.min(400, ms));
+    if (typeof fallback.unref === "function") fallback.unref();
+  } catch { /* 视觉反馈失败无碍 */ }
+}
+
+/**
  * 插件 overlay 浮窗：透明、置顶、点击穿透的隔离窗口。
  * 安全模式对齐 openSvgPreview：无 Node 集成、沙盒渲染进程、
  * 禁止弹窗与标题伪装、只允许加载插件本地 loopback 服务。

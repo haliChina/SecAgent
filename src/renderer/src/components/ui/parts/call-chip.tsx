@@ -117,9 +117,17 @@ export function CallChip({
   useLayoutEffect(() => { if (mountedRef.current) apply(status, true); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [status]);
 
   useEffect(() => {
+    /* R66：修「等待返回不返回时计时一直狂走」——超过 expectedMs 后：
+       ①数字封顶在 expectedMs 并加"…"后缀（9357ms→"6.0 s…"），传达
+         「比预期久，还在等」而不是无限飙升的秒表焦虑；
+       ②rAF 降频到 1s 一跳（省电），result 到达时 status 变化、effect 重跑
+         走正常收尾写入真实耗时。工具真耗时超过预期（如长 bash）时数字
+         会继续走——封顶仅覆盖「没有 result 的等待期」。 */
     const write = (ms: number) => {
-      clock.current.ms = ms;
-      if (timerRef.current) timerRef.current.textContent = fmt(ms);
+      const capped = ms > expectedMs;
+      const shown = capped ? expectedMs : ms;
+      clock.current.ms = shown;
+      if (timerRef.current) timerRef.current.textContent = fmt(shown) + (capped ? "…" : "");
     };
     if (status !== "running") {
       if ((status === "idle" || !clock.current.ms) && timerRef.current) timerRef.current.textContent = "—";
@@ -132,10 +140,26 @@ export function CallChip({
       return () => { clearInterval(id); write(performance.now() - startedAt); };
     }
     let raf = 0;
-    const tick = () => { write(performance.now() - startedAt); raf = requestAnimationFrame(tick); };
+    let slowTimer = 0;
+    const tick = () => {
+      write(performance.now() - startedAt);
+      const over = performance.now() - startedAt > expectedMs;
+      if (over) {
+        // 超时等待：脱离 rAF 高频循环，改 1s 低频跳
+        cancelAnimationFrame(raf);
+        raf = 0;
+        slowTimer = window.setInterval(() => write(performance.now() - startedAt), 1000);
+        return;
+      }
+      raf = requestAnimationFrame(tick);
+    };
     tick();
-    return () => { cancelAnimationFrame(raf); write(performance.now() - startedAt); };
-  }, [status]);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (slowTimer) clearInterval(slowTimer);
+      write(performance.now() - startedAt);
+    };
+  }, [status, expectedMs]);
   useEffect(() => {
     const ms = showTimer && clock.current.ms ? Math.round(clock.current.ms) : 0;
     const when = status === "done" && ms ? `（${ms} ms）` : status === "error" && ms ? `（${ms} ms 后）` : "";
@@ -146,7 +170,7 @@ export function CallChip({
   const font = Math.max(11, Math.round(size * 0.38));
   const glyphState = (g: Glyph) => (g === roll.current.cur ? "in" : g === roll.current.prev ? "out" : undefined);
   const ToolIcon: LucideIcon | null = typeof icon === "string" ? (ICONS[icon] ?? ICONS.terminal) : null;
-  const iconSize = font + 4;
+  const iconSize = font + 2;
 
   return (
     <span
@@ -173,7 +197,12 @@ export function CallChip({
       </span>
       <span className="call-chip__name" aria-hidden="true">{name}</span>
       {argument ? <span className="call-chip__arg" aria-hidden="true">{argument}</span> : null}
-      {showTimer ? <span ref={timerRef} className="call-chip__timer" aria-hidden="true">0 ms</span> : null}
+      {showTimer ? (
+        /* children 留空：textContent 由计时 rAF 直接写（"0 ms"→实时毫秒）——
+           一旦放了静态 children，trace 流式高频重渲染会把数字不断重置回初值，
+           表现为「数字不随进度填充一起跳动」（R66）。 */
+        <span ref={timerRef} className="call-chip__timer" aria-hidden="true" />
+      ) : null}
       <span className="call-chip__sr">{announce}</span>
     </span>
   );

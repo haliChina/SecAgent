@@ -273,11 +273,7 @@ function WebSearch({
                   cell(
                     source.id,
                     i,
-                    <SourceCard
-                      source={source}
-                      index={i + 1}
-                      linked={linked}
-                    />,
+                    <SourceCard source={source} linked={linked} />,
                   ),
                 )}
                 {Array.from({ length: skeletons }, (_, i) => (
@@ -380,11 +376,9 @@ const CARD_SHELL =
 
 function SourceCard({
   source,
-  index,
   linked,
 }: {
   source: WebSource;
-  index: number;
   linked: boolean;
 }) {
   return (
@@ -405,9 +399,6 @@ function SourceCard({
         <Favicon source={source} size={16} />
         <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-[#868593]">
           {siteName(source.url)}
-        </span>
-        <span className="text-[11px] font-semibold tabular-nums text-[#868593]/70">
-          {index}
         </span>
       </span>
     </a>
