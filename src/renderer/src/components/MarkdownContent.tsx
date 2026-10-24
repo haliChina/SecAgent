@@ -1,5 +1,6 @@
+import { ACCENT, ACCENT_DEEP } from "./ui/parts/theme.js";
 import { useEffect, useRef, type ComponentProps } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import mermaid from "mermaid";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -128,8 +129,8 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
   const rectangleX = Number(plot.rectangleX ?? 1);
   const width = Math.PI * radius;
   const stripWidth = width / slices;
-  const sectorColor = typeof plot.sectorColor === "string" ? plot.sectorColor : "#2563eb";
-  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : "#f59e0b";
+  const sectorColor = typeof plot.sectorColor === "string" ? plot.sectorColor : ACCENT;
+  const rearrangedColor = typeof plot.rearrangedColor === "string" ? plot.rearrangedColor : ACCENT;
   const sectors = Array.from({ length: slices }, (_, index) => {
     const start = (index / slices) * Math.PI * 2;
     const end = ((index + 1) / slices) * Math.PI * 2;
@@ -145,7 +146,7 @@ function DiskRearrangement({ plot }: { plot: Record<string, unknown> }) {
     // The alternating colors show the interleaving while every strip keeps
     // the same height r, so the resulting rectangle has dimensions πr × r.
     const points: Array<[number, number]> = [[x0, -radius / 2], [x1, -radius / 2], [x1, radius / 2], [x0, radius / 2]];
-    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : "#d97706"} fillOpacity={.42} />;
+    return <Polygon key={`strip-${index}`} points={points} color={index % 2 === 0 ? rearrangedColor : ACCENT_DEEP} fillOpacity={.42} />;
   });
   return <>
     {sectors}
@@ -206,5 +207,10 @@ function expandMafsTags(markdown: string): string {
 }
 
 export function MarkdownContent({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} components={{ code: MarkdownCode }}>{expandMafsTags(children)}</ReactMarkdown>;
+  // P3-7 不可信输出处理：
+  // - 原始 HTML 不渲染——插件链无 rehype-raw，模型输出里的 <script>/<img onerror> 等
+  //   会被 react-markdown 直接丢弃（只保留可显示的文本/结构）
+  // - URL 协议白名单——显式传 defaultUrlTransform（https?/ircs?/mailto/xmpp +
+  //   相对地址），javascript:/data: 等被替换为空串；行为由 ansi.test.ts 上锁
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} urlTransform={defaultUrlTransform} components={{ code: MarkdownCode }}>{expandMafsTags(children)}</ReactMarkdown>;
 }

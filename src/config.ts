@@ -87,14 +87,19 @@ const template = (workspace: string): SecAgentConfig => ({
   version: 1,
   workspace,
   agent: {
+    /* R65：初始模板此前写死 gpt-5 + api.openai.com——用户没配 OpenAI 密钥时会
+       看到一个「意义不明的 gpt-5」还不可用。改为指向官方中继的虚拟快线层
+       （virtual-fast，实际由 DeepSeek V4 Flash 服务）；未登录时模型层会引导
+       OAuth，而不是假装有一个不可用的 OpenAI 模型。OOBE 完成后 saveSettings
+       会按用户实际选择覆盖这份兜底。 */
     models: [{
       id: "default",
-      name: "gpt-5",
-      provider: "openai-compatible",
-      model: "gpt-5",
-      apiKeyEnv: "OPENAI_API_KEY",
-      baseUrl: "https://api.openai.com/v1",
-      endpoint: "/chat/completions",
+      name: "SecAgent 官方服务（快线）",
+      provider: "openai-responses",
+      model: "virtual-fast",
+      apiKeyEnv: "SECTL_OFFICIAL_TOKEN",
+      baseUrl: "https://secagent-api.sectl.cn/v1",
+      endpoint: "/responses",
       maxTokens: DEFAULT_MAX_TOKENS
     }]
   } as SecAgentConfig["agent"],
@@ -441,6 +446,14 @@ export interface SettingsPayload {
   guard?: import("./tool-guard.js").ToolGuardSettings;
   budget?: import("./model-budget.js").ModelBudgetSettings;
   hallucinationEnabled?: boolean;
+  /** UI theme tri-state: light / dark / system (follows OS). */
+  theme?: "light" | "dark" | "system";
+  /**
+   * R64：联网搜索（web_search/web_fetch 工具）密钥。载流字段——保存时写入
+   * 工作区 .env（BIGMODEL_API_KEY / DEEPSEEK_API_KEY），不落 config.yaml；
+   * `*Configured` 只读标记由 process.env 派生。
+   */
+  webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean };
 }
 
 export function readSettings(workspaceInput: string): SettingsPayload {
@@ -460,7 +473,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", webSearch: { bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY) } };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -563,23 +576,11 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     inputOpenAi.apiKeyEnv = envName;
     writeWorkspaceEnv(workspace, envName, inputOpenAi.apiKey.trim());
   }
-  // 百炼 uses the documented BAILIAN_API_KEY name so headless .env setups and
-  // the settings UI share one variable.
-  const inputBailian = payload.speech?.bailian;
-  if (inputBailian && typeof inputBailian.apiKey === "string" && inputBailian.apiKey.trim()) {
-    let envName = (inputBailian.apiKeyEnv || "").trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "BAILIAN_API_KEY";
-    inputBailian.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, inputBailian.apiKey.trim());
-  }
-  // MiMo ASR key: same convention, MIMO_API_KEY by default.
-  const inputMimo = payload.speech?.mimo;
-  if (inputMimo && typeof (inputMimo as { apiKey?: string }).apiKey === "string" && (inputMimo as { apiKey?: string }).apiKey!.trim()) {
-    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputMimo.apiKeyEnv || "") ? inputMimo.apiKeyEnv! : "MIMO_API_KEY";
-    inputMimo.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, (inputMimo as { apiKey?: string }).apiKey!.trim());
-  }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
+  /* R64：联网搜索密钥 → 工作区 .env（同 provider 模式：写盘并即时注入
+     process.env，web_search/web_fetch 无需重启即生效）。 */
+  if (typeof payload.webSearch?.bigmodelKey === "string" && payload.webSearch.bigmodelKey.trim()) writeWorkspaceEnv(workspace, "BIGMODEL_API_KEY", payload.webSearch.bigmodelKey.trim());
+  if (typeof payload.webSearch?.deepseekKey === "string" && payload.webSearch.deepseekKey.trim()) writeWorkspaceEnv(workspace, "DEEPSEEK_API_KEY", payload.webSearch.deepseekKey.trim());
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;
   const nextUpdates: UpdatePreferences = { channel: payload.updates?.channel === "preview" ? "preview" : payload.updates?.channel === "stable" ? "stable" : currentUpdates.channel, autoCheck: payload.updates ? payload.updates.autoCheck !== false : currentUpdates.autoCheck, autoDownload: payload.updates ? payload.updates.autoDownload !== false : currentUpdates.autoDownload, autoInstallOnQuit: payload.updates ? payload.updates.autoInstallOnQuit !== false : currentUpdates.autoInstallOnQuit };
   const nextTelemetry: TelemetrySettings = { enabled: payload.telemetry?.enabled !== false };
@@ -600,6 +601,7 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   raw.guard = normalizeToolGuardSettings(payload.guard);
   raw.budget = normalizeModelBudgetSettings(payload.budget);
   raw.hallucination = { enabled: payload.hallucinationEnabled !== false };
+  raw.theme = payload.theme === "dark" || payload.theme === "system" ? payload.theme : "light";
   delete (raw as SecAgentConfig & { policy?: unknown }).policy;
   fs.writeFileSync(file, YAML.stringify(raw), "utf8");
   return readSettings(workspace);

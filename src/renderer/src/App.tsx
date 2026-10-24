@@ -1,7 +1,9 @@
+import { ACCENT, ACCENT_SKY, ACCENT_DEEP } from "./components/ui/parts/theme.js";
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent } from "react";
-import { ArrowUp, LoaderCircle, Square, Volume2 } from "lucide-react";
+import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
+import { LoaderCircle, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
+import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
 import { VoiceWakeListener } from "./components/VoiceWakeListener.js";
 import { MessageActivities } from "./components/MessageActivities.js";
@@ -9,40 +11,51 @@ import { AttachmentStrip } from "./components/AttachmentStrip.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
-import { reasoningEffortLabels, traceLabel } from "./constants.js";
+import { reasoningEffortLabels } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
-import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel } from "./utils.js";
+import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
-import { buildQuotedUserMessage, parseQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { buildQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { selectionInElement, copyText, UserQuotedContent } from "./components/MessageQuoted.js";
+import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
+import { TracePanel } from "./components/TracePanel.js";
+import { DeliverableCard } from "./components/DeliverableCard.js";
+import { SessionSidebar } from "./components/SessionSidebar.js";
+import { AiStatus, AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, WebSearch, type WebSource, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
-function selectionInElement(element: HTMLElement): string {
-  const selection = window.getSelection();
-  if (!selection || selection.isCollapsed || !selection.rangeCount) return "";
-  const range = selection.getRangeAt(0);
-  if (!element.contains(range.commonAncestorContainer)) return "";
-  return selection.toString().trim();
+/** web_search 工具结果 → rare-ui WebSearch 组件的 WebSource 归一化
+ * （兼容 BigModel search_result 与 DeepSeek results 两种载荷）。 */
+/* R65：sources 的 React key 此前是「调用内 index」——同一消息多次调用 web_search
+   合并后 key 大量重复（两次调用都产 "0","1","2"…），popLayout 下 exit/enter 竞态，
+   这就是「show less 只收回部分、再 show more 卡片越叠越多」的根因。
+   现在的 id 带上调用序号与 URL，保证全局唯一且跨渲染稳定。 */
+function normalizeWebSearchSources(result: unknown, callIndex = 0): WebSource[] {
+  /* R64：runWebSearch 返回 { provider, query, hits }（hits 才是结果数组），
+     此前只认 results → 恒空 → 「Searched 0 sites」。兼容三种形状：
+     裸数组 / { results }（MCP 类工具）/ { hits }（自研 web_search）。 */
+  const source = result && typeof result === "object" && !Array.isArray(result) ? (result as Record<string, unknown>) : null;
+  const list: unknown[] = Array.isArray(result) ? result : source && Array.isArray(source.results) ? source.results : source && Array.isArray(source.hits) ? source.hits : [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item, index) => ({
+    id: `${callIndex}:${index}:${String(item.url ?? item.link ?? "")}`,
+    title: String(item.title ?? "无标题"),
+    url: String(item.url ?? item.link ?? ""),
+    snippet: typeof item.snippet === "string" ? item.snippet : typeof item.content === "string" ? String(item.content).slice(0, 200) : undefined,
+    favicon: typeof item.favicon === "string" ? item.favicon : typeof item.site_icon === "string" ? String(item.site_icon) : typeof item.siteIcon === "string" ? String(item.siteIcon) : undefined,
+  })).filter((source) => source.url);
 }
 
-async function copyText(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch {
-    const input = document.createElement("textarea");
-    input.value = text;
-    document.body.appendChild(input);
-    input.select();
-    document.execCommand("copy");
-    input.remove();
-  }
+function webSearchSourcesFor(toolCalls: { name: string; result?: unknown }[] | undefined): WebSource[] {
+  return (toolCalls || []).filter((call) => call.name === "web_search").flatMap((call, callIndex) => normalizeWebSearchSources(call.result, callIndex));
 }
 
-function UserQuotedContent({ content }: { content: string }) {
-  const parsed = parseQuotedUserMessage(content);
-  if (!parsed.quote) return <>{content}</>;
-  return <>
-    <blockquote className="message-quote">{parsed.quote}</blockquote>
-    {parsed.body ? parsed.body : null}
-  </>;
+/* R65：正文引用——assistant 回答里的 [1] [2] 标注替换为指向对应搜索结果的
+   markdown 链接（rareui 演示同款「回答有引用」体验）。围栏代码块内不替换。 */
+function citationify(content: string, sources: WebSource[]): string {
+  if (!sources.length) return content;
+  return content.split(/(```[\s\S]*?```)/g).map((part) => part.startsWith("```") ? part : part.replace(/\[(\d{1,2})\]/g, (match, digits: string) => {
+    const source = sources[Number(digits) - 1];
+    return source && /^https?:/i.test(source.url) ? `[${digits}](${source.url})` : match;
+  })).join("");
 }
 
 type VoiceInputMode = "streaming" | "hold";
@@ -52,29 +65,50 @@ type PendingVoiceSend = { messageId: string; sessionId: string };
 export function App() {
   const bridge = window.secagent;
   const route = new URLSearchParams(window.location.search);
-  if (route.has("settings")) return <SettingsApp />;
+  if (route.has("settings")) return <WindowErrorBoundary crashTitle="设置页遇到错误" windowTitle="SecAgent设置"><SettingsApp /></WindowErrorBoundary>;
   if (route.has("wake")) return <WakeOverlay />;
   if (route.has("voice-wake")) return <VoiceWakeListener />;
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
-  const [sessionMenuDismissed, setSessionMenuDismissed] = useState(false);
-  const [allSessionsOpen, setAllSessionsOpen] = useState(false);
   const [session, setSession] = useState<SessionData | null>(null);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [previewAttachment, setPreviewAttachment] = useState<ChatAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState("");
   const [composerDragging, setComposerDragging] = useState(false);
-  const [modelMenuOpen, setModelMenuOpen] = useState(false);
-  const [modelSubmenu, setModelSubmenu] = useState<"model" | "effort" | null>(null);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [finishing, setFinishing] = useState(false);
+  /* R59 多任务：运行态按会话记账（主进程 activeSessionRuns 本就按会话键控）。
+     runningSessionIds/finishingSessionIds 驱动渲染；ref 镜像供异步闭包取新鲜值。
+     旧的单一全局 sending/finishing 是"新会话出现老会话思考提示 + 停止按钮"
+     串台的根因。 */
+  const [runningSessionIds, setRunningSessionIds] = useState<string[]>([]);
+  const [finishingSessionIds, setFinishingSessionIds] = useState<string[]>([]);
+  const runningSessionsRef = useRef<string[]>([]);
+  const finishingSessionsRef = useRef<string[]>([]);
+  const markRunning = (id: string) => {
+    if (!runningSessionsRef.current.includes(id)) { runningSessionsRef.current = [...runningSessionsRef.current, id]; setRunningSessionIds(runningSessionsRef.current); }
+  };
+  const markFinishing = (id: string) => {
+    if (!finishingSessionsRef.current.includes(id)) { finishingSessionsRef.current = [...finishingSessionsRef.current, id]; setFinishingSessionIds(finishingSessionsRef.current); }
+  };
+  const clearRun = (id: string) => {
+    runningSessionsRef.current = runningSessionsRef.current.filter((candidate) => candidate !== id);
+    setRunningSessionIds(runningSessionsRef.current);
+    finishingSessionsRef.current = finishingSessionsRef.current.filter((candidate) => candidate !== id);
+    setFinishingSessionIds(finishingSessionsRef.current);
+  };
+  /** 视口当前会话是否在运行 / 在收尾；任意会话在运行（状态球、TracePanel 用）。 */
+  const sessionRunning = Boolean(session && runningSessionIds.includes(session.meta.id));
+  const sessionFinishing = Boolean(session && finishingSessionIds.includes(session.meta.id));
+  const anyRunning = runningSessionIds.length > 0;
+  const anyFinishing = finishingSessionIds.length > 0;
   const [recording, setRecording] = useState(false);
   const [speechProcessing, setSpeechProcessing] = useState(false);
+  /** ASR 采集流的 React 侧句柄（audioRef 是 ref 不触发渲染；仅用于喂给状态球取电平）。 */
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
   const [voicePendingSend, setVoicePendingSend] = useState(false);
   const [speechMode, setSpeechMode] = useState<VoiceInputMode | null>(null);
   const [voiceDropZone, setVoiceDropZone] = useState<VoiceDropAction>("send");
@@ -86,21 +120,58 @@ export function App() {
   // Codex-style sensitive tool-call confirmation, pending user decision.
   const [toolConfirmation, setToolConfirmation] = useState<{ confirmationId: string; tool: string; arguments: Record<string, unknown>; reason: string } | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
+  /* R65 模型回退链详细进度（用户点名）：主进程 model.request/failed +
+     model.fallback/switch 事件早就有，但渲染层只显示最终 fallbackNotice——
+     中间每一步失败/切换用户全程不可见。这里实时聚合当前会话的回退过程。 */
+  const [modelFallback, setModelFallback] = useState<{ sessionId: string; failed: Array<{ model: string; kind: string; message: string }>; current?: string; switchCount: number } | null>(null);
+  /* R65：web_search 执行中的实时卡——工具一开跑就显示 Searching（rareui 演示
+     行为），result 事件落地即切 Searched N，消息落库后由消息内卡片接管。 */
+  const liveWebSearch = useMemo(() => {
+    if (!sessionRunning || !session) return null;
+    /* R68：流式实时卡与落地后消息卡同口径——此前只取「最后一次」web_search
+       的 result，多轮搜索时流式卡显示 3 个来源、落地后 flatMap 出 7 个，
+       正文 [n] 引用与卡片编号在过渡期对不上（用户反馈「计算逻辑把
+       show more/less 期间的计数算乱了」）。改为聚合本轮全部已完成结果，
+       callIndex 随收集顺序递增，与 webSearchSourcesFor 完全一致；
+       最后一次事件是 call（未返回）才显示 searching。 */
+    const sources: WebSource[] = [];
+    let callIndex = 0;
+    let searching = false;
+    let query: string | undefined;
+    for (const item of trace) {
+      if (item.sessionId !== session.meta.id) continue;
+      const data = (item.data ?? {}) as { name?: unknown; arguments?: { query?: unknown } | undefined; result?: unknown };
+      if (item.stage === "secagent.tools/result" && data.name === "web_search") {
+        sources.push(...normalizeWebSearchSources(data.result, callIndex));
+        callIndex += 1;
+        searching = false;
+      } else if (item.stage === "secagent.tools/call" && data.name === "web_search") {
+        searching = true;
+        if (typeof data.arguments?.query === "string") query = data.arguments.query;
+      }
+    }
+    if (!sources.length && !searching) return null;
+    return { searching, query, sources };
+  }, [trace, session, sessionRunning]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const answerContentRef = useRef<HTMLDivElement>(null);
   const executionSummaryRef = useRef<HTMLButtonElement>(null);
-  const answerScrollPhase = useRef<"follow-bottom" | "settling" | "locked">("follow-bottom");
-  const answerScrollLockTimer = useRef<number | undefined>(undefined);
+  // R56 流式跟随滚动：follow=true 时容器钉在底部（思考/工具调用内容增长自动下滚）；
+  // 用户手动上滚即置 false（暂停跟随、自由浏览），滚回底部附近自动恢复。
+  const followOutputRef = useRef(true);
   const answerStartScrollPending = useRef(false);
-  const modelMenuEnd = useRef<HTMLDivElement>(null);
+  /* R27 PromptBar 桥：onAttach 必须返回 Promise，但文件选择器是回调式——
+     pendingAttachResolveRef 暂存 resolve，input change 后由 addImageFiles 兑现；
+     pendingDictationResolveRef 同理暂存听写 promise，finishVoiceInput 收尾时兑现。 */
+  const pendingAttachResolveRef = useRef<((names: string[]) => void) | null>(null);
+  const pendingDictationResolveRef = useRef<((text: string) => void) | null>(null);
   // Official tiers first, then custom models clustered by provider so the
   // submenu can render a labelled group header per provider. The relay's
   // virtual-vision model is a vision-tool backend only, never a main model.
   const orderedModels = useMemo(() => {
     const visible = models.filter((model) => !isOfficialVisionModel(model));
     const official = visible.filter(isOfficialModel);
-    const custom = visible.filter((model) => !isOfficialModel(model));
-    const clustered: ModelOption[] = [];
+    const custom = visible.filter((model) => !isOfficialModel(model));    const clustered: ModelOption[] = [];
     const byProvider = new Map<string, ModelOption[]>();
     for (const model of custom) {
       const group = model.providerLabel || "自定义模型";
@@ -118,7 +189,14 @@ export function App() {
     bridge.setWakeContext({ sessionId: session?.meta.id, modelId: selectedModelId || undefined, reasoningEffort: customModelMode ? reasoningEffort : defaultEffort });
   }, [bridge, session?.meta.id, selectedModelId, reasoningEffort, defaultEffort, customModelMode]);
   useEffect(() => {
-    if (!reasoningEfforts.includes(reasoningEffort)) setReasoningEffort(reasoningEfforts[0] || "high");
+    if (!reasoningEfforts.includes(reasoningEffort)) {
+      // R29：模型切换档位收缩时（如 GLM-5 的 max → Qwen 只到 high），
+      // 回退到新列表中不超过当前档位的最高档，而不是直接掉到最低档。
+      const rank: Record<ReasoningEffort, number> = { none: 0, minimal: 1, low: 2, medium: 3, high: 4, xhigh: 5, max: 6 };
+      const current = rank[reasoningEffort];
+      const fallback = [...reasoningEfforts].sort((a, b) => rank[a] - rank[b]).filter((candidate) => rank[candidate] <= current).pop();
+      setReasoningEffort(fallback ?? reasoningEfforts[0] ?? "high");
+    }
   }, [reasoningEffort, reasoningEfforts]);
   const initializing = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
@@ -149,6 +227,8 @@ export function App() {
     started: boolean;
     released: boolean;
     insert: { start: number; end: number };
+    originX: number;
+    originY: number;
     startPromise?: Promise<boolean>;
   }>(undefined);
   const voiceCancelZoneRef = useRef<HTMLDivElement>(null);
@@ -301,6 +381,17 @@ export function App() {
     return bridge.onRuntimeEvent((event) => {
       const item = event as TraceEvent;
       setTrace((current) => [...current, item]);
+      if (item.stage === "model.request/failed") {
+        const data = (item.data ?? {}) as { model?: unknown; kind?: unknown; error?: unknown };
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [...current.failed, { model: String(data.model ?? "未知模型"), kind: String(data.kind ?? "unknown"), message: String(data.error ?? "") }] } : current);
+      } else if (item.stage === "model.fallback/switch") {
+        const data = (item.data ?? {}) as { to?: unknown; modelId?: unknown };
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, current: String(data.to ?? ""), switchCount: current.switchCount + 1 } : { sessionId: item.sessionId, failed: [], current: String(data.to ?? ""), switchCount: 1 });
+      } else if (item.stage === "model.agent.request") {
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [], current: undefined } : current);
+      } else if (item.stage === "assistant.response" || item.stage === "runtime.stopped" || item.stage === "runtime.error") {
+        setModelFallback((current) => current && current.sessionId === item.sessionId ? null : current);
+      }
     });
   }, [bridge]);
 
@@ -317,13 +408,6 @@ export function App() {
     setToolConfirmation(null);
   };
 
-  useEffect(() => {
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!modelMenuEnd.current?.contains(event.target as Node)) { setModelMenuOpen(false); setModelSubmenu(null); }
-    };
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, []);
 
   useEffect(() => {
     const closeMenu = () => setMessageMenu(null);
@@ -376,39 +460,28 @@ export function App() {
   const finalStreamStart = useMemo(() => activeTrace.reduce((start, item, index) => item.stage === "model.output.reset" ? index + 1 : start, 0), [activeTrace]);
   const streamingOutput = useMemo(() => activeTrace.slice(finalStreamStart).filter((item) => item.stage === "model.output.delta")
     .map((item) => { const data = item.data as { text?: string; kind?: string }; return data.kind === "answer" || !data.kind ? data.text || "" : ""; }).join(""), [activeTrace, finalStreamStart]);
+  // R56 手动滚动手势识别：滚轮上滚立即暂停跟随（scrollbar 拖拽由下方 onScroll 兜底）；
+  // 任何方式回到距底 64px 内即恢复。程序化 scrollTo 也经过这里——"auto" 直达底部，
+  // 不会产生远离底部的中间位置。
+  // R59：scrollHeight 读取强制布局，流式期间布局逐 chunk 变脏，滚动事件逐次
+  // 同步读 = 每次全页 reflow（长会话滑动卡顿成因之二）——rAF 合帧，每帧至多读一次。
+  const scrollCheckRafRef = useRef(0);
+  useEffect(() => () => cancelAnimationFrame(scrollCheckRafRef.current), []);
+  const handleMessagesWheel = (event: ReactWheelEvent) => {
+    if (event.deltaY < 0) followOutputRef.current = false;
+  };
+  const handleMessagesScroll = () => {
+    if (scrollCheckRafRef.current) return;
+    scrollCheckRafRef.current = requestAnimationFrame(() => {
+      scrollCheckRafRef.current = 0;
+      const el = messagesRef.current;
+      if (!el) return;
+      followOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+    });
+  };
   useEffect(() => {
-    if (!sending || !streamingOutput || !messagesRef.current || !executionSummaryRef.current) return;
-    const messages = messagesRef.current;
-    const summary = executionSummaryRef.current;
-    const target = messages.scrollTop + summary.getBoundingClientRect().top - messages.getBoundingClientRect().top;
-    const maxScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
-    if (target > maxScrollTop) {
-      if (answerScrollLockTimer.current !== undefined) {
-        window.clearTimeout(answerScrollLockTimer.current);
-        answerScrollLockTimer.current = undefined;
-      }
-      answerScrollPhase.current = "follow-bottom";
-      messages.scrollTo({ top: maxScrollTop, behavior: "auto" });
-      console.debug("[SecAgent scroll] follow-bottom", { outputLength: streamingOutput.length, targetScrollTop: target, maxScrollTop, scrollTop: messages.scrollTop });
-      return;
-    }
-
-    if (answerScrollPhase.current !== "follow-bottom") return;
-    answerScrollPhase.current = "settling";
-    messages.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-    console.debug("[SecAgent scroll] settle-summary", { outputLength: streamingOutput.length, targetScrollTop: target, maxScrollTop, scrollTop: messages.scrollTop });
-    answerScrollLockTimer.current = window.setTimeout(() => {
-      answerScrollPhase.current = "locked";
-      answerScrollLockTimer.current = undefined;
-      console.debug("[SecAgent scroll] summary-locked", { scrollTop: messages.scrollTop });
-    }, 320);
-  }, [streamingOutput, sending]);
-  useEffect(() => {
-    if (finishing || !answerStartScrollPending.current || !messagesRef.current || !answerContentRef.current) return;
+    if (sessionFinishing || !answerStartScrollPending.current || !messagesRef.current || !answerContentRef.current) return;
     answerStartScrollPending.current = false;
-    if (answerScrollLockTimer.current !== undefined) window.clearTimeout(answerScrollLockTimer.current);
-    answerScrollLockTimer.current = undefined;
-    answerScrollPhase.current = "locked";
     const messages = messagesRef.current;
     const answer = answerContentRef.current;
     requestAnimationFrame(() => {
@@ -416,8 +489,7 @@ export function App() {
       messages.scrollTo({ top: target, behavior: "auto" });
       console.debug("[SecAgent scroll] completed-answer-start", { targetScrollTop: target, scrollTop: messages.scrollTop });
     });
-  }, [finishing]);
-  const timelineTrace = useMemo(() => activeTrace.filter((item) => item.stage !== "model.output.delta"), [activeTrace]);
+  }, [sessionFinishing]);
   const executionSeconds = useMemo(() => {
     const start = activeTrace.find((item) => item.stage === "user.request");
     const end = [...activeTrace].reverse().find((item) => item.stage === "assistant.response" || item.stage === "runtime.error");
@@ -461,7 +533,67 @@ export function App() {
     if (last.stage === "model.output.delta") return (last.data as { kind?: string }).kind || "answer";
     return "tool";
   }, [activeTrace]);
+  /* R66：修「模型已输出完仍显示思考中 ~10s」——正文输出完毕后主进程还要
+     等 IPC 回包/落库/整会话回传，期间 trace 无新事件、activeStepKind 停在
+     最后一个 delta 的 kind（answer）上，而 AiStatus 把非 tool 一律显示
+     「正在思考」。两步修：①answer 阶段显示「正在撰写」（真在写）；
+     ②最后一个 delta 之后静默超过 2.5s（网络回程+落库的正常收尾窗口）
+     切「正在收尾」，不再假装思考。秒级 tick 仅运行期存在。 */
+  const [statusTick, setStatusTick] = useState(0);
+  useEffect(() => {
+    if (!sessionRunning) return;
+    const timer = window.setInterval(() => setStatusTick(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [sessionRunning]);
+  const lastDeltaAt = useMemo(() => {
+    for (let i = activeTrace.length - 1; i >= 0; i -= 1) {
+      if (activeTrace[i].stage === "model.output.delta") return new Date(activeTrace[i].at).getTime();
+    }
+    return undefined;
+  }, [activeTrace]);
+  const aiStatusState = activeStepKind === "tool" ? "researching"
+    : activeStepKind === "answer" ? "writing"
+    : lastDeltaAt && statusTick - lastDeltaAt > 2500 ? "finalizing"
+    : "thinking";
+  // R56 流式自动跟随（原 settle-summary/summary-locked 机制移除）：思考/推理与工具
+  // 调用内容流式增长时，若用户停留在底部附近（followOutputRef=true）则容器钉住
+  // 底部，跟着最新内容往下滚；用户上滚离开底部即暂停（保留完整手动浏览能力），
+  // 滚回底部附近自动恢复跟随。收尾时 answerStartScrollPending 仍会把最终回答顶部
+  // 滚入视野，不受跟随状态影响。
+  // R59：读+写也走 rAF（读 scrollHeight 强制布局，逐 chunk 同步写是卡顿成因
+  // 之三）；cleanup 取消过期帧，高频 chunk 每帧只落最后一滚。
+  useEffect(() => {
+    if (!sessionRunning || !messagesRef.current) return;
+    if (!followOutputRef.current) return;
+    const messages = messagesRef.current;
+    const raf = requestAnimationFrame(() => {
+      if (!followOutputRef.current) return;
+      const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
+      if (nextScrollTop - messages.scrollTop < 24) return;
+      messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [streamingOutput, traceActivities, sessionRunning]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
+  // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
+  const orbState = recording || speechProcessing ? "listening" : anyRunning || anyFinishing ? "thinking" : "idle";
+  // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
+  const runningTool = anyRunning || anyFinishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
+  const orbAccent = runningTool ? ACCENT : undefined;
+  const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
+  // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
+  const scrollSections = useMemo(() => {
+    if (!session?.messages.length) return [] as Array<{ id: string; label: string }>;
+    const seen = new Set<string>();
+    const sections: Array<{ id: string; label: string }> = [];
+    for (const message of session.messages) {
+      const id = daySeparatorId(message.createdAt);
+      if (seen.has(id)) continue;
+      seen.add(id);
+      sections.push({ id, label: daySeparatorLabel(message.createdAt) });
+    }
+    return sections;
+  }, [session?.messages]);
   const changeSession = async (id: string) => {
     if (!bridge) return;
     const [next, runtimeEvents] = await Promise.all([bridge.getSession(id), bridge.getRuntimeEvents(id)]);
@@ -472,7 +604,35 @@ export function App() {
       return [...merged.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence);
     });
   };
-  const createSession = async () => { if (bridge) { const next = await bridge.createSession(); setSessions(await bridge.listSessions()); setSession(next); setTrace([]); requestAnimationFrame(() => textareaRef.current?.focus()); } };
+  const createSession = async () => {
+    if (!bridge) return;
+    // R56 新建防堆积：已存在"空会话"（默认标题且无预览 ⇒ 无消息）时直接切换过去，
+    // 不再重复落盘新会话——连续点 + 不会刷出一排"新会话"，也省掉 sessions:list
+    // 全量预览扫描随会话数线性变慢的开销。
+    const list = await bridge.listSessions();
+    const empty = list.find((item) => item.title === "新会话" && !item.preview);
+    if (empty) {
+      if (empty.id === session?.meta.id) { requestAnimationFrame(() => textareaRef.current?.focus()); return; }
+      await changeSession(empty.id);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+      return;
+    }
+    const next = await bridge.createSession();
+    setSessions(await bridge.listSessions());
+    setSession(next);
+    setTrace([]);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+  /* R65：归档/取消归档——只翻标记，本地即时更新（不用等 IPC 往返重拉全列表）。 */
+  const archiveSession = async (id: string, archived: boolean) => {
+    try {
+      await bridge.archiveSession(id, archived);
+      setSessions((current) => current.map((meta) => meta.id === id ? { ...meta, archived: archived || undefined } : meta));
+    } catch (reason) {
+      console.error("archiveSession failed", reason);
+    }
+  };
+
   const deleteSession = async (id: string) => {
     if (!bridge) return;
     const remaining = await bridge.deleteSession(id);
@@ -512,6 +672,14 @@ export function App() {
       setDraft((current) => current || "\u200b");
       setAttachmentError(tooLarge.length ? "部分图片因大小限制未添加" : "");
     }
+    // R27：兑现 PromptBar onAttach 的挂起 resolve（无论接受多少张都结束等待；
+    // 文件选择器被取消时 input 不触发 change，promise 悬置——仅浪费一次
+    // 监听位，无副作用）。
+    const attachResolve = pendingAttachResolveRef.current;
+    if (attachResolve) {
+      pendingAttachResolveRef.current = null;
+      attachResolve(valid.map((item) => item.name));
+    }
   };
   const handlePaste = (event: ReactClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files).filter((file) => file.type.startsWith("image/"));
@@ -525,19 +693,19 @@ export function App() {
     void addImageFiles(Array.from(event.dataTransfer.files));
   };
   const scrollMessagesToBottom = () => {
-    if (answerScrollLockTimer.current !== undefined) window.clearTimeout(answerScrollLockTimer.current);
-    answerScrollLockTimer.current = undefined;
-    answerScrollPhase.current = "follow-bottom";
+    // R56：新消息发送重置跟随开关；"auto" 直达底部（无 smooth 中间位置，
+    // 避免 onScroll 误判为用户上滚而暂停跟随）。
+    followOutputRef.current = true;
     requestAnimationFrame(() => {
       const messages = messagesRef.current;
       if (!messages) return;
       const nextScrollTop = Math.max(0, messages.scrollHeight - messages.clientHeight);
       console.debug("[SecAgent scroll] user-message", { currentScrollTop: messages.scrollTop, nextScrollTop, maxScrollTop: nextScrollTop });
-      messages.scrollTo({ top: nextScrollTop, behavior: "smooth" });
+      messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
     });
   };
   const submitMessage = async (text: string, sentAttachments: ChatAttachment[], optimisticMessageId?: string) => {
-    if ((!text && !sentAttachments.length) || !session || sending || (voicePendingSendRef.current && !optimisticMessageId)) return;
+    if ((!text && !sentAttachments.length) || !session || runningSessionsRef.current.includes(session.meta.id) || (voicePendingSendRef.current && !optimisticMessageId)) return;
     if (optimisticMessageId) {
       setSession((current) => current && current.meta.id === session.meta.id
         ? { ...current, messages: current.messages.map((message) => message.id === optimisticMessageId ? { ...message, content: text } : message) }
@@ -547,7 +715,10 @@ export function App() {
       setSession((current) => current ? { ...current, messages: [...current.messages, optimisticMessage] } : current);
     }
     scrollMessagesToBottom();
-    setDraft(""); setQuotedText(""); setAttachments([]); setAttachmentError(""); setTrace([]); setFinishing(false); setSending(true);
+    setDraft(""); setQuotedText(""); setAttachments([]); setAttachmentError(""); setTrace([]);
+    /* R59：按会话记账——同一会话不并发（旧 sending 全局锁解除，其它会话可并行开跑）。 */
+    clearRun(session.meta.id);
+    markRunning(session.meta.id);
     let completed = false;
     try {
       if (bridge) {
@@ -555,16 +726,24 @@ export function App() {
         // 开启模式：档位顺序只是后端的 fallback 顺序，与推理强度无关，使用用户选择的推理强度。
         const effort = customModelMode ? reasoningEffort : defaultEffort;
         const response = await bridge.sendMessage(session.meta.id, text, selectedModelId, effort, sentAttachments);
-        setSession(response);
+        /* R59：多任务——收尾回包只更新视图中的同会话；期间切走的视图不被拽回。 */
+        setSession((current) => current && current.meta.id === session.meta.id ? response : current);
         setSessions(await bridge.listSessions());
         completed = true;
         answerStartScrollPending.current = true;
-        setFinishing(true);
+        markFinishing(session.meta.id);
       }
+    } catch (error) {
+      // R57：IPC/桥层异常兜底（runSession 内部已把模型错误写成"执行失败："
+      // 消息入会话，走不到这里）——本地补一条同格式错误消息，保持异常在
+      // 对话流内可见而不是无声失败。
+      const detail = `执行失败：${error instanceof Error ? error.message : String(error)}`;
+      setSession((current) => current && current.meta.id === session.meta.id
+        ? { ...current, messages: [...current.messages, { id: `local-error-${Date.now()}`, role: "assistant", content: detail, createdAt: new Date().toISOString() }] }
+        : current);
     } finally {
       if (completed) await new Promise((resolve) => setTimeout(resolve, 260));
-      setFinishing(false);
-      setSending(false);
+      clearRun(session.meta.id);
     }
   };
   const send = async (event: FormEvent) => {
@@ -573,13 +752,14 @@ export function App() {
     await submitMessage(buildQuotedUserMessage(quotedText, draft), attachments);
   };
   const stop = async () => {
-    if (!bridge || !session || !sending) return;
+    if (!bridge || !session || !runningSessionsRef.current.includes(session.meta.id)) return;
     await bridge.stopMessage(session.meta.id);
   };
 
   const closeAudioCapture = async () => {
     const audio = audioRef.current;
     audioRef.current = undefined;
+    setMicStream(null);
     audio?.processor.disconnect();
     audio?.source.disconnect();
     audio?.stream.getTracks().forEach((track) => track.stop());
@@ -587,7 +767,7 @@ export function App() {
   };
 
   const startVoiceInput = async (mode: VoiceInputMode, insert?: { start: number; end: number }): Promise<boolean> => {
-    if (recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) return false;
+    if (recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return false;
     if (!navigator.mediaDevices?.getUserMedia) {
       setSpeechStatus("当前环境不支持麦克风");
       return false;
@@ -619,7 +799,11 @@ export function App() {
         setSpeechMode(null);
         return false;
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true, ...(audioInputRef.current ? { deviceId: { exact: audioInputRef.current } } : {}) } });
+      /* R58：主窗听写采集改"原始信号"——关 noiseSuppression/autoGainControl
+       （浏览器降噪会削低电平语音、AGC 泵动改变动态，ASR 引擎在近讲场景
+       对原始 16k 单声道准确率更高；echoCancellation 保留防 TTS 回灌）。
+       唤醒窗采集不变（KWS 链路按原约束调优）。 */
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false, ...(audioInputRef.current ? { deviceId: { exact: audioInputRef.current } } : {}) } });
       if (speechSession.stopRequested) {
         stream.getTracks().forEach((track) => track.stop());
         if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
@@ -649,6 +833,7 @@ export function App() {
       source.connect(processor);
       processor.connect(context.destination);
       audioRef.current = { context, stream, source, processor };
+      setMicStream(stream);
       logSpeech("capture.ready", { mode, contextState: context.state, sampleRate: context.sampleRate, tracks: stream.getAudioTracks().length });
       if (speechSession.stopRequested) await closeAudioCapture();
       return true;
@@ -665,6 +850,25 @@ export function App() {
     }
   };
 
+  /* R27 PromptBar 听写桥：流式识别的实时文稿由 onSpeechEvent 写入 draft
+     （受控同步进 PromptBar 输入框），所以 dictation promise 恒以空串收场，
+     只负责让 PromptBar 的 listening 态在收尾时正确熄灭。 */
+  const releaseDictation = () => {
+    const resolve = pendingDictationResolveRef.current;
+    if (!resolve) return;
+    pendingDictationResolveRef.current = null;
+    resolve("");
+  };
+  const startPromptDictation = () => new Promise<string>((resolve) => {
+    if (recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) { resolve(""); return; }
+    pendingDictationResolveRef.current = resolve;
+    void startVoiceInput("streaming").then((started) => { if (!started) { pendingDictationResolveRef.current = null; resolve(""); } });
+  });
+  const cancelPromptDictation = () => {
+    releaseDictation();
+    if (recordingRef.current) void finishVoiceInput("send");
+  };
+
   const finishVoiceInput = async (action: VoiceDropAction) => {
     const speechSession = speechSessionRef.current;
     if (!speechSession || speechSession.stopRequested || !session) return;
@@ -675,6 +879,7 @@ export function App() {
     if (action === "cancel") {
       try { await bridge.cancelSpeech(); } catch { /* Ignore cleanup failures. */ }
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setRecordingState(false);
       setSpeechProcessing(false);
       setSpeechMode(null);
@@ -764,6 +969,7 @@ export function App() {
       if (speechSession.timeout !== undefined) window.clearTimeout(speechSession.timeout);
       if (speechSession.settleTimer !== undefined) window.clearTimeout(speechSession.settleTimer);
       if (speechSessionRef.current === speechSession) speechSessionRef.current = undefined;
+      releaseDictation();
       setSpeechProcessing(false);
       setSpeechMode(null);
       setVoiceDropZone("send");
@@ -783,10 +989,16 @@ export function App() {
   };
   const handleMicPointerDown = (event: ReactPointerEvent<HTMLFormElement>) => {
     const target = event.target instanceof Element ? event.target.closest("textarea") : null;
-    if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sending || voicePendingSendRef.current || !session) return;
+    if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return;
     const textArea = textareaRef.current;
     const insert = { start: textArea?.selectionStart ?? draft.length, end: textArea?.selectionEnd ?? draft.length };
-    const press: NonNullable<typeof voicePressRef.current> = { pointerId: event.pointerId, timer: 0, started: false, released: false, insert };
+    /* R66：拖动选区不触发长按语音——pointerdown 时已有非空选区（正在做
+       文字选择/拖放），按住不动 700ms 会被误判为长按开录音。这里直接跳过；
+       移动超过 6px（拖拽/滑动意图）也取消计时器。正常「空选区长按输入框」
+       的语音入口不受影响。 */
+    const hadSelection = insert.end > insert.start;
+    if (hadSelection) return;
+    const press: NonNullable<typeof voicePressRef.current> = { pointerId: event.pointerId, timer: 0, started: false, released: false, insert, originX: event.clientX, originY: event.clientY };
     voicePressRef.current = press;
     try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Pointer capture is not available in every test environment. */ }
     press.timer = window.setTimeout(() => {
@@ -797,7 +1009,15 @@ export function App() {
   };
   const handleMicPointerMove = (event: ReactPointerEvent<HTMLFormElement>) => {
     const press = voicePressRef.current;
-    if (!press || press.pointerId !== event.pointerId || !press.started) return;
+    if (!press || press.pointerId !== event.pointerId) return;
+    if (!press.started && Math.hypot(event.clientX - press.originX, event.clientY - press.originY) > 6) {
+      window.clearTimeout(press.timer);
+      press.released = true;
+      voicePressRef.current = undefined;
+      try { event.currentTarget.releasePointerCapture(event.pointerId); } catch { /* ignore */ }
+      return;
+    }
+    if (!press.started) return;
     updateVoiceDropZone(event.clientX, event.clientY);
   };
   const handleMicPointerUp = (event: ReactPointerEvent<HTMLFormElement>) => {
@@ -826,11 +1046,6 @@ export function App() {
       else void finishVoiceInput("cancel");
     }
   };
-  const handleMicClick = () => {
-    if (speechProcessing || sending || voicePendingSendRef.current || !session) return;
-    if (recordingRef.current) void finishVoiceInput("send");
-    else void startVoiceInput("streaming");
-  };
 
   useEffect(() => {
     const cancelOnEscape = (event: KeyboardEvent) => {
@@ -844,37 +1059,14 @@ export function App() {
   }, [recording, speechProcessing]);
 
   if (!bridge) {
-    return <main className="app-shell"><section className="connection-error"><h1>SecAgent 桌面桥接未加载</h1><p>请退出应用后重新运行 <code>pnpm dev</code>。若仍出现此提示，请检查 Electron 的 preload 启动日志。</p></section></main>;
+    return <main className="app-shell"><AuiErrorState title="SecAgent 桌面桥接未加载" detail="请退出应用后重新运行 pnpm dev。若仍出现此提示，请检查 Electron 的 preload 启动日志。" /></main>;
   }
 
   return <main className="app-shell">
     <header className={`topbar ${bridge.platform === "darwin" ? "macos" : ""}`}>
       <button className="brand" type="button" aria-label="打开设置" onDoubleClick={() => { void bridge.openSettings(); }}><span>SecAgent</span></button>
-      <div className={`session-menu ${bridge.platform !== "darwin" ? "windows" : ""}`}>
-        <div className={`session-options ${sessionMenuDismissed ? "dismissed" : ""}`} onMouseEnter={() => setSessionMenuDismissed(false)}>
-          <button className="session-trigger" aria-label="选择历史会话"><img className="session-chevron" src="/session-chevron.svg" alt="" /> <span>{session?.meta.title || "问候"}</span></button>
-          <div className="session-list" role="menu">
-            {sessions.filter((item) => item.id !== session?.meta.id).slice(0, 10).map((item) => <button className="session-option" role="menuitem" key={item.id} onClick={() => { setSessionMenuDismissed(true); void changeSession(item.id); }}>{item.title}</button>)}
-            <button className="session-option all-sessions-option" role="menuitem" onClick={() => { setSessionMenuDismissed(true); setAllSessionsOpen(true); }}>全部会话...</button>
-          </div>
-        </div>
-        <button className="new-session-button" type="button" aria-label="新建会话" title="新建会话" onClick={() => void createSession()}>+</button>
-      </div>
-    </header>
-    {allSessionsOpen && <div className="session-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setAllSessionsOpen(false); }}>
-      <section className="session-modal" role="dialog" aria-modal="true" aria-labelledby="all-sessions-title">
-        <div className="session-modal-header"><div><p className="eyebrow">SECAGENT</p><h2 id="all-sessions-title">全部会话</h2></div><button className="modal-close" type="button" aria-label="关闭" onClick={() => setAllSessionsOpen(false)}>×</button></div>
-        <div className="all-session-list">
-          {sessions.length === 0 && <p className="all-session-empty">还没有会话</p>}
-          {sessions.map((item) => <div className={`all-session-item ${item.id === session?.meta.id ? "active" : ""}`} key={item.id}>
-            <button className="all-session-title" type="button" onClick={() => { setAllSessionsOpen(false); void changeSession(item.id); }}>{item.title}</button>
-            <time>{new Date(item.updatedAt).toLocaleString()}</time>
-            <button className="delete-session-button" type="button" aria-label={`删除会话 ${item.title}`} onClick={() => { if (window.confirm(`确定删除会话“${item.title}”吗？`)) void deleteSession(item.id); }}>删除</button>
-          </div>)}
-        </div>
-        <button className="modal-new-session" type="button" onClick={() => { setAllSessionsOpen(false); void createSession(); }}>+ 新建会话</button>
-      </section>
-    </div>}
+</header>
+
     {messageMenu && <div className="message-context-menu" role="menu" style={{ left: messageMenu.x, top: messageMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
       {messageMenu.role !== "user" && <button type="button" role="menuitem" onClick={() => { const item = messageMenu; setMessageMenu(null); if (speakingMessageId === item.messageId) stopReading(); else void readMessage(item.messageId, item.text); }}>{speakingMessageId === messageMenu.messageId ? "停止朗读" : "朗读"}</button>}
       <button type="button" role="menuitem" onClick={() => { const text = messageMenu.selection || messageMenu.text; setMessageMenu(null); void copyText(text); }}>复制</button>
@@ -888,66 +1080,89 @@ export function App() {
       </section>
     </div>}
     <section className="workspace">
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onArchive={(id, archived) => void archiveSession(id, archived)}
+          onRename={(id, title) => {
+            void bridge.renameSession(id, title).then((updated) => {
+              setSession((current) => current && current.meta.id === id ? updated : current);
+              setSessions((current) => current.map((meta) => meta.id === id ? updated.meta : meta));
+            }).catch(() => undefined);
+          }} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
-        <div className="messages" ref={messagesRef}>
-          {session?.messages.length === 0 && <div className="empty-state"><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
-          {session?.messages.map((message) => {
+        {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
+        <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
+          {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb size={200} state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session?.messages.map((message, index) => {
+            const previous = index > 0 ? session.messages[index - 1] : undefined;
+            const dayLabel = daySeparatorLabel(message.createdAt);
             const activities = message.activities?.length ? message.activities : message.toolCalls?.length ? message.toolCalls.map((call) => ({ kind: "tool" as const, ...call })) : message.id === latestAssistantId ? traceActivities : [];
             const reading = speakingMessageId === message.id;
             const visibleContent = message.role === "assistant" ? stripWorkspaceFilesMarkup(message.content) : message.content;
-            return <article className={`message ${message.role}`} key={message.id}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={finishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={finishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{message.role === "assistant" ? <MarkdownContent>{visibleContent}</MarkdownContent> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div></div></article>;
+            // R57：模型/运行时异常消息（runSession 统一写入"执行失败："前缀）在对话内
+            // 以错误态气泡呈现——留在会话流里可回溯，不再像零散警告。
+            const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
+            // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
+            const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
-          {sending && !finishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div></div></article>}
+          {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
+          {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
+            {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
+              {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
+              {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}
+            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}</div></article>}
           <div />
         </div>
-        {toolConfirmation && <div className="tool-confirmation-overlay" role="dialog" aria-modal="true" aria-label="敏感操作确认">
-          <div className="tool-confirmation-card">
-            <h3>模型请求执行敏感操作</h3>
-            <p className="tool-confirmation-reason">{toolConfirmation.reason}</p>
-            <div className="tool-confirmation-detail"><strong>{toolConfirmation.tool}</strong><pre>{JSON.stringify(toolConfirmation.arguments, null, 2).slice(0, 2000)}</pre></div>
-            <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
-            <div className="tool-confirmation-actions">
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(false)}>拒绝</button>
-              <button type="button" className="secondary-button" onClick={() => resolveToolConfirmation(true, true)}>总是允许此类</button>
-              <button type="button" className="primary-button" onClick={() => resolveToolConfirmation(true)}>允许一次</button>
-            </div>
-          </div>
-        </div>}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onClick={(event) => { if ((event.target as Element).closest('.icon-button img[src="/image-icon.svg"]')) fileInputRef.current?.click(); }} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock">{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
-          </div> : <><div className="composer-actions"><button type="button" className="icon-button" aria-label="添加图片" onClick={() => fileInputRef.current?.click()} onPointerDown={(event) => event.stopPropagation()}><img className="composer-icon" src="/image-icon.svg" alt="" /></button><button type="button" className={`icon-button mic-button ${recording ? "recording" : ""}`} aria-label={recording ? "停止语音输入" : "语音输入"} aria-pressed={recording} disabled={voicePendingSend} onClick={handleMicClick}><img className="composer-icon" src="/mic-icon.svg" alt="" /></button></div>
-          <textarea ref={textareaRef} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing && !event.currentTarget.readOnly) { event.preventDefault(); formRef.current?.requestSubmit(); } }} placeholder={speechMode === "streaming" && recording ? speechStatus || "正在聆听…" : "输入文字或按住说话..."} rows={1} readOnly={recording || speechProcessing} disabled={!session || sending} />
-          <div className={`model-menu ${customModelMode ? "" : "virtual-model-menu"}`} ref={modelMenuEnd}>
-            <button type="button" className={`model-picker ${customModelMode ? "" : "virtual-model-picker"}`} aria-label={customModelMode ? "选择模型和推理强度" : "选择虚拟模型"} aria-expanded={modelMenuOpen} onClick={() => { setModelMenuOpen((open) => !open); setModelSubmenu(null); }}>
-              <span className="model-picker-copy"><strong>{selectedModel?.name || "未配置模型"}</strong>{customModelMode && <small>推理强度 · {reasoningEffortLabels[reasoningEffort]}</small>}</span>
-              <img className={`model-chevron ${modelMenuOpen ? "open" : ""}`} src="/session-chevron.svg" alt="" />
-            </button>
-            {modelMenuOpen && <div className="model-options" role="menu">
-              {customModelMode ? <Fragment>
-                <button type="button" className={`model-setting-row ${modelSubmenu === "model" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "model" ? null : "model")}><span>模型</span><span className="model-setting-value">{selectedModel?.name || "未配置模型"}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "model" && <div className="model-submenu" role="listbox">{orderedModels.map((model, index) => <Fragment key={model.id}>{(index === 0 || modelGroupLabel(orderedModels[index - 1]) !== modelGroupLabel(model)) && <div className="model-group-label" role="presentation">{modelGroupLabel(model)}</div>}<button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }}>{model.name}</button></Fragment>)}</div>}
-                <button type="button" className={`model-setting-row ${modelSubmenu === "effort" ? "selected" : ""}`} onClick={() => setModelSubmenu((current) => current === "effort" ? null : "effort")}><span>推理强度</span><span className="model-setting-value">{reasoningEffortLabels[reasoningEffort]}<span className="model-row-chevron">›</span></span></button>
-                {modelSubmenu === "effort" && <div className="model-submenu" role="listbox">{reasoningEfforts.map((effort) => <button type="button" className={`model-option ${effort === reasoningEffort ? "selected" : ""}`} role="option" aria-selected={effort === reasoningEffort} key={effort} onClick={() => { setReasoningEffort(effort); setModelSubmenu(null); }}>{reasoningEffortLabels[effort]}</button>)}</div>}
-              </Fragment> : orderedModels.map((model) => (
-                <button type="button" className={`model-option ${model.id === selectedModelId ? "selected" : ""}`} role="option" aria-selected={model.id === selectedModelId} onClick={() => { setSelectedModelId(model.id); setModelSubmenu(null); }} key={model.id}>{model.name}</button>
-              ))}
-            </div>}
-          </div>
-          {sending ? <button className="send-button stop-button" type="button" aria-label="停止生成" title="停止生成" onClick={() => void stop()}><Square aria-hidden="true" /></button> : <button className="send-button" type="submit" aria-label="发送" disabled={!session || voicePendingSend || !(draft.replace(/\u200b/g, "").trim() || quotedText || attachments.length)}><ArrowUp aria-hidden="true" /></button>}</>}
-        </form>
+          </div> : <PromptBar
+            className="app-promptbar"
+            placeholder="输入文字，长按输入框说话，或点麦克风"
+            sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
+            commands={[
+              { key: "new-session", name: "/new", description: "新建会话", group: "会话" },
+              { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
+              { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
+              { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
+              { key: "settings", name: "/settings", description: "打开设置", group: "应用" }
+            ]}
+            onCommandPick={(key) => {
+              if (key === "new-session") void createSession();
+              else if (key === "stop") { if (sessionRunning) void stop(); }
+              else if (key === "read") {
+                const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
+                if (target) void readMessage(target.id, target.content);
+              }
+              else if (key === "stop-read") stopReading();
+              else if (key === "settings") void bridge?.openSettings();
+            }}
+            models={orderedModels.map((model) => ({ key: model.id, name: model.name, tag: modelGroupLabel(model) }))}
+            model={selectedModelId}
+            onModelChange={setSelectedModelId}
+            efforts={customModelMode ? reasoningEfforts.map((effort) => reasoningEffortLabels[effort]) : ["默认"]}
+            defaultEffort={customModelMode ? reasoningEffortLabels[reasoningEffort] : "默认"}
+            onEffortChange={(label) => { const effort = reasoningEfforts.find((candidate) => reasoningEffortLabels[candidate] === label); if (effort) setReasoningEffort(effort); }}
+            busy={sessionRunning}
+            onSend={(text) => { if (!session || voicePendingSendRef.current) return; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
+            onStop={() => { void stop(); }}
+            onAttach={() => new Promise<string[]>((resolve) => { pendingAttachResolveRef.current = resolve; fileInputRef.current?.click(); })}
+            onAttachRemove={(name) => setAttachments((current) => { const index = current.findIndex((attachment) => attachment.name === name); return index < 0 ? current : current.filter((_, position) => position !== index); })}
+            onDictate={startPromptDictation}
+            onDictateCancel={cancelPromptDictation}
+            value={draft}
+            onDraftChange={setDraft}
+            background="var(--glass-strong)"
+            color="var(--text-1)"
+            menuBackground="var(--glass-strong)"
+            sparkColor={ACCENT}
+            width={2000}
+            radius={15}
+            maxRows={5}
+          />}        </form>
       </section>
-      <aside className="trace-panel">
-        <div className="trace-heading"><p className="eyebrow">运行轨迹</p><h2>本轮与本会话事件</h2></div>
-        <div className="trace-list">
-          {activeTrace.length === 0 && <p className="trace-empty">发送消息后，模型请求、响应、工具调用和返回结果会实时显示并保存到会话目录。</p>}
-          {timelineTrace.map((item) => <details key={`${item.sequence}-${item.stage}`} className={`trace-item ${item.stage.startsWith("mcp.tools/") ? "tool-event" : ""}`}>
-            <summary><span className="trace-order">{item.sequence}</span><span>{traceLabel[item.stage] || item.stage}</span><time>{new Date(item.at).toLocaleTimeString()}</time></summary>
-            <pre>{JSON.stringify(item.data, null, 2)}</pre>
-          </details>)}
-        </div>
-      </aside>
+      <TracePanel activeTrace={activeTrace} isExecuting={sessionRunning && !sessionFinishing} />
     </section>
   </main>;
 }

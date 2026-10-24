@@ -23,7 +23,7 @@ import { mergeSamples } from "./wav.js";
 const PACK_DIR = "sense-voice";
 const MODEL_FILES = ["model.int8.onnx", "tokens.txt"] as const;
 
-export interface LocalSenseVoiceOptions {
+interface LocalSenseVoiceOptions {
   /** Extra directories that may contain `models/sense-voice`. */
   extraRoots?: string[];
   language?: string; // "" (auto) | zh | en | ja | ko | yue
@@ -48,7 +48,7 @@ function candidateRoots(options: LocalSenseVoiceOptions): string[] {
   ];
 }
 
-export function resolveSenseVoicePack(options: LocalSenseVoiceOptions = {}): string | undefined {
+function resolveSenseVoicePack(options: LocalSenseVoiceOptions = {}): string | undefined {
   for (const root of candidateRoots(options)) {
     const dir = path.join(root, "models", PACK_DIR);
     if (MODEL_FILES.every((file) => fs.existsSync(path.join(dir, file)))) return dir;

@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { SessionStore } from "./session-store.js";
+import { MASKED_SECRET, maskSecretsDeep } from "./redact.js";
 
 test("restores only the latest session run from the runtime log", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-store-"));
@@ -33,4 +34,92 @@ test("persists a generated session title in the session index", () => {
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
+});
+
+test("appendMessage 的 fallbackNotice 落为独立字段，不混入对话内容", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-store-"));
+  try {
+    const store = new SessionStore(workspace);
+    const session = store.create();
+    store.appendMessage(session.meta.id, "assistant", "回答正文", undefined, undefined, undefined, false, undefined, "模型稳定性：已自动切换备用模型（A → B），原模型暂时不可用。");
+    const reloaded = store.get(session.meta.id);
+    assert.equal(reloaded.messages[0].content, "回答正文");
+    assert.equal(reloaded.messages[0].fallbackNotice, "模型稳定性：已自动切换备用模型（A → B），原模型暂时不可用。");
+    assert.ok(!reloaded.messages[0].content.includes("模型稳定性"), "回退提示不得拼进 content");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("appendMessage 不传 fallbackNotice 时消息无该字段（向后兼容）", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-store-"));
+  try {
+    const store = new SessionStore(workspace);
+    const session = store.create();
+    store.appendMessage(session.meta.id, "user", "普通消息");
+    assert.equal(store.get(session.meta.id).messages[0].fallbackNotice, undefined);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("masks secrets in runtime events before writing them to disk", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-mask-"));
+  try {
+    const store = new SessionStore(workspace);
+    const session = store.create();
+    const eventData = {
+      name: "db.query",
+      arguments: { host: "db.internal", password: "s3cr3t!", nested: { apiKey: "ak-live-123" } },
+      note: "plain text stays",
+    };
+    store.appendRuntimeEvent(session.meta.id, {
+      sequence: 1,
+      at: "2026-10-19T00:00:00.000Z",
+      stage: "mcp.tools/call",
+      data: eventData,
+    });
+    /* 写入的是掩码副本，调用方对象本体保持明文（直播 IPC 与终端打印仍用原文）。 */
+    assert.equal((eventData.arguments as Record<string, unknown>).password, "s3cr3t!");
+    const raw = fs.readFileSync(path.join(workspace, "sessions", session.meta.id, "runtime.jsonl"), "utf8");
+    assert.ok(!raw.includes("s3cr3t!"), "password must not hit disk in plaintext");
+    assert.ok(!raw.includes("ak-live-123"), "apiKey must not hit disk in plaintext");
+    assert.ok(raw.includes("db.internal") && raw.includes("plain text stays"), "non-secret fields preserved");
+    const events = store.getRuntimeEvents(session.meta.id);
+    const args = (events[0].data as { arguments: Record<string, unknown> }).arguments;
+    assert.equal(args.password, "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+    assert.equal((args.nested as Record<string, unknown>).apiKey, "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+    assert.equal(args.host, "db.internal");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("maskSecretsDeep ignores zero-width characters in key names", async () => {
+  const { maskSecretsDeep } = await import("./session-store.js");
+  const out = maskSecretsDeep({ "api\u200bkey": "hidden", normal: "shown" }) as Record<string, unknown>;
+  assert.equal(out["api\u200bkey"], "\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
+  assert.equal(out.normal, "shown");
+});
+
+test("maskSecretsDeep 剪枝循环引用不栈溢出（R63 防护回归）", () => {
+  const cyclic: Record<string, unknown> = { apiKey: "sk-live" };
+  cyclic.self = cyclic;
+  const out = maskSecretsDeep(cyclic) as Record<string, unknown>;
+  assert.strictEqual(out.apiKey, MASKED_SECRET);
+  assert.strictEqual(out.self, "[循环引用]");
+});
+
+test("maskSecretsDeep 深度截断防解析炸弹", () => {
+  let deep: unknown = { apiKey: "sk-live" };
+  for (let i = 0; i < 100; i += 1) deep = { nested: deep };
+  const out = maskSecretsDeep(deep) as Record<string, unknown>;
+  assert.ok(JSON.stringify(out).includes("[深度截断]"));
+});
+
+test("maskSecretsDeep 零宽字符 key 归一化仍命中", () => {
+  const out = maskSecretsDeep({ "api\u200bkey": "x", "pass\u00b7word": "y", normal: 1 }) as Record<string, unknown>;
+  assert.strictEqual(out["api\u200bkey"], MASKED_SECRET);
+  assert.strictEqual(out["pass\u00b7word"], MASKED_SECRET);
+  assert.strictEqual(out.normal, 1);
 });

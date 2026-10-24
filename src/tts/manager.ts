@@ -11,7 +11,7 @@ import type { TtsAudioChunk, TtsProvider, TtsProviderKind, TtsSettings, TtsSynth
 const CONSECUTIVE_FAILURES = 3;
 const COOLDOWN_MS = 5 * 60 * 1000;
 
-export interface TtsManagerOptions {
+interface TtsManagerOptions {
   getSettings(): TtsSettings;
   log?(message: string): void;
 }
