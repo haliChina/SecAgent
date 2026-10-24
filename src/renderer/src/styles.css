@@ -895,6 +895,22 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .sidebar-item.archived .sidebar-item-title { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .sidebar-archived-restore { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; }
 .sidebar-archived-restore:hover { background: var(--bg-3); color: var(--text-1); }
+/* R68 会话重命名：行内输入框接管整行（菜单里「重命名」触发）。 */
+.sidebar-item.renaming { padding: 4px 8px; }
+.sidebar-rename-input {
+  flex: 1 1 auto; min-width: 0; height: 26px; padding: 0 8px;
+  border: 1px solid var(--accent); border-radius: 8px;
+  background: var(--bg-1); color: var(--text-1); font: inherit; font-size: 13px;
+  outline: none;
+}
+.sidebar-menu-rename {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 12px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-1); font: inherit; font-size: 13px;
+  text-align: left; cursor: pointer;
+}
+.sidebar-menu-rename:hover { background: var(--bg-2); }
+
 
 /* ===== R65 审批卡（assistant-ui approval-card 风格重做）===== */
 .tool-confirmation-overlay { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg-0) 55%, transparent); backdrop-filter: blur(6px); }

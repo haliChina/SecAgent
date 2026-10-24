@@ -43,6 +43,13 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     store().setArchived(id, archived === true);
     return { ok: true };
   });
+  /* R68 会话重命名：store.setTitle 同步 session.json 与 index 的标题。 */
+  ipcMain.handle("sessions:rename", (_event, id: string, title: string) => {
+    if (typeof title !== "string" || !title.trim() || title.trim().length > 60) throw new Error("标题必须为 1-60 个字符");
+    const session = store().setTitle(id, title.trim());
+    logMain("ipc.sessions.rename", { sessionId: id });
+    return session;
+  });
 
   ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return store().get(id); });
   ipcMain.handle("sessions:runtime-events", (_event, id: string) => { logMain("ipc.sessions.runtime-events", { sessionId: id }); return store().getRuntimeEvents(id).map((item) => ({ sessionId: id, ...item })); });

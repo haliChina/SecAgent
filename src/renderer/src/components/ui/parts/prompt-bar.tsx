@@ -447,7 +447,14 @@ export const PromptBar = ({
        2) 零尺寸守卫——canvas 未布局（rect=0）时 spawn 会把初始 burst 全堆在
           (0,0) 左上角闪一坨，改为首次拿到非零尺寸再放 burst；
        3) 页面隐藏（document.hidden）暂停，回来再续。 */
-    const ctx = canvas.getContext('2d', { desynchronized: true });
+    /* R68：去掉 desynchronized:true——低延迟画布提示在 Windows Electron 的
+       GPU 合成路径上有已知黑块问题（desynchronized 走 DirectComposition
+       独立层，驱动不配合时透明画布显示为黑；canvas 是 -z-10 全尺寸覆盖，
+       画布一黑整个 promptbar 变黑——用户实测「切模型/拉最强档时整个
+       promptbar 变黑」）。装饰性粒子不需要低延迟输入回馈，普通 2d 上下文
+       走常规合成，稳定且视觉无差。与 R58「spark 画布在 Windows 偶尔抽风」
+       是同一台机器的同一类合成问题，当时只治了 backdrop-filter。 */
+    const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
     typing.current.strokes = 0;
     let raf = 0;

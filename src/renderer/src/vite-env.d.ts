@@ -110,6 +110,7 @@ interface Window {
     syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
     deleteSession(id: string): Promise<SessionMeta[]>;
     archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;
+    renameSession(id: string, title: string): Promise<SessionData>;
     getSession(id: string): Promise<SessionData>;
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;

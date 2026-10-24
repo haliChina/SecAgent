@@ -11,16 +11,23 @@
  *    react-bits Micro/FuseButton 移植），Undo 直接取消；
  *  - 归档 = FuseButton commitOn:"press"（立即归档，fuse 期间可撤销）；
  *  - 已归档会话收进底部「已归档」折叠区，可恢复。
+ *
+ * R68：菜单补「重命名」（用户点名三级操作之一）——行内输入框改题
+ * （Electron 沙盒 prompt() 恒 null，不能用对话框），Enter 提交 / Esc
+ * 取消 / 失焦提交；60 字符上限与 IPC 侧一致。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArchiveRestore, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, Plus, Settings } from "lucide-react";
+import { ArchiveRestore, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PencilLine, Plus, Settings } from "lucide-react";
 import { FuseButton } from "./ui/Bits.js";
 
 const COLLAPSED_KEY = "secagent.sidebar.collapsed";
 
-export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchive, onNew, onOpenSettings }: { sessions: SessionMeta[]; activeId?: string; onSwitch: (id: string) => void; onDelete: (id: string) => void; onArchive: (id: string, archived: boolean) => void; onNew: () => void; onOpenSettings: () => void }) {
+export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchive, onRename, onNew, onOpenSettings }: { sessions: SessionMeta[]; activeId?: string; onSwitch: (id: string) => void; onDelete: (id: string) => void; onArchive: (id: string, archived: boolean) => void; onRename: (id: string, title: string) => void; onNew: () => void; onOpenSettings: () => void }) {
   const [collapsed, setCollapsed] = useState(() => { try { return window.localStorage.getItem(COLLAPSED_KEY) === "1"; } catch { return false; } });
   const [menu, setMenu] = useState<{ id: string } | null>(null);
+  /* R68 重命名：menu.id 与 renameId 分开记——菜单里点「重命名」后菜单收起、
+     该行切行内输入框；renameDraft 是受控草稿。 */
+  const [renameState, setRenameState] = useState<{ id: string; draft: string } | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
   useEffect(() => { try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* 隐私模式等场景忽略 */ } }, [collapsed]);
 
@@ -71,14 +78,41 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
     </div>
     <div className="sidebar-list" role="list">
       {live.length === 0 && <p className="sidebar-empty">还没有会话</p>}
-      {live.map((item) => <div className={`sidebar-item ${item.id === activeId ? "active" : ""} ${menu?.id === item.id ? "menu-open" : ""}`} role="listitem" key={item.id}>
-        <button className="sidebar-item-main" type="button" onClick={() => onSwitch(item.id)} title={item.title}>
-          <span className="sidebar-item-title">{item.title}</span>
-          {item.preview && <span className="sidebar-item-preview">{item.preview}</span>}
-        </button>
-        <time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</time>
-        <button className="sidebar-more" type="button" ref={menu?.id === item.id ? menuAnchor : undefined} aria-label={`更多操作（会话 ${item.title}）`} aria-haspopup="menu" aria-expanded={menu?.id === item.id} onClick={() => setMenu((current) => current?.id === item.id ? null : { id: item.id })}><MoreHorizontal size={15} aria-hidden /></button>
-      </div>)}
+      {live.map((item) => {
+        const renaming = renameState?.id === item.id;
+        return <div className={`sidebar-item ${item.id === activeId ? "active" : ""} ${menu?.id === item.id ? "menu-open" : ""} ${renaming ? "renaming" : ""}`} role="listitem" key={item.id}>
+          {renaming ? (
+            /* R68 行内重命名：Enter 提交 / Esc 取消 / 失焦提交（空值回退原题）。 */
+            <input
+              className="sidebar-rename-input"
+              value={renameState.draft}
+              maxLength={60}
+              autoFocus
+              aria-label={`重命名会话 ${item.title}`}
+              onChange={(event) => setRenameState({ id: item.id, draft: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  const next = renameState.draft.trim();
+                  setRenameState(null);
+                  if (next && next !== item.title) onRename(item.id, next);
+                } else if (event.key === "Escape") setRenameState(null);
+              }}
+              onBlur={() => {
+                const next = renameState.draft.trim();
+                setRenameState(null);
+                if (next && next !== item.title) onRename(item.id, next);
+              }}
+            />
+          ) : (
+            <button className="sidebar-item-main" type="button" onClick={() => onSwitch(item.id)} title={item.title}>
+              <span className="sidebar-item-title">{item.title}</span>
+              {item.preview && <span className="sidebar-item-preview">{item.preview}</span>}
+            </button>
+          )}
+          <time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</time>
+          <button className="sidebar-more" type="button" ref={menu?.id === item.id ? menuAnchor : undefined} aria-label={`更多操作（会话 ${item.title}）`} aria-haspopup="menu" aria-expanded={menu?.id === item.id} onClick={() => setMenu((current) => current?.id === item.id ? null : { id: item.id })}><MoreHorizontal size={15} aria-hidden /></button>
+        </div>;
+      })}
     </div>
     {archived.length > 0 && <div className="sidebar-archived">
       <button className="sidebar-archived-toggle" type="button" onClick={() => setArchivedOpen((value) => !value)} aria-expanded={archivedOpen}>
@@ -98,6 +132,9 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
     {menu && <>
       <div className="sidebar-menu-backdrop" onClick={() => setMenu(null)} aria-hidden />
       <div className="sidebar-menu" role="menu" aria-label="会话操作" style={{ top: menuPos.top, left: menuPos.left }}>
+        <div className="sidebar-menu-row" role="menuitem">
+          <button className="sidebar-menu-rename" type="button" onClick={() => { const target = sessions.find((entry) => entry.id === menu.id); setRenameState({ id: menu.id, draft: target?.title ?? "" }); setMenu(null); }}><PencilLine size={15} aria-hidden /> 重命名</button>
+        </div>
         <div className="sidebar-menu-row" role="menuitem">
           <FuseButton className="sidebar-menu-fuse" label="归档会话" undoLabel="已撤销" doneLabel="已归档" fuse="outline" commitOn="press" settle="reset" onCommit={() => { onArchive(menu.id, true); setMenu(null); }} onUndo={() => onArchive(menu.id, false)} />
         </div>

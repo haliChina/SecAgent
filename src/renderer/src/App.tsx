@@ -128,14 +128,30 @@ export function App() {
      行为），result 事件落地即切 Searched N，消息落库后由消息内卡片接管。 */
   const liveWebSearch = useMemo(() => {
     if (!sessionRunning || !session) return null;
-    for (let i = trace.length - 1; i >= 0; i--) {
-      const item = trace[i];
+    /* R68：流式实时卡与落地后消息卡同口径——此前只取「最后一次」web_search
+       的 result，多轮搜索时流式卡显示 3 个来源、落地后 flatMap 出 7 个，
+       正文 [n] 引用与卡片编号在过渡期对不上（用户反馈「计算逻辑把
+       show more/less 期间的计数算乱了」）。改为聚合本轮全部已完成结果，
+       callIndex 随收集顺序递增，与 webSearchSourcesFor 完全一致；
+       最后一次事件是 call（未返回）才显示 searching。 */
+    const sources: WebSource[] = [];
+    let callIndex = 0;
+    let searching = false;
+    let query: string | undefined;
+    for (const item of trace) {
       if (item.sessionId !== session.meta.id) continue;
       const data = (item.data ?? {}) as { name?: unknown; arguments?: { query?: unknown } | undefined; result?: unknown };
-      if (item.stage === "secagent.tools/result" && data.name === "web_search") return { searching: false, query: undefined as string | undefined, sources: normalizeWebSearchSources(data.result, 0) };
-      if (item.stage === "secagent.tools/call" && data.name === "web_search") return { searching: true, query: typeof data.arguments?.query === "string" ? data.arguments.query : undefined, sources: [] as WebSource[] };
+      if (item.stage === "secagent.tools/result" && data.name === "web_search") {
+        sources.push(...normalizeWebSearchSources(data.result, callIndex));
+        callIndex += 1;
+        searching = false;
+      } else if (item.stage === "secagent.tools/call" && data.name === "web_search") {
+        searching = true;
+        if (typeof data.arguments?.query === "string") query = data.arguments.query;
+      }
     }
-    return null;
+    if (!sources.length && !searching) return null;
+    return { searching, query, sources };
   }, [trace, session, sessionRunning]);
   const messagesRef = useRef<HTMLDivElement>(null);
   const answerContentRef = useRef<HTMLDivElement>(null);
@@ -1064,7 +1080,13 @@ export function App() {
       </section>
     </div>}
     <section className="workspace">
-      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onArchive={(id, archived) => void archiveSession(id, archived)} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onArchive={(id, archived) => void archiveSession(id, archived)}
+          onRename={(id, title) => {
+            void bridge.renameSession(id, title).then((updated) => {
+              setSession((current) => current && current.meta.id === id ? updated : current);
+              setSessions((current) => current.map((meta) => meta.id === id ? updated.meta : meta));
+            }).catch(() => undefined);
+          }} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} />
       <section className="conversation" aria-label="当前会话">
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
         <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>

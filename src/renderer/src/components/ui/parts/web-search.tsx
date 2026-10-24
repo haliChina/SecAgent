@@ -273,7 +273,10 @@ function WebSearch({
                   cell(
                     source.id,
                     i,
-                    <SourceCard source={source} linked={linked} />,
+                    /* R68：恢复卡片右下角序号（与正文 [n] 引用同一编号系）。
+                       shown 折叠态是 sources 前缀切片，i 即真实序号-1；
+                       MoreCard/ShowLess 是按钮不参与编号。 */
+                    <SourceCard source={source} index={i + 1} linked={linked} />,
                   ),
                 )}
                 {Array.from({ length: skeletons }, (_, i) => (
@@ -376,9 +379,11 @@ const CARD_SHELL =
 
 function SourceCard({
   source,
+  index,
   linked,
 }: {
   source: WebSource;
+  index: number;
   linked: boolean;
 }) {
   return (
@@ -399,6 +404,9 @@ function SourceCard({
         <Favicon source={source} size={16} />
         <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-[#868593]">
           {siteName(source.url)}
+        </span>
+        <span className="text-[11px] font-semibold tabular-nums text-[#868593]/70">
+          {index}
         </span>
       </span>
     </a>
