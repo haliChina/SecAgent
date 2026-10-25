@@ -1025,6 +1025,22 @@ begin
   Result := True;
 end;
 
+{ R71: Electron 多进程应用（主进程+渲染+GPU）常令 Restart Manager 关闭失败
+  ——CloseApplications 阶段弹原生「重试/忽略/取消」错误框（用户实测：
+  背景停在「正在关闭应用程序... 0%」）。业界惯例（VS Code/Discord 等）
+  是安装前直接杀旧进程树：taskkill /T 连子进程一起、/F 立即释放文件句柄。
+  首次安装没有 SecAgent 进程，taskkill 返回「找不到进程」无害。
+  Preparing 页保留为兜底——别的程序锁文件时仍会出现。 }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  KillResultCode: Integer;
+begin
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM SecAgent.exe /F /T >nul 2>&1',
+    '', SW_HIDE, ewWaitUntilTerminated, KillResultCode);
+  Log(Format('taskkill SecAgent.exe exit=%d', [KillResultCode]));
+  Result := '';
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   InstalledManifestFile, TemporaryManifestFile, NewInstalledManifestFile: String;
