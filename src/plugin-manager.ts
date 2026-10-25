@@ -13,7 +13,7 @@ const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
 /** 终态后快照阶段保持的时长；过后回落 idle。 */
 const ACTIVITY_TERMINAL_TTL_MS = 30_000;
 
-type PluginFormat = "secagent" | "agent";
+type PluginFormat = "secagent" | "agent" | "zcode";
 
 export interface PluginMcpServer {
   pluginId: string;
@@ -44,6 +44,8 @@ interface PluginManifest {
   permissions?: string[];
   settingsPages?: Array<{ id: string; title: string; description?: string }>;
   agentSchema?: string;
+  /* ZCode 兼容：plugin.json 内联 mcpServers（SecAgent 原生只读根目录 mcp.json）。 */
+  inlineMcpServers?: Record<string, unknown>;
 }
 interface InstalledPlugin { id: string; version: string; enabled: boolean }
 interface PluginStateFile { plugins: InstalledPlugin[] }
@@ -322,18 +324,27 @@ export class PluginManager {
       if (entry.entryName.includes("..") || path.isAbsolute(entry.entryName) || entry.entryName.startsWith("/")) throw new Error(`插件包包含不安全路径：${entry.entryName}`);
     }
     const ownManifestEntry = this.findArchiveManifest(zip, "secagent-plugin.json");
-    const agentManifestEntry = this.findArchiveManifest(zip, "plugin.json");
-    if (ownManifestEntry && agentManifestEntry) throw new Error("插件包不能同时包含两种根清单");
-    const manifestEntry = ownManifestEntry || agentManifestEntry;
-    if (!manifestEntry) throw new Error("插件包缺少 secagent-plugin.json 或 plugin.json");
-    const manifest = this.validateManifest(JSON.parse(manifestEntry.getData().toString("utf8")), ownManifestEntry ? "secagent" : "agent");
+    /* ZCode 官方包的清单在 .zcode-plugin/plugin.json（深埋 <name>/<version>/ 下），
+       且 plugin.json 泛搜会把它误当 Agent Plugins 根清单——先排除 .zcode-plugin 路径。 */
+    const agentManifestEntry = this.findArchiveManifest(zip, "plugin.json", (entryName) => entryName.includes("/.zcode-plugin/"));
+    const zcodeManifestEntry = this.findArchiveManifest(zip, ".zcode-plugin/plugin.json");
+    if ((ownManifestEntry && agentManifestEntry) || (ownManifestEntry && zcodeManifestEntry) || (agentManifestEntry && zcodeManifestEntry)) throw new Error("插件包不能同时包含多种根清单");
+    const manifestEntry = ownManifestEntry || zcodeManifestEntry || agentManifestEntry;
+    if (!manifestEntry) {
+      /* marketplace 结构（zcode-plugins-official 整包）：多个 .zcode-plugin 清单，
+         提示用户按单插件目录重新打包，而不是含混的「缺少清单」。 */
+      const zcodeCount = zip.getEntries().filter((entry) => entry.entryName.endsWith("/.zcode-plugin/plugin.json") && !entry.entryName.endsWith("/")).length;
+      if (zcodeCount > 1) throw new Error(`这个 zip 是插件合集（marketplace 结构，含 ${zcodeCount} 个插件）——请只打包单个插件目录（如 computer-use/0.6.5 内容）再安装`);
+      throw new Error("插件包缺少 secagent-plugin.json、plugin.json 或 .zcode-plugin/plugin.json");
+    }
+    const manifest = this.validateManifest(JSON.parse(manifestEntry.getData().toString("utf8")), ownManifestEntry ? "secagent" : zcodeManifestEntry ? "zcode" : "agent");
     const previous = this.state.plugins.find((item) => item.id === manifest.id);
     const target = path.join(this.installedRoot, manifest.id, manifest.version);
     const staging = path.join(this.workspace, "plugins", `.staging-${manifest.id}-${crypto.randomUUID()}`);
     try {
       fs.mkdirSync(staging, { recursive: true });
       zip.extractAllTo(staging, true);
-      const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : "plugin.json");
+      const extractedRoot = this.findPackageRoot(staging, manifest.format === "secagent" ? "secagent-plugin.json" : manifest.format === "zcode" ? ".zcode-plugin/plugin.json" : "plugin.json");
       if (previous) await this.deactivate(manifest.id);
       try {
         // 升级时不再删除整个旧插件目录：旧版本里的原生模块（如 koffi.node）可能仍被
@@ -522,7 +533,7 @@ export class PluginManager {
     const plugin: ActivePlugin = { manifest, root, state: "starting", tools: new Map(), skills: new Map(), mcpServers: new Map(), prompts: new Map(), preRules: new Map(), rules: new Map(), activityHandlers: new Set(), settingsHandlers: new Map() };
     this.active.set(id, plugin); this.changed();
     try {
-      if (manifest.format === "agent") {
+      if (manifest.format === "agent" || manifest.format === "zcode") {
         this.activateAgentPlugin(plugin);
         plugin.state = "ready";
         this.changed();
@@ -745,7 +756,7 @@ export class PluginManager {
     }
   }
   private readManifest(root: string): PluginManifest | undefined {
-    for (const [file, format] of [["secagent-plugin.json", "secagent"], ["plugin.json", "agent"]] as const) {
+    for (const [file, format] of [[".zcode-plugin/plugin.json", "zcode"], ["secagent-plugin.json", "secagent"], ["plugin.json", "agent"]] as const) {
       try { return this.validateManifest(JSON.parse(fs.readFileSync(path.join(root, file), "utf8")), format); } catch { /* Try the other supported format. */ }
     }
     return undefined;
@@ -778,10 +789,20 @@ export class PluginManager {
     const children = fs.readdirSync(staging, { withFileTypes: true });
     const candidates = children.filter((entry) => entry.isDirectory() && fs.existsSync(path.join(staging, entry.name, manifestFile)));
     if (candidates.length === 1 && children.every((entry) => entry.name === candidates[0].name || entry.name === ".DS_Store")) return path.join(staging, candidates[0].name);
+    /* ZCode 官方包布局是 <插件名>/<版本>/.zcode-plugin/plugin.json（两层嵌套）：
+       唯一命中深层清单时以它的目录为包根（ marketplace 里单抽一个插件重打包也走这）。 */
+    const deep: string[] = [];
+    for (const child of children) {
+      if (!child.isDirectory()) continue;
+      for (const grand of fs.readdirSync(path.join(staging, child.name), { withFileTypes: true })) {
+        if (grand.isDirectory() && fs.existsSync(path.join(staging, child.name, grand.name, manifestFile))) deep.push(path.join(staging, child.name, grand.name));
+      }
+    }
+    if (deep.length === 1) return deep[0];
     throw new Error(`插件包根目录缺少 ${manifestFile}`);
   }
-  private findArchiveManifest(zip: AdmZip, fileName: string) {
-    const entries = zip.getEntries().filter((entry) => entry.entryName === fileName || entry.entryName.endsWith(`/${fileName}`));
+  private findArchiveManifest(zip: AdmZip, fileName: string, exclude?: (entryName: string) => boolean) {
+    const entries = zip.getEntries().filter((entry) => !entry.entryName.endsWith("/") && !exclude?.(entry.entryName) && (entry.entryName === fileName || entry.entryName.endsWith(`/${fileName}`)));
     return entries.length === 1 ? entries[0] : undefined;
   }
   private activateAgentPlugin(plugin: ActivePlugin): void {
@@ -817,7 +838,65 @@ export class PluginManager {
     const metadata = YAML.parse(match[1]) as { name?: unknown; description?: unknown } | null;
     return typeof metadata?.name === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(metadata.name) && typeof metadata.description === "string" && metadata.description.trim().length > 0;
   }
+  /* ZCode 内联 mcpServers 兼容层：
+     - ${CLAUDE_PLUGIN_ROOT}/${ZCODE_PLUGIN_ROOT} → 插件根（ZCode 继承了
+       Claude 插件根变量约定，规范文档明说用 ${CLAUDE_PLUGIN_ROOT}）；
+     - ${ZCODE_PLUGIN_DATA} → 插件数据目录；
+     - ${ZCODE_PROJECT_DIR} → 数据目录（SecAgent 无「工程目录」概念，取可写的
+       插件数据目录，能通过 resolvePluginCwd 的根内校验）；
+     - ${user_config.xxx} → 空串（ZCode 桌面设置项，宿主无对应物，置空让服务
+       端走自身默认值）；
+     - 清单里携带的缓存绝对路径（C:\...\zcode-plugins-official\<name>\<version>/
+       dist/mcp/server.js）是导出机器的本地路径——按「插件名/版本/」后缀改写为
+       本机解包根下的同相对路径，命令本体（如 ZCode.exe）保持原样尽力执行，
+       失败按普通坏 MCP 服务降级（宿主状态可见 error，不影响插件其他部分）。 */
+  private loadZcodeInlineMcp(plugin: ActivePlugin): void {
+    const raw = plugin.manifest.inlineMcpServers;
+    if (!raw || typeof raw !== "object") return;
+    const dataRoot = path.join(this.dataRoot, plugin.manifest.id);
+    const expandValue = (value: string): string => value
+      .replaceAll("${CLAUDE_PLUGIN_ROOT}", plugin.root)
+      .replaceAll("${ZCODE_PLUGIN_ROOT}", plugin.root)
+      .replaceAll("${ZCODE_PLUGIN_DATA}", dataRoot)
+      .replaceAll("${ZCODE_PROJECT_DIR}", dataRoot)
+      .replace(/\$\{user_config\.[^}]*\}/g, "");
+    const rewriteCachePath = (value: string): string => {
+      const marker = "zcode-plugins-official";
+      const at = value.lastIndexOf(marker);
+      if (at < 0) return value;
+      const rest = value.slice(at + marker.length).replace(/^[\\/]+/, "");
+      const parts = rest.split(/[\\/]+/);
+      /* <插件名>/<版本>/<包内相对路径…>：剥掉前两段，接本机插件根 */
+      if (parts.length > 2 && parts[0] === plugin.manifest.id) {
+        return path.join(plugin.root, ...parts.slice(2));
+      }
+      return value;
+    };
+    for (const [name, value] of Object.entries(raw)) {
+      try {
+        if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("服务配置必须是对象");
+        const source = value as Record<string, unknown>;
+        const cleaned: Record<string, unknown> = {};
+        /* isolation 是 ZCode 桌面的隔离级别标记（workspace/per-workspace），宿主
+           每插件一目录天然隔离，忽略即可。 */
+        for (const key of ["type", "command", "args", "env", "cwd", "url", "headers"]) if (key in source) cleaned[key] = source[key];
+        if (typeof cleaned.command === "string") cleaned.command = expandValue(cleaned.command);
+        if (Array.isArray(cleaned.args)) cleaned.args = (cleaned.args as unknown[]).map((item) => typeof item === "string" ? rewriteCachePath(expandValue(item)) : item);
+        if (typeof cleaned.cwd === "string") cleaned.cwd = expandValue(cleaned.cwd);
+        if (cleaned.env && typeof cleaned.env === "object" && !Array.isArray(cleaned.env)) {
+          const env: Record<string, string> = {};
+          for (const [k, v] of Object.entries(cleaned.env as Record<string, unknown>)) env[k] = typeof v === "string" ? expandValue(v) : String(v);
+          cleaned.env = env;
+        }
+        const server = this.validateAgentMcpServer(plugin, name, cleaned);
+        if (server) plugin.mcpServers.set(name, server);
+      } catch (error) { console.error(`[secagent] 跳过无效 ZCode MCP ${plugin.manifest.id}/${name}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+  }
   private loadAgentMcp(plugin: ActivePlugin): void {
+    /* ZCode 插件（format=zcode）的 MCP 服务内联在 plugin.json 里，不走 mcp.json；
+       先做 ZCode 变量展开与缓存路径重写，再进共用校验。 */
+    if (plugin.manifest.format === "zcode") { this.loadZcodeInlineMcp(plugin); return; }
     const file = path.join(plugin.root, "mcp.json");
     if (!fs.existsSync(file)) return;
     try {
@@ -858,6 +937,18 @@ export class PluginManager {
   private validateManifest(input: unknown, format: PluginFormat): PluginManifest {
     if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("插件清单必须是 JSON 对象");
     const raw = input as Record<string, unknown>;
+    if (format === "zcode") {
+      /* ZCode 官方插件（zcode-plugins-official）：.zcode-plugin/plugin.json 无 $schema，
+       必填只有 name/version；skills/commands 布局与 Agent Plugins 相同（skills/<name>/SKILL.md）。
+       ui/agents/userConfig 是 ZCode 桌面专属能力，忽略不加载；mcpServers 内联在清单里，
+       走 loadAgentMcp 的内联路径（isolation 字段容忍忽略）。 */
+      const name = raw.name;
+      if (typeof name !== "string" || !isAgentPluginName(name)) throw new Error("无效 ZCode 插件清单：name 必须是小写字母数字连字符（≤64 字符）");
+      const version = typeof raw.version === "string" && raw.version ? raw.version : "0.0.0";
+      const author = raw.author as { name?: unknown } | undefined;
+      const inlineMcpServers = raw.mcpServers && typeof raw.mcpServers === "object" && !Array.isArray(raw.mcpServers) ? raw.mcpServers as Record<string, unknown> : undefined;
+      return { format, apiVersion: API_VERSION, id: name, name, version, description: typeof raw.description === "string" ? raw.description : undefined, author: typeof author?.name === "string" ? author.name : undefined, readme: "README.md", inlineMcpServers };
+    }
     if (format === "agent") {
       const name = raw.name;
       if (raw.$schema !== "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json" || typeof name !== "string" || !isAgentPluginName(name)) throw new Error("无效 Agent Plugins 清单：需要受支持的 $schema 和合法 name");

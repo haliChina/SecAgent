@@ -573,3 +573,105 @@ test("flashMarker: 无 flashHandler（纯服务端）时为 no-op 不抛错", as
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+test("installs a ZCode official plugin layout (deep manifest, skills, inline mcpServers)", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-plugin-"));
+  const archivePath = path.join(workspace, "zcode-plugin.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  const root = "computer-use/0.6.5/";
+  archive.addFile(`${root}.zcode-plugin/plugin.json`, Buffer.from(JSON.stringify({
+    name: "computer-use",
+    version: "0.6.5",
+    description: "Computer Use: automate desktop apps.",
+    author: { name: "Z.ai" },
+    license: "Apache-2.0",
+    skills: "skills"
+  })));
+  archive.addFile(`${root}skills/computer-use/SKILL.md`, Buffer.from("---\nname: computer-use\ndescription: Use when a task needs a native desktop app's own UI.\n---\n# Computer Use\nBootstrap every call.\n"));
+  archive.writeZip(archivePath);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    const status = await manager.install(archivePath);
+    assert.equal(status.id, "computer-use");
+    assert.equal(status.format, "zcode");
+    assert.equal(status.version, "0.6.5");
+    assert.deepEqual(manager.getSkills().map((skill) => skill.name), ["computer-use/computer-use"]);
+    assert.deepEqual(manager.getMcpServers(), []);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("ZCode inline mcpServers expand variables and rewrite cache paths", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-mcp-"));
+  const archivePath = path.join(workspace, "zcode-mcp.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  const root = "documents/0.2.1/";
+  archive.addFile(`${root}.zcode-plugin/plugin.json`, Buffer.from(JSON.stringify({
+    name: "documents",
+    version: "0.2.1",
+    description: "DOCX skills and viewer",
+    skills: "skills",
+    mcpServers: {
+      documents: {
+        type: "stdio",
+        command: "C:\\Users\\Admin\\AppData\\Local\\Programs\\ZCode\\ZCode.exe",
+        args: [
+          "C:\\Users\\Admin\\AppData\\Local\\Programs\\ZCode\\resources\\glm\\zcode.cjs",
+          "__zcode-plugin-host",
+          "C:\\Users\\Admin\\.zcode\\cli\\plugins\\cache\\zcode-plugins-official\\documents\\0.2.1/dist/server.mjs"
+        ],
+        cwd: "${ZCODE_PROJECT_DIR}",
+        env: { ZCODE_PLUGIN_DATA: "${ZCODE_PLUGIN_DATA}", ZCODE_WORKSPACE_ROOT: "${ZCODE_PROJECT_DIR}", ZCODE_JDK: "${user_config.jdk_major}" },
+        isolation: "workspace"
+      }
+    }
+  })));
+  archive.addFile(`${root}skills/docx/SKILL.md`, Buffer.from("---\nname: docx\ndescription: DOCX production skills.\n---\n# DOCX\n"));
+  archive.writeZip(archivePath);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    const status = await manager.install(archivePath);
+    assert.equal(status.format, "zcode");
+    const servers = manager.getMcpServers();
+    assert.equal(servers.length, 1);
+    const server = servers[0];
+    assert.equal(server.name, "documents");
+    assert.equal(server.type, "stdio");
+    /* 缓存路径重写：末段 dist/server.mjs 指向本机解包根 */
+    const last = server.args![2];
+    assert.ok(last.startsWith(server.root), `rewritten arg should point into plugin root: ${last}`);
+    assert.ok(last.endsWith(path.join("dist", "server.mjs")), `rewritten arg should keep relative tail: ${last}`);
+    assert.ok(!last.includes("zcode-plugins-official"), "cache marker must be gone");
+    /* cwd 展开 + env 值展开（user_config 置空） */
+    assert.equal(server.cwd, server.dataRoot);
+    assert.equal(server.env!.ZCODE_PLUGIN_DATA, server.dataRoot);
+    assert.equal(server.env!.ZCODE_WORKSPACE_ROOT, server.dataRoot);
+    assert.equal(server.env!.ZCODE_JDK, "");
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("a marketplace collection zip is rejected with a friendly message", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-market-"));
+  const archivePath = path.join(workspace, "marketplace.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  for (const [name, version] of [["computer-use", "0.6.5"], ["browser-use", "0.5.1"]] as const) {
+    archive.addFile(`${name}/${version}/.zcode-plugin/plugin.json`, Buffer.from(JSON.stringify({ name, version, skills: "skills" })));
+    archive.addFile(`${name}/${version}/skills/x/SKILL.md`, Buffer.from("---\nname: x\ndescription: x.\n---\n"));
+  }
+  archive.writeZip(archivePath);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await assert.rejects(() => manager.install(archivePath), /插件合集（marketplace 结构，含 2 个插件）/);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

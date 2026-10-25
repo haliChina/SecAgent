@@ -153,7 +153,7 @@ export interface PluginToolDefinition {
 
 export interface PluginStatus {
   id: string;
-  format?: "secagent" | "agent";
+  format?: "secagent" | "agent" | "zcode";
   name: string;
   version: string;
   icon?: string;
