@@ -161,6 +161,11 @@ var
   FinishSubtitle: TNewStaticText;
   FinishButton: TBitmapButton;
 
+  { preparing page (R70): 自绘「继续」按钮——stock NextButton 在 Inno 内部
+    重排下位置不可靠（R65 移位版高 DPI 只露蓝边、R69 摘锚版整钮消失），
+    与 InstallButton/FinishButton 同款，Inno 不认识它、不会动它。 }
+  PreparingContinueButton: TBitmapButton;
+
 function CreateRoundRectRgn(X1, Y1, X2, Y2, X3, Y3: Integer): HWND;
 external 'CreateRoundRectRgn@gdi32.dll stdcall';
 function SetWindowRgn(hWnd: HWND; hRgn: HWND; bRedraw: Longint): Longint;
@@ -759,6 +764,18 @@ begin
   { R26: 默认勾「是」自动关闭（原默认否→升级死锁在这里像卡死） }
   WizardForm.PreparingYesRadio.Checked := True;
   RelayoutPreparingPage;
+  { R70: 自绘「继续」钮，Parent 是 PreparingPage——其他页面激活时整页隐藏、
+    按钮随之隐藏，无需逐页管理。点击转发 stock NextButton 的 OnClick。 }
+  PreparingContinueButton := TBitmapButton.Create(WizardForm.PreparingPage);
+  PreparingContinueButton.Parent := WizardForm.PreparingPage;
+  PreparingContinueButton.PngImage.LoadFromFile(
+    ExpandConstant('{tmp}\button-primary.png'));
+  PreparingContinueButton.Stretch := True;
+  PreparingContinueButton.Caption := '继续';
+  PreparingContinueButton.Cursor := crHand;
+  PreparingContinueButton.OnClick := @PrimaryButtonClick;
+  PreparingContinueButton.SetBounds(UiX(301 - 2), UiY(506 - 2),
+    UiX(218 + 4), UiY(69 + 4));
 end;
 
 { --- events --------------------------------------------------------------- }
@@ -836,24 +853,20 @@ begin
         end;
       wpPreparing:
         begin
-          { R65 修复「关闭进程」页无按钮可点：Preparing 页是 Restart Manager
-            的原生确认页（选 是/否 关闭锁定进程 → 点 Next 确认），自定义 UI
-            没有为它画替代按钮，此前 NextButton 被一并隐藏 → 用户选完没有任何
-            按钮确认，只能 X 掉安装器。现在把 stock NextButton 移到主按钮的
-            设计位置、贴中文文案，可见可点；Cancel 同步隐藏（顶栏 × 已可退）。 }
-          WizardForm.BackButton.Visible := False;
-          WizardForm.CancelButton.Visible := False;
-          { R69: stock 的 akBottom 锚会在后续 VCL 对齐流里把 Top 从窗底重新
-            推导、覆盖下面的 SetBounds（实测按钮只剩顶部蓝边可点不到）——
-            先摘锚再定位。 }
-          WizardForm.NextButton.Anchors := [akLeft, akTop];
-          WizardForm.NextButton.SetBounds(UiX(301 - 2), UiY(506 - 2),
-            UiX(218 + 4), UiY(69 + 4));
-          WizardForm.NextButton.Caption := '继续';
-          WizardForm.NextButton.Visible := True;
+          { R65 曾修复本页无钮（stock NextButton 移位+改文案）；R70 起放弃
+            stock NextButton——R65 移位版在高 DPI 只露蓝边、
+            R69 摘锚版整钮消失（Inno 内部重排对 stock 按钮的最终位置没有
+            可依赖的契约）。三枚 stock 钮移出屏保持 focusable（silent walk
+            约束同 proc 头注释），确认动作交给自绘 PreparingContinueButton
+            （BuildPreparingPage 创建，Parent=PreparingPage 本页隐藏时它
+            跟着隐藏）。 }
+          WizardForm.BackButton.Left := WizardForm.ClientWidth + UiX(400);
+          WizardForm.NextButton.Left := WizardForm.ClientWidth + UiX(400);
+          WizardForm.CancelButton.Left := WizardForm.ClientWidth + UiX(400);
           { R69: Inno 显示本页时的 stock 重排与本事件的先后顺序无保证，
             120ms 一次性定时器在一切落定后再钉一遍（见
-            RelayoutPreparingPage 头注释）。 }
+            RelayoutPreparingPage 头注释——只钉 label/memo/radio，
+            按钮归自绘、位置恒定）。 }
           if PreparingFixTimerID <> 0 then
             KillTimer(0, PreparingFixTimerID);
           PreparingFixTimerID := SetTimer(0, 0, 120,
