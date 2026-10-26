@@ -100,7 +100,7 @@ class StdioMcpClient implements McpConnection {
     const args = (server.args || []).map((value) => expandPluginValue(value, server));
     const cwd = server.cwd ? expandPluginValue(server.cwd, server) : server.root;
     const resolvedCwd = resolvePluginCwd(server, cwd);
-    const env = { ...process.env, ...(server.env || {}), PLUGIN_ROOT: server.root, PLUGIN_DATA: server.dataRoot, ZCODE_PLUGIN_ROOT: server.root, ZCODE_PLUGIN_DATA: server.dataRoot };
+    const env = { ...process.env, ...(server.env || {}), PLUGIN_ROOT: server.root, PLUGIN_DATA: server.dataRoot };
     this.child = spawn(command, args, { cwd: resolvedCwd, env, stdio: ["pipe", "pipe", "ignore"] });
     this.child.stdout?.on("data", (chunk: Buffer) => this.onData(chunk.toString("utf8")));
     this.child.on("error", (error) => this.failPending(error));

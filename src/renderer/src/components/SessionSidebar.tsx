@@ -17,7 +17,7 @@
  * 取消 / 失焦提交；60 字符上限与 IPC 侧一致。
  */
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArchiveRestore, MessageSquare, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PencilLine, Plus, Settings } from "lucide-react";
+import { ArchiveRestore, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PencilLine, Plus, Settings } from "lucide-react";
 import { FuseButton } from "./ui/Bits.js";
 
 const COLLAPSED_KEY = "secagent.sidebar.collapsed";
@@ -56,15 +56,13 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
   const archived = sessions.filter((item) => item.archived);
 
   if (collapsed) {
-    return <aside className="session-sidebar collapsed" aria-label="会话列表（已收窄）">
+    /* R72 缩小态定调（用户：简洁美观不臃肿）——不渲染会话列表与已归档区，
+       只留 展开侧栏 / 新建 / 设置 三键；切会话先展开侧栏。
+       动效：rail-pop stagger 弹入、宽度过渡、按钮 hover 微动（styles.css）。 */
+    return <aside className="session-sidebar collapsed" aria-label="会话侧栏（已收窄）">
       <div className="sidebar-rail-top">
-        <button className="sidebar-rail-button" type="button" onClick={() => setCollapsed(false)} aria-label="展开会话侧栏" title="展开侧栏（显示会话名与预览）"><PanelLeftOpen size={17} aria-hidden /></button>
+        <button className="sidebar-rail-button" type="button" onClick={() => setCollapsed(false)} aria-label="展开会话侧栏" title="展开侧栏（显示会话列表）"><PanelLeftOpen size={17} aria-hidden /></button>
         <button className="sidebar-rail-button accent" type="button" onClick={onNew} aria-label="新建会话" title="新建会话"><Plus size={17} aria-hidden /></button>
-      </div>
-      <div className="sidebar-list" role="list">
-        {live.map((item) => <div className={`sidebar-item rail ${item.id === activeId ? "active" : ""}`} role="listitem" key={item.id}>
-          <button className={`sidebar-rail-session ${item.id === activeId ? "active" : ""}`} type="button" onClick={() => onSwitch(item.id)} aria-label={`会话 ${item.title}`} title={item.title}><MessageSquare size={17} aria-hidden /></button>
-        </div>)}
       </div>
       <div className="sidebar-foot">
         <button className="sidebar-rail-button" type="button" onClick={onOpenSettings} aria-label="设置" title="设置"><Settings size={17} aria-hidden /></button>
