@@ -274,7 +274,7 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
     if (!app.isReady()) return;
     const kind: FlashMarkerKind = (["click", "type", "focus", "scroll", "chord"] as FlashMarkerKind[]).includes(opts?.kind as FlashMarkerKind) ? (opts?.kind as FlashMarkerKind) : "click";
     const radius = Math.max(4, Math.min(40, Number(opts?.radius) || (kind === "focus" ? 16 : 12)));
-    const ms = Math.max(120, Math.min(2000, Number(opts?.ms) || (kind === "chord" ? 680 : kind === "scroll" ? 260 : 420)));
+    const ms = Math.max(300, Math.min(2000, Number(opts?.ms) || (kind === "chord" ? 1100 : kind === "type" ? 650 : kind === "scroll" ? 420 : 520)));
 
     // 物理像素 → DIP（按落点所在显示器的缩放比；近似即可，微小偏差不影响观感）
     const disp = screen.getDisplayNearestPoint({ x, y });
@@ -301,10 +301,12 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
         `@keyframes fade{to{opacity:0}}` +
         `</style>`;
     } else if (kind === "chord") {
-      // 组合键键帽浮标：label 形如 "Ctrl+C"，渐隐上浮
-      size = 72;
+      // 组合键键帽浮标：label 形如 "Ctrl+C"，渐隐上浮。
+      // 0.2 轮修复：旧固定 72px 窗宽装不下键帽序列（实测 Ctrl+S ≈99px）——
+      // 右侧键帽被裁成只见 "Ctrl"，用户实测「键帽浮标没有」的直接原因。
       const label = String(opts?.label ?? "").slice(0, 12) || "组合键";
       const keys = label.split("+").map((k) => k.trim()).filter(Boolean);
+      size = Math.max(64, 28 + keys.reduce((w, k) => w + k.length * 8 + 24, 0) + Math.max(0, keys.length - 1) * 19);
       const keyTags = keys.length > 1
         ? keys.map((k) => `<span class="kbd">${escapeHtml(k)}</span>`).join(`<span class="plus">+</span>`)
         : `<span class="kbd">${escapeHtml(label)}</span>`;
@@ -317,18 +319,19 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
         `border:1px solid rgba(255,255,255,.45);border-bottom-width:2.5px;` +
         `font:600 13px/1 system-ui,"Segoe UI",sans-serif;color:#fff;letter-spacing:.4px}` +
         `.plus{color:rgba(155,208,255,.9);font:600 13px system-ui}` +
-        `@keyframes lift{0%{opacity:0;transform:translate(-50%,-38%)}12%{opacity:1}` +
-        `to{opacity:0;transform:translate(-50%,-78%)}}` +
+        `@keyframes lift{0%{opacity:0;transform:translate(-50%,-30%)}14%{opacity:1}` +
+        `to{opacity:0;transform:translate(-50%,-130%)}}` +
         `</style>`;
     } else if (kind === "scroll") {
-      // 轻量滚动提示：方向箭头 + 微光（不整环，短促不打扰）
-      size = 56;
+      // 轻量滚动提示：方向箭头 + 微光（不整环，短促不打扰）。
+      // 0.2 轮：箭头 22px 实测太小+260ms 一闪即逝——放大到 30px/420ms。
+      size = 64;
       const up = Number(opts?.direction) >= 0;
       body =
         `<div class="arrow">${up ? "↑" : "↓"}</div>` +
         `<style>` +
-        `.arrow{position:absolute;left:50%;top:50%;margin:-11px 0 0 -11px;width:22px;height:22px;` +
-        `color:#cab6ff;font:700 20px/22px system-ui;text-shadow:0 0 10px 2px rgba(160,107,255,.75);` +
+        `.arrow{position:absolute;left:50%;top:50%;margin:-15px 0 0 -15px;width:30px;height:30px;` +
+        `color:#cab6ff;font:700 26px/30px system-ui;text-shadow:0 0 12px 3px rgba(160,107,255,.8);` +
         `animation:up ${ms}ms ease-out forwards}` +
         `@keyframes up{from{opacity:.95;transform:translateY(4px)}to{opacity:0;transform:translateY(${up ? -18 : 18}px)}}` +
         `</style>`;
@@ -365,7 +368,8 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
       x: Math.round(dipX - size / 2),
       y: Math.round(dipY - (kind === "type" ? size : size / 2)),
       width: size,
-      height: size,
+      // chord 宽度自适应但高度固定（键帽 30px + 上浮余量）；其余正方
+      height: kind === "chord" ? 64 : size,
       show: false,
       frame: false,
       transparent: true,
