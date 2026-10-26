@@ -128,8 +128,10 @@ export type OverlayHandler = (request: OverlayRequest) => Promise<PluginOverlayH
  * 视觉反馈。坐标为**物理像素**（多显示器绝对坐标），宿主内部换算 DIP。
  * fire-and-forget：实现方必须吞掉一切错误，绝不影响插件动作本身。
  */
-export type FlashMarkerKind = "click" | "type" | "focus" | "scroll";
-export type FlashHandler = (x: number, y: number, opts?: { kind?: FlashMarkerKind; radius?: number; ms?: number }) => void;
+export type FlashMarkerKind = "click" | "type" | "focus" | "scroll" | "chord";
+export type FlashHandler = (x: number, y: number, opts?: { kind?: FlashMarkerKind; radius?: number; ms?: number; label?: string; direction?: number }) => void;
+/** 插件报告「Agent 正在操作用户电脑」的常驻徽标（对齐 ZCode 的使用中标识）。 */
+export type AgentActivityHandler = (input: { active: boolean; label?: string }) => void;
 
 export interface PluginHostApi {
   registerTool(definition: Omit<PluginToolDefinition, "key"> & { name: string }, call: (args: Record<string, unknown>) => Promise<unknown>): void;
@@ -164,7 +166,9 @@ export interface PluginHostApi {
    * 插件的实际操作。无 Electron 桌面端（纯服务端运行）时为 no-op。
    * 无需专门权限：纯几何视觉反馈，不注入任何内容。
    */
-  flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll"; radius?: number; ms?: number }): void;
+  flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll" | "chord"; radius?: number; ms?: number; label?: string; direction?: number }): void;
+  /** 插件动作会话期间反复调用以常驻显示「正在操作电脑」徽标（active=false 立即隐藏）。 */
+  agentActivity(input: { active: boolean; label?: string }): void;
   /**
    * 订阅 Agent 活动事件（回合/工具/审批/完成/失败）。
    * 事件是无内容投影：只有 kind/sessionId/at/label/reason，
@@ -208,7 +212,8 @@ export class PluginManager {
   } = { getSession: async () => null, oauthLogin: async () => { throw new Error("SECTL OAuth login unavailable"); } },
   private readonly previewHandler?: SvgPreviewHandler,
   private readonly overlayHandler?: OverlayHandler,
-  private readonly flashHandler?: FlashHandler) {
+  private readonly flashHandler?: FlashHandler,
+  private readonly badgeHandler?: AgentActivityHandler) {
     this.installedRoot = path.join(workspace, "plugins", "installed");
     this.runtimeRoot = path.join(workspace, ".secagent-runtime", "plugins");
     this.configRoot = path.join(workspace, "plugins", "config");
@@ -653,6 +658,14 @@ export class PluginManager {
           const nx = Number(x), ny = Number(y);
           if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
           this.flashHandler(Math.round(nx), Math.round(ny), opts);
+        } catch { /* ignore */ }
+      },
+      agentActivity: (input) => {
+        // fire-and-forget：徽标失败不影响插件动作；无 badgeHandler（纯服务端）静默。
+        try {
+          if (typeof this.badgeHandler !== "function") return;
+          if (!input || typeof input !== "object") return;
+          this.badgeHandler({ active: input.active === true, label: typeof input.label === "string" ? input.label : undefined });
         } catch { /* ignore */ }
       },
       onActivity: (handler) => {

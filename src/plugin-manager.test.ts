@@ -675,3 +675,67 @@ test("a marketplace collection zip is rejected with a friendly message", async (
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+// ---- agentActivity（「Agent 正在操作电脑」常驻徽标，2026-10-26，对齐 ZCode）----
+
+test("agentActivity: 转发 badgeHandler（active 归一/label 校验/无 handler 静默）", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const calls: { active: boolean; label?: string }[] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, undefined, undefined, (input) => {
+    calls.push({ ...input });
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { agentActivity(input: { active: boolean; label?: string }): void } }).__overlayTestApi;
+    api.agentActivity({ active: true, label: "computer-use" });
+    api.agentActivity({ active: 1 as unknown as boolean }); // truthy 但非 boolean → 归一 false（立即隐藏）
+    api.agentActivity({ active: true, label: 123 as unknown as string }); // 非法 label → undefined
+    api.agentActivity(null as unknown as { active: boolean }); // null 静默
+    api.agentActivity({ active: false }); // 显式结束
+    assert.deepEqual(calls, [
+      { active: true, label: "computer-use" },
+      { active: false, label: undefined },
+      { active: true, label: undefined },
+      { active: false, label: undefined }
+    ]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("agentActivity: 无 badgeHandler（纯服务端环境）静默不抛", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { agentActivity(input: { active: boolean }): void } }).__overlayTestApi;
+    api.agentActivity({ active: true });
+    assert.ok("无 handler 时静默");
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("flashMarker: chord kind 与 label/direction 原样透传（宿主五形态）", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const calls: unknown[][] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, undefined, (x, y, opts) => {
+    calls.push([x, y, opts]);
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { flashMarker(x: number, y: number, opts?: { kind?: string; label?: string; direction?: number }): void } }).__overlayTestApi;
+    api.flashMarker(80, 90, { kind: "chord", label: "Ctrl+C" });
+    api.flashMarker(80, 90, { kind: "scroll", direction: -1 });
+    assert.deepEqual(calls[0], [80, 90, { kind: "chord", label: "Ctrl+C" }]);
+    assert.deepEqual(calls[1], [80, 90, { kind: "scroll", direction: -1 }]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
