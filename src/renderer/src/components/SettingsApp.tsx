@@ -62,14 +62,15 @@ export function SettingsApp() {
       setArchivedSessions(all.filter((item) => item.archived));
     } catch { /* 设置窗 IPC 失败按空列表处理 */ }
   };
-  useEffect(() => { if (activePage === "settings-sessions") void refreshArchivedSessions(); }, [activePage]);
-  useEffect(() => bridge.onSettingsNavigate((page) => { setActivePage(page); if (page === "settings-sessions") void refreshArchivedSessions(); }), []);
   const skipAutosave = useRef(true);
   const [activePage, setActivePage] = useState(() => {
     const hash = window.location.hash.replace(/^#/, "");
     const builtInPage = ["settings-wake", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
     return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-tts");
   });
+  // R73：已归档会话分区——进入分区时拉取；设置窗已开时经 settings:navigate 跳页。
+  useEffect(() => { if (activePage === "settings-sessions") void refreshArchivedSessions(); }, [activePage]);
+  useEffect(() => bridge.onSettingsNavigate((page) => { setActivePage(page); if (page === "settings-sessions") void refreshArchivedSessions(); }), []);
 
   // 音频设备枚举（麦克风/扬声器）；浏览器要求先授权麦克风才能看到 label。
   // 注意：这组 useState/useEffect 必须放在下方 isOobe / !settings 早退 return 之
@@ -406,12 +407,12 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
           {archivedSessions.map((item) => <div className="archived-session-row" key={item.id}>
             <div className="archived-session-info">
               <span className="archived-session-title" title={item.title}>{item.title}</span>
-              <span className="archived-session-meta">{new Date(item.updatedAt).toLocaleString()} · {item.messageCount ?? 0} 条消息</span>
+              <span className="archived-session-meta">{new Date(item.updatedAt).toLocaleString()}{item.preview ? ` · ${item.preview.slice(0, 30)}` : ""}</span>
             </div>
             <div className="archived-session-actions">
-              <button className="secondary-button" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.archiveSession(item.id, false).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error?.valueOf?.() ?? error))).finally(() => setArchiveBusyId("")); }}>恢复</button>
+              <button className="secondary-button" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.archiveSession(item.id, false).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error))).finally(() => setArchiveBusyId("")); }}>恢复</button>
               {archiveConfirmId === item.id
-                ? <span className="archived-session-confirm"><button className="primary-button archived-delete-final" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.deleteSession(item.id).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error?.valueOf?.() ?? error))).finally(() => { setArchiveBusyId(""); setArchiveConfirmId(""); }); }}>确认删除</button><button className="secondary-button" type="button" onClick={() => setArchiveConfirmId("")}>取消</button></span>
+                ? <span className="archived-session-confirm"><button className="primary-button archived-delete-final" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.deleteSession(item.id).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error))).finally(() => { setArchiveBusyId(""); setArchiveConfirmId(""); }); }}>确认删除</button><button className="secondary-button" type="button" onClick={() => setArchiveConfirmId("")}>取消</button></span>
                 : <button className="secondary-button archived-delete-first" type="button" disabled={archiveBusyId === item.id} onClick={() => setArchiveConfirmId(item.id)}>删除</button>}
             </div>
           </div>)}

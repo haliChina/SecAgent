@@ -30,7 +30,7 @@ const OFFICIAL_TIER_IDS = ["virtual-fast", "virtual-standard", "virtual-deep"] a
 
 export function registerSettingsIpc(deps: {
   getUpdateManager: () => WindowsUpdateManager | undefined;
-  openSettings: () => void;
+  openSettings: (oobeOrMenuItem?: boolean | Electron.MenuItem, _window?: Electron.BaseWindow, _event?: Electron.KeyboardEvent, page?: string) => void;
 }): void {
   const { getUpdateManager, openSettings } = deps;
 
