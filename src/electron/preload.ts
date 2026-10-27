@@ -7,7 +7,12 @@ contextBridge.exposeInMainWorld("secagent", {
   listModels: () => ipcRenderer.invoke("models:list"),
   listProviders: () => ipcRenderer.invoke("providers:list"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
-  openSettings: () => ipcRenderer.invoke("settings:open"),
+  openSettings: (page?: string) => ipcRenderer.invoke("settings:open", typeof page === "string" && page ? page : undefined),
+  onSettingsNavigate: (callback: (page: string) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, page: string) => { callback(page); };
+    ipcRenderer.on("settings:navigate", wrapped);
+    return () => { ipcRenderer.removeListener("settings:navigate", wrapped); };
+  },
   getUpdateState: () => ipcRenderer.invoke("updates:get-state"),
   checkForUpdate: () => ipcRenderer.invoke("updates:check"),
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),

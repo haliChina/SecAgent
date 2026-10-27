@@ -22,27 +22,43 @@ import { FuseButton } from "./ui/Bits.js";
 
 const COLLAPSED_KEY = "secagent.sidebar.collapsed";
 
-export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchive, onRename, onNew, onOpenSettings }: { sessions: SessionMeta[]; activeId?: string; onSwitch: (id: string) => void; onDelete: (id: string) => void; onArchive: (id: string, archived: boolean) => void; onRename: (id: string, title: string) => void; onNew: () => void; onOpenSettings: () => void }) {
+export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchive, onRename, onNew, onOpenSettings, onOpenArchived }: { sessions: SessionMeta[]; activeId?: string; onSwitch: (id: string) => void; onDelete: (id: string) => void; onArchive: (id: string, archived: boolean) => void; onRename: (id: string, title: string) => void; onNew: () => void; onOpenSettings: () => void; onOpenArchived: () => void }) {
   const [collapsed, setCollapsed] = useState(() => { try { return window.localStorage.getItem(COLLAPSED_KEY) === "1"; } catch { return false; } });
   const [menu, setMenu] = useState<{ id: string } | null>(null);
   /* R68 重命名：menu.id 与 renameId 分开记——菜单里点「重命名」后菜单收起、
      该行切行内输入框；renameDraft 是受控草稿。 */
   const [renameState, setRenameState] = useState<{ id: string; draft: string } | null>(null);
-  const [archivedOpen, setArchivedOpen] = useState(false);
   useEffect(() => { try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* 隐私模式等场景忽略 */ } }, [collapsed]);
 
-  /* 菜单坐标：fixed 定位挂 ⋯ 的屏幕位置，滚动容器不裁剪（R62 教训）。 */
+  /* 菜单坐标：fixed 定位挂 ⋯ 的屏幕位置，滚动容器不裁剪（R62 教训）。
+     R73 溢出根治：①用真实渲染尺寸（旧估 150px < 实际 ~210px，靠底部的会话
+     菜单向下溢出遮住设置钮/出屏）；②锚点贴近视口底部时整菜单向上翻转；
+     ③视口尺寸/滚动变化时重算（菜单内 FuseButton 动画会改变高度——用
+     ResizeObserver 同步，滚动监听保持贴锚点）。 */
   const menuAnchor = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
-  useLayoutEffect(() => {
+  const placeMenu = () => {
     if (!menu || !menuAnchor.current) return;
     const rect = menuAnchor.current.getBoundingClientRect();
-    const height = 150;
-    const width = 172;
+    const size = menuRef.current?.getBoundingClientRect();
+    const height = size?.height ?? 216;
+    const width = size?.width ?? 176;
+    const gap = 6;
+    const flipUp = rect.bottom + gap + height > window.innerHeight - 8 && rect.top - gap - height >= 8;
     setMenuPos({
-      top: Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - height - 8)),
+      top: flipUp ? Math.max(8, rect.top - gap - height) : Math.max(8, Math.min(rect.bottom + gap, window.innerHeight - height - 8)),
       left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))
     });
+  };
+  useLayoutEffect(() => { placeMenu(); }, [menu]);
+  useEffect(() => {
+    if (!menu) return;
+    const observer = menuRef.current ? new ResizeObserver(() => placeMenu()) : null;
+    if (observer && menuRef.current) observer.observe(menuRef.current);
+    window.addEventListener("resize", placeMenu);
+    window.addEventListener("scroll", placeMenu, true);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", placeMenu); window.removeEventListener("scroll", placeMenu, true); };
   }, [menu]);
 
   useEffect(() => {
@@ -78,7 +94,7 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
       {live.length === 0 && <p className="sidebar-empty">还没有会话</p>}
       {live.map((item) => {
         const renaming = renameState?.id === item.id;
-        return <div className={`sidebar-item ${item.id === activeId ? "active" : ""} ${menu?.id === item.id ? "menu-open" : ""} ${renaming ? "renaming" : ""}`} role="listitem" key={item.id}>
+        return <div className={`sidebar-item ${item.id === activeId ? "active" : ""} ${menu?.id === item.id ? "menu-open" : ""} ${renaming ? "renaming" : ""}`} role="listitem" key={item.id} onContextMenu={(event) => { if (renaming) return; event.preventDefault(); setMenu((current) => current?.id === item.id ? null : { id: item.id }); }}>
           {renaming ? (
             /* R68 行内重命名：Enter 提交 / Esc 取消 / 失焦提交（空值回退原题）。 */
             <input
@@ -113,31 +129,26 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
       })}
     </div>
     {archived.length > 0 && <div className="sidebar-archived">
-      <button className="sidebar-archived-toggle" type="button" onClick={() => setArchivedOpen((value) => !value)} aria-expanded={archivedOpen}>
+      {/* R73：归档管理迁设置页（用户提议）——侧栏只留紧凑入口行，不再铺 47 条挤爆侧栏。 */}
+      <button className="sidebar-archived-toggle" type="button" onClick={onOpenArchived} title="在设置中管理已归档会话">
         <span>已归档（{archived.length}）</span>
-        <span className="sidebar-archived-chevron" data-open={archivedOpen ? "" : undefined} aria-hidden>▾</span>
+        <span className="sidebar-archived-chevron" aria-hidden>›</span>
       </button>
-      {archivedOpen && <div className="sidebar-archived-list" role="list">
-        {archived.map((item) => <div className="sidebar-item archived" role="listitem" key={item.id}>
-          <span className="sidebar-item-title" title={item.title}>{item.title}</span>
-          <button className="sidebar-archived-restore" type="button" onClick={() => onArchive(item.id, false)} aria-label={`恢复会话 ${item.title}`} title="恢复到列表"><ArchiveRestore size={14} aria-hidden /></button>
-        </div>)}
-      </div>}
     </div>}
     <div className="sidebar-foot">
       <button className="sidebar-settings" type="button" onClick={onOpenSettings}><Settings size={14} aria-hidden /> 设置</button>
     </div>
     {menu && <>
       <div className="sidebar-menu-backdrop" onClick={() => setMenu(null)} aria-hidden />
-      <div className="sidebar-menu" role="menu" aria-label="会话操作" style={{ top: menuPos.top, left: menuPos.left }}>
-        <div className="sidebar-menu-row" role="menuitem">
-          <button className="sidebar-menu-rename" type="button" onClick={() => { const target = sessions.find((entry) => entry.id === menu.id); setRenameState({ id: menu.id, draft: target?.title ?? "" }); setMenu(null); }}><PencilLine size={15} aria-hidden /> 重命名</button>
+      <div className="sidebar-menu" role="menu" aria-label="会话操作" ref={menuRef} style={{ top: menuPos.top, left: menuPos.left }}>
+        <div className="sidebar-menu-row">
+          <button className="sidebar-menu-rename" type="button" role="menuitem" onClick={() => { const target = sessions.find((entry) => entry.id === menu.id); setRenameState({ id: menu.id, draft: target?.title ?? "" }); setMenu(null); }}><PencilLine size={15} aria-hidden /> 重命名</button>
         </div>
-        <div className="sidebar-menu-row" role="menuitem">
-          <FuseButton className="sidebar-menu-fuse" label="归档会话" undoLabel="已撤销" doneLabel="已归档" fuse="outline" commitOn="press" settle="reset" onCommit={() => { onArchive(menu.id, true); setMenu(null); }} onUndo={() => onArchive(menu.id, false)} />
+        <div className="sidebar-menu-row">
+          <FuseButton role="menuitem" className="sidebar-menu-fuse" label="归档会话" undoLabel="已撤销" doneLabel="已归档" fuse="outline" commitOn="press" settle="reset" onCommit={() => { onArchive(menu.id, true); setMenu(null); }} onUndo={() => onArchive(menu.id, false)} />
         </div>
-        <div className="sidebar-menu-row" role="menuitem">
-          <FuseButton className="sidebar-menu-fuse danger" label="删除会话" undoLabel="反悔（保留）" doneLabel="已删除" fuse="outline" fuseColor="#dc2626" commitOn="fuseEnd" settle="stay" onFuseEnd={() => { onDelete(menu.id); setMenu(null); }} onUndo={() => {}} />
+        <div className="sidebar-menu-row">
+          <FuseButton role="menuitem" className="sidebar-menu-fuse danger" label="删除会话" undoLabel="反悔（保留）" doneLabel="已删除" fuse="outline" fuseColor="#dc2626" commitOn="fuseEnd" settle="stay" onFuseEnd={() => { onDelete(menu.id); setMenu(null); }} onUndo={() => {}} />
         </div>
         <p className="sidebar-menu-hint">删除在引线烧完（约 4 秒）才执行，期间可反悔。</p>
       </div>

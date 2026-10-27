@@ -69,7 +69,7 @@ button:focus:not(:focus-visible) { outline: none; }
 .session-sidebar.collapsed .sidebar-foot .sidebar-rail-button { animation: rail-pop .34s cubic-bezier(.34,1.4,.64,1) .12s backwards; }
 @keyframes rail-pop { from { opacity: 0; transform: scale(.4); } }
 .sidebar-rail-button.wide { width: 40px; height: 34px; }
-.session-sidebar.collapsed .sidebar-foot { display: flex; justify-content: center; padding: 10px 0 12px; }
+.session-sidebar.collapsed .sidebar-foot { display: flex; justify-content: center; margin-top: auto; padding: 10px 0 14px; }
 .sidebar-list { flex: 1; min-height: 0; overflow: auto; padding: 0 8px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 45%, transparent) transparent; }
 .sidebar-item { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 6px; border-radius: 8px; }.sidebar-item.active { background: var(--accent-soft); }
 /* R72 展开态区块 reveal：收窄↔展开切换时内容轻柔淡入（宽度过渡同时进行）。 */
@@ -892,6 +892,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .sidebar-item.menu-open .sidebar-more { background: var(--bg-3); color: var(--text-1); }
 .sidebar-menu-backdrop { position: fixed; inset: 0; z-index: 40; background: transparent; }
 .sidebar-menu { position: fixed; z-index: 41; width: 172px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); box-shadow: 0 8px 24px rgba(15, 23, 42, .14); }
+/* R73 菜单进场：缩放淡入（reduced-motion 关）。 */
+.sidebar-menu { animation: sidebar-menu-in .16s cubic-bezier(.2,.9,.3,1.2) backwards; will-change: transform, opacity; }
+@keyframes sidebar-menu-in { from { opacity: 0; transform: translateY(4px) scale(.97); } }
+@media (prefers-reduced-motion: reduce) { .sidebar-menu { animation: none; } }
 .sidebar-menu-row { padding: 2px 0; }
 .sidebar-menu-row .fuse-button { width: 100%; }
 .sidebar-menu-fuse { --fb-bg: transparent; }
@@ -902,11 +906,24 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .sidebar-archived-toggle:hover { background: var(--bg-2); color: var(--text-1); }
 .sidebar-archived-chevron { transition: transform .18s ease; font-size: 10px; }
 .sidebar-archived-chevron[data-open] { transform: rotate(180deg); }
-.sidebar-archived-list { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px; }
-.sidebar-item.archived { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 8px; color: var(--text-2); }
-.sidebar-item.archived .sidebar-item-title { flex: 1; min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-archived-restore { display: grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; }
-.sidebar-archived-restore:hover { background: var(--bg-3); color: var(--text-1); }
+/* R73：归档列表迁设置页管理，侧栏仅保留紧凑入口行（旧平铺样式退役）。 */
+.sidebar-archived-chevron { color: var(--text-3); font-size: 12px; transition: color .15s ease, translate .15s ease; }
+.sidebar-archived-toggle:hover .sidebar-archived-chevron { color: var(--text-1); translate: 1px 0; }
+/* ===== R73 设置页·已归档会话管理 ===== */
+.archived-session-list { display: grid; gap: 4px; max-height: 46vh; overflow: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 45%, transparent) transparent; }
+.archived-session-row { display: flex; align-items: center; gap: 12px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); }
+.archived-session-row:hover { border-color: var(--line-strong); }
+.archived-session-info { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.archived-session-title { overflow: hidden; color: var(--text-1); font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.archived-session-meta { color: var(--text-3); font-size: 11px; }
+.archived-session-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.archived-session-confirm { display: flex; align-items: center; gap: 6px; color: var(--text-2); font-size: 12px; flex-shrink: 0; }
+.archived-session-confirm .primary-button { padding: 5px 10px; font-size: 12px; }
+.archived-session-confirm .secondary-button { padding: 5px 10px; font-size: 12px; }
+.archived-delete-final { border-color: #DC2626 !important; background: #DC2626 !important; }
+.archived-delete-first:hover { color: #F87171; border-color: rgba(248,113,113,.5); }
+.archived-session-error { margin: 0 0 8px; color: #DC2626; font-size: 12.5px; }
+.settings-hint { margin: 0; color: var(--text-2); font-size: 13px; }
 /* R68 会话重命名：行内输入框接管整行（菜单里「重命名」触发）。 */
 .sidebar-item.renaming { padding: 4px 8px; }
 .sidebar-rename-input {

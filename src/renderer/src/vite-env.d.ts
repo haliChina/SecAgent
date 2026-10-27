@@ -56,10 +56,12 @@ interface Window {
     platform: NodeJS.Platform;
   telemetryConfig: { sentryDsn?: string; enabled: boolean };
     listSessions(): Promise<SessionMeta[]>;
+    onSettingsNavigate(callback: (page: string) => void): () => void;
     listModels(): Promise<ModelOption[]>;
     listProviders(): Promise<ProviderPreset[]>;
     getSettings(): Promise<SettingsPayload>;
-    openSettings(): Promise<{ ok: true }>;
+    openSettings(page?: string): Promise<{ ok: true }>;
+    onSettingsNavigate(callback: (page: string) => void): () => void;
     getUpdateState(): Promise<UpdateState>;
     checkForUpdate(): Promise<UpdateState>;
     downloadUpdate(): Promise<UpdateState>;

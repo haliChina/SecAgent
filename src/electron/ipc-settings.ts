@@ -101,7 +101,7 @@ export function registerSettingsIpc(deps: {
       event.returnValue = false;
     }
   });
-  ipcMain.handle("settings:open", () => { openSettings(); return { ok: true }; });
+  ipcMain.handle("settings:open", (_event, page?: string) => { openSettings(false, undefined, undefined, typeof page === "string" && page ? page : undefined); return { ok: true }; });
   ipcMain.handle("updates:get-state", () => getUpdateManager()?.getState() || ({ currentVersion: app.getVersion(), channel: "stable", status: "unsupported", downloadedBytes: 0 } satisfies UpdateState));
   ipcMain.handle("updates:check", () => getUpdateManager()?.check(false) || ({ currentVersion: app.getVersion(), channel: "stable", status: "unsupported", downloadedBytes: 0 } satisfies UpdateState));
   ipcMain.handle("updates:download", async () => {

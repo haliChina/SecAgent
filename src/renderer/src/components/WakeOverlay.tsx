@@ -503,7 +503,7 @@ const submitTranscript = async () => {
       <rect className="wake-edge-svg-near" x="7" y="7" width="calc(100% - 14px)" height="calc(100% - 14px)" rx="28" fill="none" stroke="url(#wake-edge-gradient)" strokeWidth="12" filter="url(#wake-edge-blur-near)" />
       <rect className="wake-edge-svg-crisp" x="7" y="7" width="calc(100% - 14px)" height="calc(100% - 14px)" rx="28" fill="none" stroke="url(#wake-edge-gradient)" strokeWidth="7" />
     </svg>
-    <div className="wake-dismiss-area" aria-hidden="true" onMouseDown={() => void bridge.closeWake()} />
+    <div className="wake-dismiss-area" role="button" aria-label="关闭唤醒浮层" tabIndex={-1} onMouseDown={() => void bridge.closeWake()} onClick={() => void bridge.closeWake()} />
     <div className={`wake-stack ${agentStarted ? "agent-started" : ""}`}>
       <div className={`wake-user-bubble ${agentStarted ? "submitted" : ""}`}>
         <span className={!transcript ? "wake-listening" : "wake-transcript"}>{transcript || (status === "error" ? "语音识别失败" : "聆听中...")}</span>

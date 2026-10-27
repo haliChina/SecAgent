@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, Menu, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, nativeTheme, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle, FlashMarkerKind, FlashHandler, AgentActivityHandler } from "../plugin-manager.js";
 import { logMain } from "./main-log.js";
@@ -560,12 +560,16 @@ export async function openPluginOverlay(request: OverlayRequest): Promise<Plugin
   };
 }
 
-export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false, _window?: Electron.BaseWindow, _event?: Electron.KeyboardEvent): void {
+export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false, _window?: Electron.BaseWindow, _event?: Electron.KeyboardEvent, page?: string): void {
   const oobe = typeof oobeOrMenuItem === "boolean" ? oobeOrMenuItem : false;
   if (oobe) onboardingCompletionRequested = false;
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.show();
     settingsWindow.focus();
+    /* R73：定位分区（如从侧栏归档入口进 settings-sessions）。 */
+    if (typeof page === "string" && page && !settingsWindow.webContents.isLoading()) {
+      settingsWindow.webContents.send("settings:navigate", page);
+    }
     return;
   }
   settingsWindow = new BrowserWindow({
@@ -579,7 +583,11 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
        附属于主窗（永不进任务栏、主窗隐藏时被连带藏起）。去掉后为独立
        顶层窗口：任务栏有自己图标，主窗最小化/隐藏不再影响设置窗。 */
     modal: false,
-    backgroundColor: "#FFFFFF",
+    /* R73：白屏根治——首帧窗口就带主题底色（React 挂载前 1-2s 的
+       backgroundColor 恒白，深色主题下闪白更刺眼），且等首帧画完
+       （ready-to-show）再显示。 */
+    show: false,
+    backgroundColor: nativeTheme.shouldUseDarkColors ? "#0B0F14" : "#FAFBFD",
     ...windowChromeOptions(),
     icon: appIconPath(),
     webPreferences: { preload: path.join(__dirname, "../preload/preload.cjs"), contextIsolation: true, nodeIntegration: false }
@@ -590,8 +598,9 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
   settingsWindow.on("page-title-updated", (event) => { event.preventDefault(); });
   settingsWindow.setTitle("SecAgent设置");
   const query = oobe ? "?settings=1&oobe=1" : "?settings=1";
-  if (process.env.ELECTRON_RENDERER_URL) settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}`);
-  else settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: oobe ? { settings: "1", oobe: "1" } : { settings: "1" } });
+  const hash = typeof page === "string" && page ? `#${page}` : "";
+  if (process.env.ELECTRON_RENDERER_URL) settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}${hash}`);
+  else settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: oobe ? { settings: "1", oobe: "1" } : { settings: "1" }, ...(hash ? { hash: page! } : {}) });
   settingsWindow.on("closed", () => {
     settingsWindow = undefined;
     if (oobe) {

@@ -12,7 +12,7 @@ import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
-  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
+  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
   { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
   { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }] }
 ];
@@ -50,11 +50,24 @@ export function SettingsApp() {
   const [diagnosticSessions, setDiagnosticSessions] = useState<SessionMeta[]>([]);
   const [diagnosticSessionId, setDiagnosticSessionId] = useState("");
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
+  // R73 已归档会话管理（设置页分区，侧栏只留紧凑入口）
+  const [archivedSessions, setArchivedSessions] = useState<SessionMeta[]>([]);
+  const [archiveBusyId, setArchiveBusyId] = useState("");
+  const [archiveConfirmId, setArchiveConfirmId] = useState("");
+  const [archiveError, setArchiveError] = useState("");
   const settingsLoaded = useRef(false);
+  const refreshArchivedSessions = async (): Promise<void> => {
+    try {
+      const all = await bridge.listSessions();
+      setArchivedSessions(all.filter((item) => item.archived));
+    } catch { /* 设置窗 IPC 失败按空列表处理 */ }
+  };
+  useEffect(() => { if (activePage === "settings-sessions") void refreshArchivedSessions(); }, [activePage]);
+  useEffect(() => bridge.onSettingsNavigate((page) => { setActivePage(page); if (page === "settings-sessions") void refreshArchivedSessions(); }), []);
   const skipAutosave = useRef(true);
   const [activePage, setActivePage] = useState(() => {
     const hash = window.location.hash.replace(/^#/, "");
-    const builtInPage = ["settings-wake", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
+    const builtInPage = ["settings-wake", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
     return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-tts");
   });
 
@@ -386,6 +399,25 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     {success && <div className="settings-success">{success}</div>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2><p>按下全局快捷键后，在当前显示器工作区唤起语音 Agent。窗口不会覆盖任务栏。</p></div></div>
       <article className="settings-card"><WakeHotkeyField value={settings.wake.hotkey} platform={bridge.platform} onChange={(hotkey) => setSettings((current) => current && { ...current, wake: { ...current.wake, hotkey } })} /><div className="form-grid wake-model-setting"><label>随时唤起使用的模型<SelectCombobox ariaLabel="随时唤起使用的模型" value={settings.wake.modelId || settings.defaultModelId || mainModelOptions[0]?.id || ""} options={mainModelOptions.map((model) => ({ value: model.id, label: model.name, group: model.providerLabel }))} onChange={(modelId) => setSettings((current) => current && { ...current, wake: { ...current.wake, modelId } })} /></label></div><label className="toggle-row"><span className="toggle-copy"><strong>语音唤醒</strong><small>开启后持续使用麦克风，识别到唤醒词后等同于按下上面的快捷键。</small></span><input type="checkbox" checked={settings.wake.voiceEnabled === true} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voiceEnabled: event.target.checked } })} /></label><label className="wake-phrase-field">唤醒词<input value={settings.wake.voicePhrase || "小泽同学"} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voicePhrase: event.target.value } })} placeholder="小泽同学" /></label><p className="settings-help">Windows/Linux 默认 Ctrl Alt A；macOS 默认 Ctrl Option A。语音唤醒始终使用随安装包提供的本地模型，无需网络。</p></article>    </section>
+    <section id="settings-sessions" className={`settings-section ${activePage === "settings-sessions" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>已归档会话</h2><p>归档的会话不再出现在主侧栏，可在此浏览、恢复或删除。</p></div></div>
+      <div className="settings-card">
+        {archiveError && <p className="archived-session-error">{archiveError}</p>}
+        {archivedSessions.length === 0 ? <p className="settings-hint">还没有已归档的会话。在主侧栏会话行的 ⋯ 菜单里选「归档会话」，会话会收进这里。</p> : <div className="archived-session-list">
+          {archivedSessions.map((item) => <div className="archived-session-row" key={item.id}>
+            <div className="archived-session-info">
+              <span className="archived-session-title" title={item.title}>{item.title}</span>
+              <span className="archived-session-meta">{new Date(item.updatedAt).toLocaleString()} · {item.messageCount ?? 0} 条消息</span>
+            </div>
+            <div className="archived-session-actions">
+              <button className="secondary-button" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.archiveSession(item.id, false).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error?.valueOf?.() ?? error))).finally(() => setArchiveBusyId("")); }}>恢复</button>
+              {archiveConfirmId === item.id
+                ? <span className="archived-session-confirm"><button className="primary-button archived-delete-final" type="button" disabled={archiveBusyId === item.id} onClick={() => { setArchiveBusyId(item.id); setArchiveError(""); void bridge.deleteSession(item.id).then(() => refreshArchivedSessions()).catch((error: unknown) => setArchiveError(String(error?.valueOf?.() ?? error))).finally(() => { setArchiveBusyId(""); setArchiveConfirmId(""); }); }}>确认删除</button><button className="secondary-button" type="button" onClick={() => setArchiveConfirmId("")}>取消</button></span>
+                : <button className="secondary-button archived-delete-first" type="button" disabled={archiveBusyId === item.id} onClick={() => setArchiveConfirmId(item.id)}>删除</button>}
+            </div>
+          </div>)}
+        </div>}
+      </div>
+    </section>
     <section id="settings-updates" className={`settings-section ${activePage === "settings-updates" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>更新</h2><p>从 GitHub Release 获取 SecAgent 更新。当前仅支持 Windows 安装包更新。</p></div></div>
       <article className="settings-card update-settings-card">
         {!updateSupported ? <p className="settings-help">当前平台暂不支持应用内更新。</p> : <>

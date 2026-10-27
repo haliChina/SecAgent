@@ -15,6 +15,8 @@ export type FusePhase = "idle" | "armed" | "settled";
 export type FuseSize = "sm" | "md" | "lg";
 
 export interface FuseButtonProps {
+  /** 容器 role 透传（如侧栏菜单里传 menuitem——UIA 客户端在 role 节点上 Invoke）。 */
+  role?: "menuitem" | "button" | "option" | string;
   label?: string;
   undoLabel?: string;
   doneLabel?: string;
@@ -80,7 +82,8 @@ export function FuseButton({
   onFuseEnd,
   onPhaseChange,
   className = "",
-  type = "button"
+  type = "button",
+  role
 }: FuseButtonProps) {
   const [phase, setPhase] = useState<FusePhase>("idle");
   const [instant, setInstant] = useState(false);
@@ -201,6 +204,7 @@ export function FuseButton({
   return (
     <span
       ref={rootRef}
+      role={role}
       tabIndex={-1}
       className={`fuse-button${className ? ` ${className}` : ""}`}
       data-phase={phase}
