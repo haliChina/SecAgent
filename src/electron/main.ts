@@ -29,7 +29,7 @@ import { closeVoiceWakeWindow, closeWakeWindow, getVoiceWakeWindow, getWakeWindo
 import { registerSessionsIpc } from "./ipc-sessions.js";
 import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, openPluginOverlay, openPluginSvgPreview, openSettings, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge } from "./windows.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
-import { AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
+import { AUTO_START_ARG, AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
 import { configureTts } from "./tts.js";
@@ -181,7 +181,13 @@ ipcMain.handle("oobe:complete", (event) => {
 // A second launch focuses the running instance instead of competing for the
 // wake shortcut, the tray, and the local HTTP server port.
 if (!app.requestSingleInstanceLock()) app.quit();
-app.on("second-instance", () => showMainWindow());
+app.on("second-instance", (_event, argv) => {
+  /* R74：开机双注册（计划任务 + 安装器 Run 键）会让两个 --autostart 实例
+     并发抢锁，后到者退出时触发本事件——安静待命模式下不该被顶出主窗。
+     只有用户手动拉起（argv 无 --autostart，如双击 exe / 开始菜单）才唤起。 */
+  if (argv.includes(AUTO_START_ARG)) { logMain("second-instance.autostart.skipped"); return; }
+  showMainWindow();
+});
 app.whenReady().then(async () => {
   if (!app.hasSingleInstanceLock()) return;
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);

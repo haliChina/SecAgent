@@ -987,6 +987,46 @@ export function App() {
       setVoiceDropZone("edit");
     } else setVoiceDropZone("send");
   };
+  /* R74 悬浮球拖拽回弹：pointer 拖拽跟手（ref 直改 style——pointermove
+     高频，setState 会重渲染整页），松手弹性曲线过冲回原位；拖远时阻尼
+     （模拟弹性系绳）+ 微放大增强拉扯感。始终回原位（用户定调）。 */
+  const orbDockRef = useRef<HTMLDivElement | null>(null);
+  const orbDragRef = useRef({ active: false, pointerId: -1, startX: 0, startY: 0, moved: false });
+  const releaseOrbDock = () => {
+    const el = orbDockRef.current;
+    if (el && orbDragRef.current.moved) {
+      el.style.transition = "transform .58s cubic-bezier(.2,1.55,.36,1)";
+      el.style.transform = "translate(0, 0) scale(1)";
+      el.classList.remove("dragging");
+      window.setTimeout(() => { const node = orbDockRef.current; if (node && !orbDragRef.current.active) node.style.transition = ""; }, 640);
+    }
+    orbDragRef.current = { active: false, pointerId: -1, startX: 0, startY: 0, moved: false };
+  };
+  const handleOrbPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    const el = orbDockRef.current;
+    if (!el) return;
+    orbDragRef.current = { active: true, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, moved: false };
+    try { el.setPointerCapture(event.pointerId); } catch { /* capture unavailable in tests */ }
+  };
+  const handleOrbPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = orbDragRef.current;
+    if (!drag.active || drag.pointerId !== event.pointerId) return;
+    const el = orbDockRef.current;
+    if (!el) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.moved) {
+      if (Math.hypot(dx, dy) <= 4) return;
+      drag.moved = true;
+      el.classList.add("dragging");
+      el.style.transition = "none";
+    }
+    const dist = Math.hypot(dx, dy);
+    const damp = 1 - 0.35 * Math.min(dist / 360, 1);
+    const scale = 1 + Math.min(dist / 900, 0.08);
+    el.style.transform = `translate(${(dx * damp).toFixed(1)}px, ${(dy * damp).toFixed(1)}px) scale(${scale.toFixed(3)})`;
+  };
   const handleMicPointerDown = (event: ReactPointerEvent<HTMLFormElement>) => {
     const target = event.target instanceof Element ? event.target.closest("textarea") : null;
     if (!target || event.button !== 0 || recordingRef.current || speechProcessing || sessionRunning || voicePendingSendRef.current || !session) return;
@@ -1113,7 +1153,7 @@ export function App() {
           <div />
         </div>
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>

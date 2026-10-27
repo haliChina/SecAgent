@@ -82,17 +82,20 @@ export class VoiceWakeEngine {
         },
         tokens: path.join(root, "tokens.txt"),
         provider: "cpu",
-        numThreads: 1,
+        numThreads: 2,
         modelingUnit: "ppinyin"
       },
       maxActivePaths: 4,
-      numTrailingBlanks: 1,
-      /* R59：实测"根本唤醒不了"——此前 keywordsThreshold 0.55 远高于 sherpa
-         默认 0.25（3M 小模型 + 近讲麦很难过 0.55 的置信门），回落到官方默认
-         （score 1.0 / threshold 0.25）保召回；误触由 numTrailingBlanks 与
-         唤醒词长度天然兜底。 */
-      keywordsScore: 1.0,
-      keywordsThreshold: 0.25,
+      /* R74：numTrailingBlanks 1→2——尾部静音判定太短会让说完关键词的
+         收尾帧被吞（截断式漏检），2 是社区对 3M 模型的常用值。 */
+      numTrailingBlanks: 2,
+      /* R59：threshold 0.55 远高于 sherpa 默认 0.25，回落官方默认。
+         R74 用户实测仍「喊不动」+识别率低——继续放宽：threshold 0.15
+         （3M 小模型召回优先，误触由四字词长度+冷却兜底）、score 1.4
+         （关键词相对背景语料的加分）。配合 VoiceWakeListener 的
+         AudioWorklet 重写（掉帧才是大屏场景的真根因）。 */
+      keywordsScore: 1.4,
+      keywordsThreshold: 0.15,
       keywords: `${keywordTokens(phrase)} @${phrase}`
     });
     this.stream = this.kws.createStream();

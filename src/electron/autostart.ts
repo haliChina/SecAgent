@@ -83,6 +83,20 @@ function removeAutostartTask(): void {
   runSchtasks(["/Delete", "/TN", WINDOWS_AUTOSTART_TASK_NAME, "/F"]);
 }
 
+/** R74：安装器写的 HKCU Run 键值名是 "SecAgent"（productName），而 Electron
+ *  setLoginItemSettings 操作的值名是 app.name（"secagent"）——键名不一致，
+ *  应用内 openAtLogin:false 删不掉安装器键。开机时计划任务与 Run 键双注册
+ *  并发启动两个 --autostart 实例，第二实例退出触发 first 实例的
+ *  second-instance（旧代码无条件 showMainWindow），安静待命被击穿。
+ *  reg delete 按安装器的值名强删，保证单一注册源。 */
+function removeInstallerRunKey(): void {
+  if (process.platform !== "win32") return;
+  try {
+    spawnSync("reg.exe", ["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "SecAgent", "/f"], { windowsHide: true, timeout: 5_000 });
+    logMain("autostart.installer.runkey.removed");
+  } catch { /* 键不存在或权限不足——注册表查询会兜底 */ }
+}
+
 /** Runs one schtasks command inside an elevated PowerShell (one UAC prompt).
  *  Returns false when the user declines the prompt or the command fails.
  *
@@ -125,6 +139,7 @@ export function writeAutostart(enabled: boolean): void {
     removeAutostartTask();
     // also clear the plain fallback / installer-written Run key
     app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
+    removeInstallerRunKey();
     logMain("autostart.disable.done", { taskExists: windowsAutostartTaskExists() });
     return;
   }
@@ -135,6 +150,7 @@ export function writeAutostart(enabled: boolean): void {
     logMain("autostart.task.created.direct");
     // task in place; make sure no stale Run-key entry also starts the app
     app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
+    removeInstallerRunKey();
     return;
   }
   if (create.status === 0 && windowsAutostartTaskExists()) {
@@ -151,6 +167,7 @@ export function writeAutostart(enabled: boolean): void {
     if (elevated && windowsAutostartTaskExists() && autostartTaskCarriesFlag()) {
       logMain("autostart.task.created.elevated");
       app.setLoginItemSettings({ openAtLogin: false, path: autostartExecutablePath(), args: AUTO_START_ARGS });
+      removeInstallerRunKey();
       return;
     }
     if (windowsAutostartTaskExists()) removeAutostartTask();

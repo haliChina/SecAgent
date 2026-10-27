@@ -716,7 +716,9 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .aurora-backdrop { position: absolute; inset: 0; overflow: hidden; border-radius: 28px; pointer-events: none; }
 .aurora-backdrop canvas { display: block; width: 100%; height: 100%; }
 /* 常驻状态球（composer 上方，会话开始后出现）：出现走过渡，不瞬移 */
-.composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); }
+.composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
+/* R74 拖拽态：抬升阴影 + 置顶；回弹曲线由 JS 内联（松手时写入）。 */
+.composer-orb-dock.dragging { cursor: grabbing; z-index: 60; box-shadow: 0 10px 28px rgba(15, 23, 42, .22); }
 .composer-orb-dock .matrix-orb, .composer-orb-dock .fluid-orb { margin: 0; gap: 0; display: block; }
 /* R62：FluidOrb 白底白球看不清——orb 外框加弱描边+内高光+微投影（凸起感）。
    打在 .fluid-orb 根节点（组件 className 透传），组件本体零改动。 */
