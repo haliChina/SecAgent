@@ -614,11 +614,6 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
   settingsWindow.once("ready-to-show", showSettingsOnce);
   settingsWindow.once("show", showSettingsOnce);
   const settingsFallbackTimer = setTimeout(showSettingsOnce, 3000);
-  settingsWindow.on("native-theme-updated", () => {
-    if (settingsWindow && !settingsWindow.isDestroyed() && !settingsWindow.webContents.isLoading()) {
-      settingsWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#0B0F14" : "#FAFBFD");
-    }
-  });
   settingsWindow.on("closed", () => {
     clearTimeout(settingsFallbackTimer);
     settingsWindow = undefined;
