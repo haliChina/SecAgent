@@ -380,7 +380,13 @@ export function App() {
     if (!bridge) return;
     return bridge.onRuntimeEvent((event) => {
       const item = event as TraceEvent;
-      setTrace((current) => [...current, item]);
+      /* R75（审计 P3-62）：trace 全局单桶无上限累积（长会话+多会话并行时
+         每个事件都进 state 永不释放，且 statusTick 每秒触发整树重渲染都要
+         遍历它）。滑动窗口 500 条——UI 只展示最近活动，500 早已覆盖可视区。 */
+      setTrace((current) => {
+        const next = [...current, item];
+        return next.length > 500 ? next.slice(next.length - 500) : next;
+      });
       if (item.stage === "model.request/failed") {
         const data = (item.data ?? {}) as { model?: unknown; kind?: unknown; error?: unknown };
         setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [...current.failed, { model: String(data.model ?? "未知模型"), kind: String(data.kind ?? "unknown"), message: String(data.error ?? "") }] } : current);
@@ -601,7 +607,8 @@ export function App() {
     setTrace((current) => {
       const merged = new Map(current.map((item) => [`${item.sessionId}:${item.sequence}`, item]));
       for (const item of runtimeEvents) merged.set(`${item.sessionId}:${item.sequence}`, item);
-      return [...merged.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence);
+      const sorted = [...merged.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence);
+      return sorted.length > 500 ? sorted.slice(sorted.length - 500) : sorted;
     });
   };
   const createSession = async () => {

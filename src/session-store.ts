@@ -123,9 +123,14 @@ export class SessionStore {
     fs.appendFileSync(path.join(this.sessionDir(id), "runtime.jsonl"), entry, "utf8");
   }
   getRuntimeEvents(id: string): SessionRuntimeEvent[] {
+    /* R75（审计 P3-47）：实测单会话 runtime.jsonl 达 229MB，旧实现全量
+       readFileSync+逐行 parse 后又只 slice 最后一轮——整文件进内存纯属浪费
+       （大文件下 JS 对象化峰值可达 1GB 级）。改尾部窗口读取：从文件尾往前
+       取一块，在块内找最后一个 user.request；找不到（说明最后一轮早于此块）
+       按倍增窗口重试，上限 4MB。正常会话的最后一轮事件远小于 4MB。 */
     const file = path.join(this.sessionDir(id), "runtime.jsonl");
     if (!fs.existsSync(file)) return [];
-    const events = fs.readFileSync(file, "utf8").split("\n").flatMap((line): SessionRuntimeEvent[] => {
+    const parseEvents = (text: string): SessionRuntimeEvent[] => text.split("\n").flatMap((line): SessionRuntimeEvent[] => {
       if (!line) return [];
       try {
         const event = JSON.parse(line) as Partial<SessionRuntimeEvent>;
@@ -136,14 +141,37 @@ export class SessionStore {
         return [];
       }
     });
-    let lastRequest = -1;
-    for (let index = events.length - 1; index >= 0; index -= 1) {
-      if (events[index].stage === "user.request") {
-        lastRequest = index;
-        break;
+    const size = fs.statSync(file).size;
+    const findLastRequest = (events: SessionRuntimeEvent[]): number => {
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        if (events[index].stage === "user.request") return index;
+      }
+      return -1;
+    };
+    let windowBytes = Math.min(524_288, size);
+    while (true) {
+      const fh = fs.openSync(file, "r");
+      try {
+        const readBytes = Buffer.alloc(Math.min(windowBytes, size));
+        fs.readSync(fh, readBytes, 0, readBytes.length, Math.max(0, size - windowBytes));
+        const text = readBytes.toString("utf8");
+        // 窗口首行可能被截断成半个 JSON，parse 失败自然丢弃——但若整个窗口
+        // 都不是从行首开始，第一行必废，从下一个换行开始读。
+        const firstNewline = windowBytes < size ? text.indexOf("\n") : -1;
+        const body = firstNewline >= 0 ? text.slice(firstNewline + 1) : text;
+        const events = parseEvents(body);
+        const lastRequest = findLastRequest(events);
+        if (lastRequest >= 0) return events.slice(lastRequest);
+        if (windowBytes >= size) {
+          // 整文件都没有 user.request（极端：事件全被轮转清理）——返回尾部窗口
+          return events.slice(-2000);
+        }
+        if (windowBytes >= 4_194_304) return events.slice(-2000);
+        windowBytes = Math.min(windowBytes * 2, Math.max(size, 4_194_304));
+      } finally {
+        fs.closeSync(fh);
       }
     }
-    return lastRequest >= 0 ? events.slice(lastRequest) : events;
   }
   setAutoLoadedSkills(id: string, skills: string[]): void {
     const session = this.get(id);

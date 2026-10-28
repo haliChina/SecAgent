@@ -601,7 +601,26 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
   const hash = typeof page === "string" && page ? `#${page}` : "";
   if (process.env.ELECTRON_RENDERER_URL) settingsWindow.loadURL(`${process.env.ELECTRON_RENDERER_URL}${query}${hash}`);
   else settingsWindow.loadFile(path.join(__dirname, "../renderer/index.html"), { query: oobe ? { settings: "1", oobe: "1" } : { settings: "1" }, ...(hash ? { hash: page! } : {}) });
+  /* R75（修 R73 半截补丁回归）：show:false 后必须有显示路径——首帧就绪
+     （ready-to-show）再 show 跳过白屏帧；data:URL 组合下该事件偶发不发，
+     3s 兜底；「show」事件幂等保险。主题切换时底色同步（只影响未绘制区）。 */
+  let settingsShown = false;
+  const showSettingsOnce = () => {
+    if (settingsShown || !settingsWindow || settingsWindow.isDestroyed()) return;
+    settingsShown = true;
+    settingsWindow.show();
+    settingsWindow.focus();
+  };
+  settingsWindow.once("ready-to-show", showSettingsOnce);
+  settingsWindow.once("show", showSettingsOnce);
+  const settingsFallbackTimer = setTimeout(showSettingsOnce, 3000);
+  settingsWindow.on("native-theme-updated", () => {
+    if (settingsWindow && !settingsWindow.isDestroyed() && !settingsWindow.webContents.isLoading()) {
+      settingsWindow.setBackgroundColor(nativeTheme.shouldUseDarkColors ? "#0B0F14" : "#FAFBFD");
+    }
+  });
   settingsWindow.on("closed", () => {
+    clearTimeout(settingsFallbackTimer);
     settingsWindow = undefined;
     if (oobe) {
       if (!onboardingCompletionRequested) app.quit();
