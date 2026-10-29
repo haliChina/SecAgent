@@ -216,7 +216,7 @@ export function SettingsAccountPage(props: AccountPageProps) {
     <SettingsConfirmDialog
       open={confirmDialog === "cache"}
       title="清除缓存"
-      message="将清空本地存储、会话缓存与站点缓存。已保存的配置与 API Key 位于工作区文件，不受影响。确定继续吗？"
+      message="将清空本地存储、会话存储与站点缓存（不含网络请求的磁盘缓存）。已保存的配置与 API Key 位于工作区文件，不受影响。确定继续吗？"
       confirmLabel="清除"
       danger
       onCancel={() => setConfirmDialog(null)}
