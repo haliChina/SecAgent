@@ -313,12 +313,18 @@ export function App() {
           setCustomModelMode(customMode);
           setDefaultEffort((settings.defaultReasoningEffort || "high") as ReasoningEffort);
           setSelectedModelId((current) => {
-            if (models.some((model) => !isOfficialVisionModel(model) && model.id === (settings.defaultModelId || current))) return settings.defaultModelId || current;
+            /* R79：设置广播（主题切换、插件开关等）不应覆盖输入栏里用户
+               当次选中的模型。当前选择仍在可用列表内就原样保留，只有它
+               被删除/被过滤时才回退到默认模型或官方档位——此前无条件写回
+               settings.defaultModelId，用户选了模型又被悄悄弹回默认值，
+               表现为"选不上模型"。 */
+            if (models.some((model) => !isOfficialVisionModel(model) && model.id === current)) return current;
+            const preferred = models.find((model) => !isOfficialVisionModel(model) && model.id === settings.defaultModelId);
+            if (preferred) return preferred.id;
             const tier = models.find((model) => isOfficialTierModel(model) && model.model === tierDefaultId);
             if (tier) return tier.id;
             return models.find((model) => !isOfficialVisionModel(model))?.id || "";
           });
-          setReasoningEffort(settings.defaultReasoningEffort || "high");
         });
       });
     });

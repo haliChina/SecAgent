@@ -372,14 +372,24 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .plugin-settings-section { display: block; }
 .plugin-service-status { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
 .plugin-service-status span { color: var(--text-2); font-size: 13px; }
-/* R77：通用插件设置表单——单列（字段带长 hint，双列会互相挤压截断）。
- * 布尔用 settings-card 内的 .toggle-row（开关行）样式。 */
-.plugin-form-fields { display: grid; gap: 14px; margin-top: 2px; }
-.plugin-form-fields label { display: grid; gap: 6px; color: var(--text-2); font-size: 12px; }
-/* toggle-row（0,1,0）低于上面（0,1,1）——布尔开关行必须赢回来 */
-.plugin-form-fields label.toggle-row { display: flex; }
-.plugin-form-fields input[type="text"], .plugin-form-fields input[type="number"] { min-width: 0; }
+/* R77/R79：通用插件设置表单——行式（标题/说明在左、控件在右），
+ * 布尔开关复用 .set-switch。 */
 .plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
+/* 控件列固定宽度，长标签不挤压输入；颜色/描边全部走主题 token。 */
+.plugin-set-row { cursor: default; }
+.plugin-set-row:hover { background: transparent; }
+.plugin-set-control { width: min(260px, 46%); }
+.plugin-set-control .select-combobox,
+.plugin-set-control input[type="text"],
+.plugin-set-control input[type="number"] { width: 100%; }
+.plugin-set-control input[type="text"],
+.plugin-set-control input[type="number"] {
+  min-height: 36px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; outline: none;
+  background: var(--bg-2); color: var(--text-1); font-size: 13px;
+}
+.plugin-set-control input[type="text"]:focus,
+.plugin-set-control input[type="number"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .plugin-service-status strong { color: #4ADE80; font-size: 13px; font-weight: 600; text-align: right; }
 .plugin-service-status.error { border-color: rgba(248,113,113,.35); background: var(--bg-1); }
 .plugin-service-status.error strong { color: #F87171; }
@@ -1053,12 +1063,12 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 分组小标题（组与组之间的语义标签，Trae 同款）。 */
 .set-group-wrap { display: grid; }
 .set-group-label { margin: 0 0 10px; padding-left: 4px; color: var(--text-3); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.set-group-desc { margin: -4px 0 10px; padding-left: 4px; color: var(--text-3); font-size: 12px; line-height: 1.55; }
 
 /* 页头（新「账户与通用」页）：标题 + ⋯ 更多。 */
 .set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 2px; }
 .set-head-copy { min-width: 0; }
 .set-head-title { margin: 0; color: var(--text-1); font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
-.set-head-sub { margin: 6px 0 0; max-width: 680px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
 .set-head-actions { position: relative; display: flex; flex: none; gap: 8px; }
 .set-icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); color: var(--text-2); }
 .set-icon-button:hover { background: var(--bg-2); color: var(--text-1); }

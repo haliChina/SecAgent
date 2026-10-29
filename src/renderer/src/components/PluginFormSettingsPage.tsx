@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { SelectCombobox } from "./SelectCombobox.js";
+import { SettingsGroup, SettingsSwitchRow } from "./settings/SettingPrimitives.js";
 
 /* R76（升级包 asar 补丁进源码）：通用插件设置表单。
  *
@@ -122,62 +123,61 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     setValues((current) => ({ ...current, [key]: value }));
   };
 
+  /* R79：改为与设置页其余分区一致的行式布局（标题/说明在左、控件在右），
+     复用 .set-row / .set-group 与 SettingPrimitives，不再自带一套表单样式。 */
+  const renderField = (field: PluginSettingField) => {
+    const value = values[field.key];
+    const label = field.label || field.key;
+    const hint = field.hint || field.help;
+    // R77：CIC 的 schema 用 "bool"（桌宠用 "boolean"）——两种都认。
+    if (field.type === "boolean" || field.type === "bool" || field.type === "toggle") {
+      return <SettingsSwitchRow
+        key={field.key}
+        title={label}
+        desc={hint}
+        checked={value === true}
+        onChange={(next) => setField(field.key, next)}
+      />;
+    }
+    const control = field.type === "select" && Array.isArray(field.options) && field.options.length
+      ? <SelectCombobox
+        ariaLabel={label}
+        value={String(value ?? "")}
+        options={field.options.map((option) => ({ value: String(option.value), label: option.label || String(option.value) }))}
+        onChange={(next) => setField(field.key, next)}
+      />
+      : field.type === "number"
+        ? <input
+          type="number"
+          value={String(value ?? "")}
+          min={typeof field.min === "number" ? field.min : undefined}
+          max={typeof field.max === "number" ? field.max : undefined}
+          step={typeof field.step === "number" ? field.step : undefined}
+          onChange={(event) => setField(field.key, event.target.value === "" ? "" : Number(event.target.value))}
+        />
+        : <input
+          type="text"
+          value={String(value ?? "")}
+          placeholder={field.placeholder || ""}
+          onChange={(event) => setField(field.key, event.target.value)}
+        />;
+    return <div className="set-row set-row-static plugin-set-row" key={field.key}>
+      <span className="set-row-main">
+        <span className="set-row-title">{label}</span>
+        {hint ? <span className="set-row-desc">{hint}</span> : null}
+      </span>
+      <span className="set-row-right plugin-set-control">{control}</span>
+    </div>;
+  };
+
   return <>
     {error && <div className="settings-error">{error}</div>}
     {note && <div className="settings-success">{note}</div>}
-    {sections.map((section) => <article className="settings-card" key={section.title}>
-      <div className="card-heading"><div><strong>{section.title}</strong>{section.description && <span>{section.description}</span>}</div></div>
-      <div className="plugin-form-fields">
-        {section.fields.map((field) => {
-          const value = values[field.key];
-          const label = field.label || field.key;
-          const hint = field.hint || field.help;
-          // R77：CIC 的 schema 用 "bool"（桌宠用 "boolean"）——两种都认。
-          if (field.type === "boolean" || field.type === "bool" || field.type === "toggle") {
-            return <label className="toggle-row" key={field.key}>
-              <span className="toggle-copy"><strong>{label}</strong>{hint && <small>{hint}</small>}</span>
-              <input type="checkbox" checked={value === true} onChange={(event) => setField(field.key, event.target.checked)} />
-            </label>;
-          }
-          if (field.type === "select" && Array.isArray(field.options) && field.options.length) {
-            return <label key={field.key}>{label}
-              <SelectCombobox
-                ariaLabel={label}
-                value={String(value ?? "")}
-                options={field.options.map((option) => ({ value: String(option.value), label: option.label || String(option.value) }))}
-                onChange={(next) => setField(field.key, next)}
-              />
-              {hint && <small className="settings-note-inline">{hint}</small>}
-            </label>;
-          }
-          if (field.type === "number") {
-            return <label key={field.key}>{label}
-              <input
-                type="number"
-                value={String(value ?? "")}
-                min={typeof field.min === "number" ? field.min : undefined}
-                max={typeof field.max === "number" ? field.max : undefined}
-                step={typeof field.step === "number" ? field.step : undefined}
-                onChange={(event) => setField(field.key, event.target.value === "" ? "" : Number(event.target.value))}
-              />
-              {hint && <small className="settings-note-inline">{hint}</small>}
-            </label>;
-          }
-          return <label key={field.key}>{label}
-            <input
-              type="text"
-              value={String(value ?? "")}
-              placeholder={field.placeholder || ""}
-              onChange={(event) => setField(field.key, event.target.value)}
-            />
-            {hint && <small className="settings-note-inline">{hint}</small>}
-          </label>;
-        })}
-      </div>
-    </article>)}
+    {sections.map((section, index) => <SettingsGroup key={`${section.title}-${index}`} label={section.title} desc={section.description}>
+      {section.fields.map(renderField)}
+    </SettingsGroup>)}
     <div className="plugin-form-actions">
-      <button className="primary-button" type="button" disabled={busy} onClick={() => void save()}>{busy ? "保存中…" : saved ? "已保存 ✓" : "保存设置"}</button>
-      {saved && <span className="settings-help">插件已确认写入（部分参数立即生效，个别需重载插件——见插件说明）。</span>}
+      <button className="primary-button" type="button" disabled={busy} onClick={() => void save()}>{busy ? "保存中…" : saved ? "已保存" : "保存设置"}</button>
     </div>
   </>;
 }
