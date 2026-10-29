@@ -127,12 +127,13 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     {note && <div className="settings-success">{note}</div>}
     {sections.map((section) => <article className="settings-card" key={section.title}>
       <div className="card-heading"><div><strong>{section.title}</strong>{section.description && <span>{section.description}</span>}</div></div>
-      <div className="form-grid">
+      <div className="plugin-form-fields">
         {section.fields.map((field) => {
           const value = values[field.key];
           const label = field.label || field.key;
           const hint = field.hint || field.help;
-          if (field.type === "boolean") {
+          // R77：CIC 的 schema 用 "bool"（桌宠用 "boolean"）——两种都认。
+          if (field.type === "boolean" || field.type === "bool" || field.type === "toggle") {
             return <label className="toggle-row" key={field.key}>
               <span className="toggle-copy"><strong>{label}</strong>{hint && <small>{hint}</small>}</span>
               <input type="checkbox" checked={value === true} onChange={(event) => setField(field.key, event.target.checked)} />
@@ -174,7 +175,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
         })}
       </div>
     </article>)}
-    <div className="form-grid plugin-form-actions">
+    <div className="plugin-form-actions">
       <button className="primary-button" type="button" disabled={busy} onClick={() => void save()}>{busy ? "保存中…" : saved ? "已保存 ✓" : "保存设置"}</button>
       {saved && <span className="settings-help">插件已确认写入（部分参数立即生效，个别需重载插件——见插件说明）。</span>}
     </div>

@@ -372,6 +372,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .plugin-settings-section { display: block; }
 .plugin-service-status { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
 .plugin-service-status span { color: var(--text-2); font-size: 13px; }
+/* R77：通用插件设置表单——单列（字段带长 hint，双列会互相挤压截断）。
+ * 布尔用 settings-card 内的 .toggle-row（开关行）样式。 */
+.plugin-form-fields { display: grid; gap: 14px; margin-top: 2px; }
+.plugin-form-fields label { display: grid; gap: 6px; color: var(--text-2); font-size: 12px; }
+/* toggle-row（0,1,0）低于上面（0,1,1）——布尔开关行必须赢回来 */
+.plugin-form-fields label.toggle-row { display: flex; }
+.plugin-form-fields input[type="text"], .plugin-form-fields input[type="number"] { min-width: 0; }
+.plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
 .plugin-service-status strong { color: #4ADE80; font-size: 13px; font-weight: 600; text-align: right; }
 .plugin-service-status.error { border-color: rgba(248,113,113,.35); background: var(--bg-1); }
 .plugin-service-status.error strong { color: #F87171; }
