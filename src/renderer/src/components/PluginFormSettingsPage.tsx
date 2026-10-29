@@ -103,7 +103,20 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     setSaved(false);
     setNote("");
     try {
-      const result = (await bridge.callPluginSettings(pluginId, pageId, "set", values)) as { ok?: boolean; values?: Record<string, unknown>; note?: string } | null;
+      /* 数字字段在编辑期保留原始字符串（允许「-」「1.」这类中间态，否则
+         受控输入会把它格式化成 NaN 而没法输入负数/小数）；提交前统一归一。 */
+      const payload: Record<string, unknown> = { ...values };
+      for (const section of sections ?? []) {
+        for (const field of section.fields) {
+          if (field.type !== "number") continue;
+          const raw = payload[field.key];
+          if (typeof raw !== "string") continue;
+          const parsed = Number(raw.trim());
+          if (raw.trim() === "" || !Number.isFinite(parsed)) delete payload[field.key];
+          else payload[field.key] = parsed;
+        }
+      }
+      const result = (await bridge.callPluginSettings(pluginId, pageId, "set", payload)) as { ok?: boolean; values?: Record<string, unknown>; note?: string } | null;
       if (result && typeof result.values === "object" && result.values) setValues(result.values);
       if (result && typeof result.note === "string" && result.note) setNote(result.note);
       setSaved(true);
@@ -153,7 +166,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
           min={typeof field.min === "number" ? field.min : undefined}
           max={typeof field.max === "number" ? field.max : undefined}
           step={typeof field.step === "number" ? field.step : undefined}
-          onChange={(event) => setField(field.key, event.target.value === "" ? "" : Number(event.target.value))}
+          onChange={(event) => setField(field.key, event.target.value)}
         />
         : <input
           type="text"
@@ -161,7 +174,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
           placeholder={field.placeholder || ""}
           onChange={(event) => setField(field.key, event.target.value)}
         />;
-    return <div className="set-row set-row-static plugin-set-row" key={field.key}>
+    return <div className="set-row set-row-static" key={field.key}>
       <span className="set-row-main">
         <span className="set-row-title">{label}</span>
         {hint ? <span className="set-row-desc">{hint}</span> : null}

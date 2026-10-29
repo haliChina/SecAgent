@@ -10,6 +10,7 @@ import { normalizeResilienceSettings } from "./resilience.js";
 import { normalizeToolGuardSettings } from "./tool-guard.js";
 import { normalizeModelBudgetSettings } from "./model-budget.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 export const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
 export const DEFAULT_MAX_TOKENS = 16_384;
@@ -603,7 +604,9 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   raw.hallucination = { enabled: payload.hallucinationEnabled !== false };
   raw.theme = payload.theme === "dark" || payload.theme === "system" ? payload.theme : "light";
   delete (raw as SecAgentConfig & { policy?: unknown }).policy;
-  fs.writeFileSync(file, YAML.stringify(raw), "utf8");
+  /* 架构审查：配置文件此前直接 writeFileSync，写一半崩溃会让整份 YAML 不可解析
+     （设置/密钥引用全丢）。改为临时文件 + rename 原子替换。 */
+  writeFileAtomic(file, YAML.stringify(raw));
   return readSettings(workspace);
 }
 
@@ -616,6 +619,6 @@ export function writeWorkspaceEnv(workspace: string, name: string, value: string
   const index = lines.findIndex((line) => line.match(new RegExp(`^\\s*${name}\\s*=`)));
   if (index >= 0) lines[index] = next;
   else lines.push(next);
-  fs.writeFileSync(file, `${lines.filter((line, item) => item !== lines.length - 1 || line).join("\n").replace(/\n*$/, "\n")}`, "utf8");
+  writeFileAtomic(file, `${lines.filter((line, item) => item !== lines.length - 1 || line).join("\n").replace(/\n*$/, "\n")}`);
   process.env[name] = value;
 }

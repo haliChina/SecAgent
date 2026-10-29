@@ -375,9 +375,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* R77/R79：通用插件设置表单——行式（标题/说明在左、控件在右），
  * 布尔开关复用 .set-switch。 */
 .plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
-/* 控件列固定宽度，长标签不挤压输入；颜色/描边全部走主题 token。 */
-.plugin-set-row { cursor: default; }
-.plugin-set-row:hover { background: transparent; }
+/* 控件列固定宽度，长标签不挤压输入；颜色/描边全部走主题 token。
+ * 行本身复用 .set-row-static（已有 cursor/hover 规则），不再单独定义。 */
 .plugin-set-control { width: min(260px, 46%); }
 .plugin-set-control .select-combobox,
 .plugin-set-control input[type="text"],

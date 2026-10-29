@@ -110,9 +110,14 @@ export function SettingsAccountPage(props: AccountPageProps) {
   };
 
   const logout = async (): Promise<void> => {
-    await props.onLogout();
-    setConfirmDialog(null);
-    setNotice("已退出登录。");
+    try {
+      await props.onLogout();
+      setNotice("已退出登录。");
+    } catch {
+      setNotice("退出登录失败，请稍后重试。");
+    } finally {
+      setConfirmDialog(null);
+    }
   };
 
   type RowDefinition =
