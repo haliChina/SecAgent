@@ -16,6 +16,13 @@ export function writeFileAtomic(file: string, data: string): void {
   const tmp = path.join(dir, `.${path.basename(file)}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`);
   try {
     fs.writeFileSync(tmp, data, "utf8");
+    /* 先 fsync 再 rename：rename 只保证目录项切换原子，不保证数据页已落盘；
+       .env 里是 API Key，写盘掉电时宁可保留旧文件也不要留下半截密钥。 */
+    const fd = fs.openSync(tmp, "r+");
+    try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    /* 临时文件默认按 umask 建（通常 0644），直接 rename 会把 .env 原有的
+       0600 放宽。替换前把目标权限复制到临时文件，新文件才不泄露密钥。 */
+    try { fs.chmodSync(tmp, fs.statSync(file).mode & 0o777); } catch { /* 目标文件不存在：保持默认权限 */ }
     fs.renameSync(tmp, file);
   } catch (error) {
     try { fs.rmSync(tmp, { force: true }); } catch { /* 清理失败不应掩盖写入错误 */ }
