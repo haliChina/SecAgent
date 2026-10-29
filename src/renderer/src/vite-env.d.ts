@@ -78,6 +78,7 @@ interface Window {
     openSkillsDirectory(): Promise<string>;
     listPlugins(): Promise<PluginStatus[]>;
     callPluginSettings(pluginId: string, pageId: string, action: string, args?: unknown): Promise<any>;
+    pickPluginPath(kind?: "file" | "directory"): Promise<string | null>;
     setPluginEnabled(id: string, enabled: boolean): Promise<PluginStatus[]>;
     reloadPlugin(id: string): Promise<PluginStatus[]>;
     uninstallPlugin(id: string): Promise<PluginStatus[]>;

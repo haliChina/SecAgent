@@ -377,18 +377,54 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
 /* 控件列固定宽度，长标签不挤压输入；颜色/描边全部走主题 token。
  * 行本身复用 .set-row-static（已有 cursor/hover 规则），不再单独定义。 */
-.plugin-set-control { width: min(260px, 46%); }
+.plugin-set-control { width: min(320px, 52%); display: flex; align-items: center; gap: 8px; }
+.plugin-set-control .select-combobox,
+.plugin-set-control .plugin-path-field,
+.plugin-set-control .plugin-secret-field { flex: 1; min-width: 0; }
 .plugin-set-control .select-combobox,
 .plugin-set-control input[type="text"],
-.plugin-set-control input[type="number"] { width: 100%; }
+.plugin-set-control input[type="password"],
+.plugin-set-control input[type="number"],
+.plugin-set-control textarea { width: 100%; }
+.plugin-path-field, .plugin-secret-field { display: flex; align-items: center; gap: 6px; }
+.plugin-path-field input, .plugin-secret-field input { flex: 1; min-width: 0; }
 .plugin-set-control input[type="text"],
-.plugin-set-control input[type="number"] {
+.plugin-set-control input[type="password"],
+.plugin-set-control input[type="number"],
+.plugin-set-control textarea {
   min-height: 36px; padding: 8px 10px;
   border: 1px solid var(--line); border-radius: 8px; outline: none;
   background: var(--bg-2); color: var(--text-1); font-size: 13px;
 }
+.plugin-set-control textarea { min-height: 64px; resize: vertical; line-height: 1.5; }
 .plugin-set-control input[type="text"]:focus,
-.plugin-set-control input[type="number"]:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
+.plugin-set-control input[type="password"]:focus,
+.plugin-set-control input[type="number"]:focus,
+.plugin-set-control textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
+.plugin-set-inline-button {
+  flex: none; min-height: 36px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg-2); color: var(--text-2); font-size: 12px; cursor: pointer;
+}
+.plugin-set-inline-button:hover { border-color: var(--accent-border); color: var(--accent-text); }
+.plugin-set-reset {
+  flex: none; width: 30px; height: 30px; display: inline-grid; place-items: center;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--text-3); cursor: pointer;
+}
+.plugin-set-reset:hover { border-color: var(--line); background: var(--bg-2); color: var(--text-1); }
+.plugin-effect-badge {
+  display: inline-flex; margin-left: 8px; padding: 1px 7px;
+  border: 1px solid var(--accent-border); border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-text);
+  font-size: 11px; font-weight: 600; vertical-align: middle;
+}
+.plugin-effect-badge.guidance { border-color: var(--line); background: var(--bg-2); color: var(--text-2); }
+.plugin-actions-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+.plugin-action-button { min-height: 34px; }
+.plugin-action-button.danger { border-color: rgba(248,113,113,.42); color: #F87171; }
+.plugin-action-result { margin: 0 14px 12px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.plugin-form-state { color: var(--text-3); font-size: 12px; }
 .plugin-service-status strong { color: #4ADE80; font-size: 13px; font-weight: 600; text-align: right; }
 .plugin-service-status.error { border-color: rgba(248,113,113,.35); background: var(--bg-1); }
 .plugin-service-status.error strong { color: #F87171; }

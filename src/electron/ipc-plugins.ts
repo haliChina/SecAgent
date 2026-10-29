@@ -24,6 +24,17 @@ export function registerPluginIpc(deps: {
     try { return await getPluginManager()?.callSettings(pluginId, pageId, action, args); }
     catch (error) { recordTelemetryFailure({ type: "plugin.call.failed", error, context: { pluginId, pageId, action } }); throw error; }
   });
+  /* 插件设置里的路径字段（数据目录/皮肤目录）：原生选择框由用户主动触发，
+     只返回选中的单个路径，不提供任意读取能力。 */
+  ipcMain.handle("plugins:pick-path", async (_event, kind: "file" | "directory" = "directory") => {
+    const options: Electron.OpenDialogOptions = {
+      properties: [kind === "file" ? "openFile" : "openDirectory"],
+      title: kind === "file" ? "选择文件" : "选择目录"
+    };
+    const window = getWindow();
+    const result = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
   ipcMain.handle("plugins:set-enabled", async (_event, id: string, enabled: boolean) => {
     try { await getPluginManager()?.setEnabled(id, enabled); return getPluginManager()?.list() || []; }
     catch (error) { recordTelemetryFailure({ type: "plugin.start.failed", error, context: { pluginId: id, enabled } }); throw error; }

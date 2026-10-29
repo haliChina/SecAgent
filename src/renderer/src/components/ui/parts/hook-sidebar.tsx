@@ -99,7 +99,9 @@ export function HookSidebar({ activeId, items, onSelect }: {
   const [pointerInside, setPointerInside] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
 
-  const activeIndex = Math.max(0, items.findIndex((item) => item.id === activeId));
+  /* activeId 不在列表（例如刚切到插件页/页面被移除）时保持 -1：不把钩线
+     静默钉在第一项，避免视觉上误报「当前在第一项」。 */
+  const activeIndex = items.findIndex((item) => item.id === activeId);
 
   useLayoutEffect(() => {
     const list = listRef.current;

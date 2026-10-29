@@ -613,7 +613,7 @@ export function App() {
     setTrace((current) => {
       const merged = new Map(current.map((item) => [`${item.sessionId}:${item.sequence}`, item]));
       for (const item of runtimeEvents) merged.set(`${item.sessionId}:${item.sequence}`, item);
-      const sorted = [...merged.values()].sort((left, right) => left.sessionId.localeCompare(right.sessionId) || left.sequence - right.sequence);
+      const sorted = [...merged.values()].sort((left, right) => left.at.localeCompare(right.at) || left.sequence - right.sequence);
       return sorted.length > 500 ? sorted.slice(sorted.length - 500) : sorted;
     });
   };
