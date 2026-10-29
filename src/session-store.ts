@@ -240,13 +240,18 @@ export class SessionStore {
    *
    * 迁移不在构造期回填 runtime.jsonl 工具调用（229MB 日志会拖慢启动），
    * legacy_hydrated 沿旧值，交给首次 get() 懒回填。
+   *
+   * 索引可读性决定 listed 默认值：旧版 index.json 只收常规会话（唤醒会话
+   * 从不入索引），所以「索引里没有 = listed:false」。但索引缺失/损坏时无法
+   * 区分，此时宁可全部按 listed:true 导入——会话突然消失比多出一个后台
+   * 会话更糟。损坏的 index.json 仍会回退到 `index.json.migrated` 备份。
    */
   private migrateLegacyJson(): void {
     const indexFile = path.join(this.root, "index.json");
     if (readSessionDbMeta(this.db, "legacy_migrated") === "1" && !fs.existsSync(indexFile)) return;
-    const legacyIndex = this.readLegacyIndex(fs.existsSync(indexFile) ? indexFile : path.join(this.root, "index.json.migrated"));
+    const legacyIndex = this.readLegacyIndexWithFallback(indexFile);
     const entries = new Map<string, { meta: SessionMeta; preview?: string; listed: boolean; data?: SessionData }>();
-    for (const meta of legacyIndex) entries.set(meta.id, { meta, ...(typeof meta.preview === "string" ? { preview: meta.preview } : {}), listed: true });
+    for (const meta of legacyIndex ?? []) entries.set(meta.id, { meta, ...(typeof meta.preview === "string" ? { preview: meta.preview } : {}), listed: true });
     const files: string[] = [];
     for (const dirent of fs.readdirSync(this.root, { withFileTypes: true })) {
       if (!dirent.isDirectory()) continue;
@@ -262,7 +267,7 @@ export class SessionStore {
           // 归档标记只存在旧 index.json 里，合并时不能丢。
           meta: prior?.meta.archived ? { ...data.meta, archived: true } : data.meta,
           ...(prior?.preview !== undefined ? { preview: prior.preview } : {}),
-          listed: prior?.listed ?? false,
+          listed: prior?.listed ?? legacyIndex === undefined,
           data,
         });
       } catch { /* 单个损坏的旧会话文件不阻塞启动 */ }
@@ -300,13 +305,21 @@ export class SessionStore {
     for (const file of files) this.retireLegacyFile(file);
   }
 
-  private readLegacyIndex(file: string): SessionMeta[] {
-    if (!fs.existsSync(file)) return [];
+  /** 返回 undefined 表示索引不可读（缺失/损坏），而不是「索引里没有该会话」。 */
+  private readLegacyIndexWithFallback(file: string): SessionMeta[] | undefined {
+    const primary = this.readLegacyIndex(file);
+    if (primary !== undefined) return primary;
+    return this.readLegacyIndex(`${file}.migrated`);
+  }
+
+  private readLegacyIndex(file: string): SessionMeta[] | undefined {
+    if (!fs.existsSync(file)) return undefined;
     try {
       const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as SessionMeta[];
-      return Array.isArray(parsed) ? parsed.filter((meta) => typeof meta?.id === "string" && typeof meta.title === "string" && typeof meta.updatedAt === "string") : [];
+      if (!Array.isArray(parsed)) return undefined;
+      return parsed.filter((meta) => typeof meta?.id === "string" && typeof meta.title === "string" && typeof meta.updatedAt === "string");
     } catch {
-      return [];
+      return undefined;
     }
   }
 
