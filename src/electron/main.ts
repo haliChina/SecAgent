@@ -16,6 +16,7 @@ import { AuditStore } from "../audit.js";
 import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
+import { closeAllSessionDbs } from "../session-db.js";
 import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
@@ -310,5 +311,5 @@ async function startApplication(): Promise<void> {
   if (needsOnboarding) openSettings(true);
   app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }
-app.on("before-quit", () => { updateManager?.handleBeforeQuit(); setIsQuitting(); closeWakeWindow(); closeVoiceWakeWindow(); globalShortcut.unregisterAll(); if (marketplaceUpdateTimer) clearInterval(marketplaceUpdateTimer); if (updateCheckTimer) clearInterval(updateCheckTimer); void secAgentHttpServer?.stop(); void pluginManager?.shutdown(); getTelemetry()?.stop(); });
+app.on("before-quit", () => { updateManager?.handleBeforeQuit(); setIsQuitting(); closeWakeWindow(); closeVoiceWakeWindow(); globalShortcut.unregisterAll(); if (marketplaceUpdateTimer) clearInterval(marketplaceUpdateTimer); if (updateCheckTimer) clearInterval(updateCheckTimer); void secAgentHttpServer?.stop(); void pluginManager?.shutdown(); getTelemetry()?.stop(); /* 关连接触发 WAL checkpoint，避免遗留 -wal 文件 */ closeAllSessionDbs(); });
 app.on("window-all-closed", () => { /* Keep the process alive so the tray can reopen the main window. */ });

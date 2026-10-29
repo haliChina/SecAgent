@@ -43,7 +43,7 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     store().setArchived(id, archived === true);
     return { ok: true };
   });
-  /* R68 会话重命名：store.setTitle 同步 session.json 与 index 的标题。 */
+  /* R68 会话重命名：store.setTitle 同步 SQLite 中的标题与 updated_at。 */
   ipcMain.handle("sessions:rename", (_event, id: string, title: string) => {
     if (typeof title !== "string" || !title.trim() || title.trim().length > 60) throw new Error("标题必须为 1-60 个字符");
     const session = store().setTitle(id, title.trim());
