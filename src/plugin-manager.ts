@@ -7,6 +7,7 @@ import YAML from "yaml";
 import type { LoadedSkill, SkillAutoLoadPattern } from "./skills.js";
 import type { PluginStatus, PluginToolDefinition } from "./types.js";
 import { isTerminal, phaseOf, sanitizeActivityEvent, type ActivityEvent, type ActivityHandler, type ActivitySnapshot } from "./activity.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 const API_VERSION = 1;
 const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
@@ -926,7 +927,7 @@ export class PluginManager {
     return { format, apiVersion: API_VERSION, id: data.id, name: data.name, version: data.version, main: data.main, icon: data.icon, description: data.description, author: data.author, repository: data.repository, readme: data.readme, permissions: data.permissions || [], settingsPages: data.settingsPages || [] };
   }
   private readState(): PluginStateFile { try { const raw = JSON.parse(fs.readFileSync(this.statePath, "utf8")) as PluginStateFile; return { plugins: Array.isArray(raw.plugins) ? raw.plugins : [] }; } catch { return { plugins: [] }; } }
-  private saveState(): void { fs.mkdirSync(path.dirname(this.statePath), { recursive: true }); fs.writeFileSync(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`, "utf8"); }
+  private saveState(): void { writeFileAtomic(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`); }
   private pluginConfigPath(plugin: ActivePlugin): string { return path.join(this.configRoot, `${plugin.manifest.id}.json`); }
   private readPluginConfig(plugin: ActivePlugin): Record<string, unknown> {
     try {
@@ -941,9 +942,6 @@ export class PluginManager {
     const serialized = `${JSON.stringify(config, null, 2)}\n`;
     if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) throw new Error("插件配置超过 64 KiB 限制");
     fs.mkdirSync(this.configRoot, { recursive: true });
-    const target = this.pluginConfigPath(plugin);
-    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, serialized, "utf8");
-    fs.renameSync(temporary, target);
+    writeFileAtomic(this.pluginConfigPath(plugin), serialized);
   }
 }

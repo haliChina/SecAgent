@@ -414,7 +414,10 @@ export const PromptBar = ({
     const fromPointer = pointerNav.current;
     pointerNav.current = false;
     const scroller = glow.parentElement;
-    if (!fromPointer && scroller && scroller.scrollHeight > scroller.clientHeight) {
+    /* fresh（刚切换菜单）时无论如何都要把首行对齐进视野；否则只处理键盘导航。
+       指针悬停留下的标记若没被消费（悬停到当前已选行不触发重渲染），下一次
+       键盘导航会在 onKeyDown 里显式清掉，见下方 ↑↓ 分支。 */
+    if ((fresh || !fromPointer) && scroller && scroller.scrollHeight > scroller.clientHeight) {
       const top = row.offsetTop;
       const bottom = top + row.offsetHeight;
       if (top < scroller.scrollTop) scroller.scrollTop = Math.max(0, top - 4);
@@ -730,6 +733,9 @@ export const PromptBar = ({
       if (e.nativeEvent.isComposing) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        /* 键盘导航必须被视为键盘来源：清掉可能残留的 pointerNav，否则上一
+           次悬停会把本次的滚动补位一并跳过。 */
+        pointerNav.current = false;
         setActive((cursor + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length);
         return;
       }

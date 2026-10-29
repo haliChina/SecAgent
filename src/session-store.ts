@@ -8,8 +8,13 @@ import type { ChatAttachment } from "./types.js";
    OOBE 读取排队更慢）。现在 preview 随 meta 一起存 index，list 只读一个小文件。 */
 /** R65：从内存会话算列表预览（最后一条含文本消息，压缩空白截断）。 */
 function previewOfSession(data: SessionData): string {
-  const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
-  return last ? (last.content as string).replace(/\s+/g, " ").trim().slice(0, 72) : "";
+  /* 从后往前找第一条含文本的消息；不复制整个消息数组（长会话每次写盘都复制一遍是纯浪费）。 */
+  const messages = data?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index]?.content;
+    if (typeof content === "string" && content.trim()) return content.replace(/\s+/g, " ").trim().slice(0, 72);
+  }
+  return "";
 }
 
 export interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string; /** R65：归档会话不出现在常规列表，可在「已归档」分组查看/恢复。 */ archived?: boolean }
@@ -20,7 +25,7 @@ export type AssistantActivity =
   | { kind: "tool"; name: string; arguments: unknown; result?: unknown };
 export interface HallucinationNotice { score: number; signals: Array<{ id: string; detail: string }> }
 export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: HallucinationNotice; fallbackNotice?: string }
-export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[] }
+export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[]; /** 架构审查：存量会话的 runtime.jsonl 工具调用回填只做一次（此前每次 get 都全量扫描，229MB 日志会卡住主进程）。 */ legacyHydrated?: boolean }
 export interface SessionRuntimeEvent { sequence: number; at: string; stage: string; data: unknown }
 
 /* R63：脱敏内核抽到 src/redact.ts（渲染层 TracePanel 共用单一事实源，
@@ -28,6 +33,7 @@ export interface SessionRuntimeEvent { sequence: number; at: string; stage: stri
    appendRuntimeEvent 热路径上栈溢出崩溃主进程）。 */
 import { MASKED_SECRET, maskSecretsDeep, SECRET_KEY_PATTERN } from "./redact.js";
 export { MASKED_SECRET, maskSecretsDeep, SECRET_KEY_PATTERN };
+import { writeFileAtomic } from "./atomic-write.js";
 
 export class SessionStore {
   private root: string;
@@ -63,7 +69,7 @@ export class SessionStore {
   create(title = "新会话", options: { listed?: boolean } = {}): SessionData {
     const now = new Date().toISOString();
     const meta: SessionMeta = { id: randomUUID(), title, createdAt: now, updatedAt: now };
-    const data: SessionData = { meta, messages: [] };
+    const data: SessionData = { meta, messages: [], legacyHydrated: true };
     fs.mkdirSync(this.sessionDir(meta.id), { recursive: true });
     this.writeSession(data);
     if (options.listed !== false) this.writeIndex([meta, ...this.readIndex()]);
@@ -73,7 +79,15 @@ export class SessionStore {
     const file = path.join(this.sessionDir(id), "session.json");
     if (!fs.existsSync(file)) throw new Error(`会话不存在：${id}`);
     const session = JSON.parse(fs.readFileSync(file, "utf8")) as SessionData;
-    if (this.hydrateLegacyToolCalls(session)) this.writeSession(session);
+    /* 存量会话的 runtime.jsonl 工具调用回填只做一次：此前每次 get（每次
+       appendMessage 都会 get）都全量 readFileSync + 逐行 JSON.parse，审计
+       实测出现过 229MB 的 runtime.jsonl，主进程阵发性卡死。回填结果（无论
+       是否有变更）用 legacyHydrated 标记落盘，后续读取直接跳过。 */
+    if (!session.legacyHydrated) {
+      this.hydrateLegacyToolCalls(session);
+      session.legacyHydrated = true;
+      this.writeSession(session);
+    }
     // R65 懒回填：存量会话 index 里没有 preview，打开时补上（get 本就读了全量）。
     try {
       const indexed = this.readIndex().find((meta) => meta.id === id);
@@ -184,8 +198,8 @@ export class SessionStore {
     const file = path.join(this.root, "index.json");
     return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) as SessionMeta[] : [];
   }
-  private writeIndex(index: SessionMeta[]): void { fs.writeFileSync(path.join(this.root, "index.json"), JSON.stringify(index, null, 2) + "\n", "utf8"); }
-  private writeSession(session: SessionData): void { fs.writeFileSync(path.join(this.sessionDir(session.meta.id), "session.json"), JSON.stringify(session, null, 2) + "\n", "utf8"); }
+  private writeIndex(index: SessionMeta[]): void { writeFileAtomic(path.join(this.root, "index.json"), JSON.stringify(index, null, 2) + "\n"); }
+  private writeSession(session: SessionData): void { writeFileAtomic(path.join(this.sessionDir(session.meta.id), "session.json"), JSON.stringify(session, null, 2) + "\n"); }
   private sessionDir(id: string): string { return path.join(this.root, id); }
   /** Backfill sessions created before tool calls were attached directly to assistant messages. */
   private hydrateLegacyToolCalls(session: SessionData): boolean {
