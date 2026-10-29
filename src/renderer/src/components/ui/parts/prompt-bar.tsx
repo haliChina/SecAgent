@@ -296,6 +296,11 @@ export const PromptBar = ({
   const sparkWakeRef = useRef<() => void>(() => {});
   const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const lastOpen = useRef<string | null>(null);
+  /* 指针进入行会改 active；此标志让下一次 layout effect 跳过自动滚动——
+     指针能进入说明该行本就在可视区，若此时再滚会把行从鼠标下方挪走，
+     mousedown 与 mouseup 落在不同行导致 click 不触发（长模型列表里
+     「点不中模型」的根因）。键盘导航仍需要滚动补位。 */
+  const pointerNav = useRef(false);
   const dictation = useRef(0);
   const latest = useRef<Latest>({});
   latest.current = { onSend, onStop, onAttach, onDictate, onEffortChange, onDraftChange, onModelChange, onAttachRemove, onDictateCancel, onCommandPick };
@@ -343,7 +348,10 @@ export const PromptBar = ({
 
   const model = models.find(m => m.key === modelKey) ?? models[0];
   const token = dismissed ? null : parseToken(draft);
-  const open = plusOpen ? 'at' : (token?.kind ?? (modelOpen ? 'model' : effortOpen ? 'effort' : null));
+  /* 按钮菜单优先于草稿 token：此前草稿以 @ 或 / 结尾时点「模型」会被
+     token 面板劫持，模型列表根本不出现。输入时的 onChange already 关闭
+     按钮菜单，因此两者不会同时为真。 */
+  const open = plusOpen ? 'at' : modelOpen ? 'model' : effortOpen ? 'effort' : (dismissed ? null : (token?.kind ?? null));
   const query = plusOpen ? '' : (token?.query ?? '');
   const list = useMemo<Row[]>(() => {
     if (open === 'at') return sources.filter(s => s.name.toLowerCase().includes(query));
@@ -401,9 +409,15 @@ export const PromptBar = ({
       glow.style.transition = '';
     }
     /* R58：模型等长列表限高滚动后，键盘 ↑↓ 的 cursor 可能移出可视区——
-       手动把行滚进容器视野（不用 scrollIntoView，避免连带滚动外层页面）。 */
+       手动把行滚进容器视野（不用 scrollIntoView，避免连带滚动外层页面）。
+       R79：指针悬停不滚动（见 pointerNav 注释），只保留键盘导航的补位。 */
+    const fromPointer = pointerNav.current;
+    pointerNav.current = false;
     const scroller = glow.parentElement;
-    if (scroller && scroller.scrollHeight > scroller.clientHeight) {
+    /* fresh（刚切换菜单）时无论如何都要把首行对齐进视野；否则只处理键盘导航。
+       指针悬停留下的标记若没被消费（悬停到当前已选行不触发重渲染），下一次
+       键盘导航会在 onKeyDown 里显式清掉，见下方 ↑↓ 分支。 */
+    if ((fresh || !fromPointer) && scroller && scroller.scrollHeight > scroller.clientHeight) {
       const top = row.offsetTop;
       const bottom = top + row.offsetHeight;
       if (top < scroller.scrollTop) scroller.scrollTop = Math.max(0, top - 4);
@@ -456,7 +470,11 @@ export const PromptBar = ({
        是同一台机器的同一类合成问题，当时只治了 backdrop-filter。 */
     const ctx = canvas.getContext('2d');
     if (!ctx) return undefined;
+    /* R79：effect 重建（切到/切出最高档、主题或粒子色变化）时必须清掉上一轮
+       残留的 typing 能量——此前只清 strokes，切档瞬间旧 energy 会直接带进
+       新的 speed 目标，表现为"切最高档粒子突然窜一下"。 */
     typing.current.strokes = 0;
+    typing.current.energy = 0;
     let raf = 0;
     let last = performance.now();
     let w = 0;
@@ -527,8 +545,12 @@ export const PromptBar = ({
         typed.strokes = 0;
         if (gain > 0) pulse = 1;
       }
-      const energy = typed.energy * gain;
-      speed += (1 + energy * 6 - speed) * (1 - Math.exp(-dt / 0.15));
+      /* R79：能量只做温和的亮度/漂移增益，不再线性放大到 7 倍速——此前
+         energy 1.6 * 6 ≈ 10x，打字后肉眼是"粒子莫名加速、半秒后又恢复"。
+         速度目标收敛到 1.5x 内、平滑时间 0.25s；亮度/半径/摆动同样用夹取
+         后的 energy，最高档观感是稳定微光而非脉冲。 */
+      const energy = Math.min(typed.energy, 1) * gain;
+      speed += (1 + energy * 0.5 - speed) * (1 - Math.exp(-dt / 0.25));
       due += dt;
       /* R62：空闲（typing energy 衰减到 <0.05）不再持续孵化粒子——此前空闲也
          常驻一排静止微光，在部分渲染路径下被读成"底部蓝色虚线"（用户截图
@@ -711,6 +733,9 @@ export const PromptBar = ({
       if (e.nativeEvent.isComposing) return;
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         e.preventDefault();
+        /* 键盘导航必须被视为键盘来源：清掉可能残留的 pointerNav，否则上一
+           次悬停会把本次的滚动补位一并跳过。 */
+        pointerNav.current = false;
         setActive((cursor + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length);
         return;
       }
@@ -848,7 +873,7 @@ export const PromptBar = ({
                     aria-selected={i === cursor}
                     className="relative z-[1] flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-inherit outline-none [font:inherit] [-webkit-tap-highlight-color:transparent]"
                     onMouseDown={e => e.preventDefault()}
-                    onPointerEnter={() => setActive(i)}
+                    onPointerEnter={() => { pointerNav.current = true; setActive(i); }}
                     onClick={() => pick(row)}
                   >
                     {open === 'at' ? (

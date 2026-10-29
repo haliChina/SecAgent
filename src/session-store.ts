@@ -2,14 +2,37 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { ChatAttachment } from "./types.js";
+import type { DatabaseSync } from "node:sqlite";
+import {
+  deleteSessionRow,
+  insertMessageRow,
+  insertSessionRow,
+  listMessageRows,
+  listSessionRows,
+  nextMessageSeq,
+  openSessionDb,
+  readSessionDbMeta,
+  readSessionRow,
+  updateMessagePayload,
+  updateSessionArchived,
+  updateSessionAutoLoadedSkills,
+  updateSessionLegacyHydrated,
+  updateSessionMeta,
+  withImmediateTransaction,
+  writeSessionDbMeta,
+  type MessageRow,
+  type SessionRow,
+} from "./session-db.js";
 
-/* R65：preview 落进 index.json——此前 sessions:list 对每个会话全量 JSON.parse
-   session.json（含所有消息/toolCalls/附件），会话一多主进程同步阻塞数秒（鼠标不跟手、
-   OOBE 读取排队更慢）。现在 preview 随 meta 一起存 index，list 只读一个小文件。 */
-/** R65：从内存会话算列表预览（最后一条含文本消息，压缩空白截断）。 */
+/** 从内存会话算列表预览（最后一条含文本消息，压缩空白截断）。 */
 function previewOfSession(data: SessionData): string {
-  const last = [...(data?.messages ?? [])].reverse().find((m) => typeof m.content === "string" && m.content.trim());
-  return last ? (last.content as string).replace(/\s+/g, " ").trim().slice(0, 72) : "";
+  /* 从后往前找第一条含文本的消息；不复制整个消息数组（长会话每次写盘都复制一遍是纯浪费）。 */
+  const messages = data?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const content = messages[index]?.content;
+    if (typeof content === "string" && content.trim()) return content.replace(/\s+/g, " ").trim().slice(0, 72);
+  }
+  return "";
 }
 
 export interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string; /** R65：归档会话不出现在常规列表，可在「已归档」分组查看/恢复。 */ archived?: boolean }
@@ -20,7 +43,7 @@ export type AssistantActivity =
   | { kind: "tool"; name: string; arguments: unknown; result?: unknown };
 export interface HallucinationNotice { score: number; signals: Array<{ id: string; detail: string }> }
 export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: HallucinationNotice; fallbackNotice?: string }
-export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[] }
+export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[]; /** 存量会话的 runtime.jsonl 工具调用回填只做一次（每次 get 都全量扫描 229MB 日志会卡住主进程）。 */ legacyHydrated?: boolean }
 export interface SessionRuntimeEvent { sequence: number; at: string; stage: string; data: unknown }
 
 /* R63：脱敏内核抽到 src/redact.ts（渲染层 TracePanel 共用单一事实源，
@@ -29,21 +52,29 @@ export interface SessionRuntimeEvent { sequence: number; at: string; stage: stri
 import { MASKED_SECRET, maskSecretsDeep, SECRET_KEY_PATTERN } from "./redact.js";
 export { MASKED_SECRET, maskSecretsDeep, SECRET_KEY_PATTERN };
 
+/**
+ * 会话存储门面（SQLite）：元数据与消息落 `<workspace>/sessions.db`，
+ * 逐事件运行日志仍留 `sessions/<id>/runtime.jsonl`（追加成本低、尾部窗口
+ * 读取专为大文件设计）。对外 API 与此前 JSON 文件实现保持一致。
+ */
 export class SessionStore {
   private root: string;
+  private db: DatabaseSync;
   constructor(workspace: string) {
     this.root = path.join(workspace, "sessions");
     fs.mkdirSync(this.root, { recursive: true });
+    this.db = openSessionDb(workspace);
+    this.migrateLegacyJson();
   }
   list(): SessionMeta[] {
-    const index = this.readIndex();
-    return index.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    return listSessionRows(this.db).map(metaOfRow);
   }
 
-  /** 会话列表预览（index 优先；存量会话首次打开时懒回填）。 */
+  /** 会话列表预览（DB 里为 null 的存量会话打开时懒回填）。 */
   previewOf(id: string): string {
-    const indexed = this.readIndex().find((meta) => meta.id === id)?.preview;
-    if (typeof indexed === "string") return indexed;
+    const row = readSessionRow(this.db, id);
+    if (!row) return "";
+    if (row.preview !== null) return row.preview;
     try {
       return previewOfSession(this.get(id));
     } catch {
@@ -51,70 +82,84 @@ export class SessionStore {
     }
   }
 
-  /** R65：把 preview 一起写进 index（写盘顺带，读列表零成本）。 */
-  private touchIndex(session: SessionData): void {
-    const meta = { ...session.meta, preview: previewOfSession(session) };
-    const index = this.readIndex();
-    const at = index.findIndex((item) => item.id === meta.id);
-    if (at >= 0) index[at] = { ...index[at], ...meta };
-    else index.push(meta);
-    this.writeIndex(index);
-  }
   create(title = "新会话", options: { listed?: boolean } = {}): SessionData {
     const now = new Date().toISOString();
     const meta: SessionMeta = { id: randomUUID(), title, createdAt: now, updatedAt: now };
-    const data: SessionData = { meta, messages: [] };
+    const data: SessionData = { meta, messages: [], legacyHydrated: true };
     fs.mkdirSync(this.sessionDir(meta.id), { recursive: true });
-    this.writeSession(data);
-    if (options.listed !== false) this.writeIndex([meta, ...this.readIndex()]);
+    insertSessionRow(this.db, {
+      id: meta.id,
+      title,
+      createdAt: now,
+      updatedAt: now,
+      preview: null,
+      archived: false,
+      listed: options.listed !== false,
+      legacyHydrated: true,
+    });
     return data;
   }
   get(id: string): SessionData {
-    const file = path.join(this.sessionDir(id), "session.json");
-    if (!fs.existsSync(file)) throw new Error(`会话不存在：${id}`);
-    const session = JSON.parse(fs.readFileSync(file, "utf8")) as SessionData;
-    if (this.hydrateLegacyToolCalls(session)) this.writeSession(session);
-    // R65 懒回填：存量会话 index 里没有 preview，打开时补上（get 本就读了全量）。
-    try {
-      const indexed = this.readIndex().find((meta) => meta.id === id);
-      if (indexed && typeof indexed.preview !== "string") this.touchIndex(session);
-    } catch { /* 索引回填失败不影响读取 */ }
+    const row = readSessionRow(this.db, id);
+    if (!row) throw new Error(`会话不存在：${id}`);
+    const session: SessionData = {
+      meta: metaOfRow(row),
+      messages: listMessageRows(this.db, id).map(messageOfRow),
+      ...(row.autoLoadedSkills?.length ? { autoLoadedSkills: row.autoLoadedSkills } : {}),
+      legacyHydrated: row.legacyHydrated,
+    };
+    /* 存量会话的 runtime.jsonl 工具调用回填只做一次：此前每次 get（每次
+       appendMessage 都会 get）都全量 readFileSync + 逐行 JSON.parse，审计
+       实测出现过 229MB 的 runtime.jsonl，主进程阵发性卡死。回填结果（无论
+       是否有变更）用 legacy_hydrated 标记落库，后续读取直接跳过。 */
+    if (!session.legacyHydrated) {
+      const changed = this.hydrateLegacyToolCalls(session);
+      session.legacyHydrated = true;
+      withImmediateTransaction(this.db, () => {
+        updateSessionLegacyHydrated(this.db, id, true);
+        if (changed) {
+          for (const message of session.messages) {
+            if (message.toolCalls?.length) updateMessagePayload(this.db, message.id, payloadOf(message));
+          }
+        }
+      });
+    }
+    // R65 懒回填：迁移时没有 preview 的会话，首次打开时补上（get 本就读了全量）。
+    if (row.preview === null) {
+      updateSessionMeta(this.db, id, { title: session.meta.title, updatedAt: session.meta.updatedAt, preview: previewOfSession(session) });
+    }
     return session;
   }
-  /** R65：归档/取消归档（不删数据，只翻 index 标记）。 */
+  /** R65：归档/取消归档（不删数据，只翻标记）。 */
   setArchived(id: string, archived: boolean): void {
-    const index = this.readIndex();
-    const at = index.findIndex((item) => item.id === id);
-    if (at < 0) return;
-    index[at] = { ...index[at], archived: archived || undefined };
-    this.writeIndex(index);
+    updateSessionArchived(this.db, id, archived);
   }
 
   delete(id: string): void {
-    const sessions = this.readIndex();
-    if (!sessions.some((item) => item.id === id)) throw new Error(`会话不存在：${id}`);
+    if (!readSessionRow(this.db, id)) throw new Error(`会话不存在：${id}`);
+    deleteSessionRow(this.db, id);
     fs.rmSync(this.sessionDir(id), { recursive: true, force: true });
-    this.writeIndex(sessions.filter((item) => item.id !== id));
   }
   appendMessage(id: string, role: SessionMessage["role"], content: string, toolCalls?: ToolCallRecord[], activities?: AssistantActivity[], attachments?: ChatAttachment[], stopped = false, hallucination?: HallucinationNotice, fallbackNotice?: string): SessionData {
     const session = this.get(id);
     const now = new Date().toISOString();
-    session.messages.push({ id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}), ...(hallucination?.signals.length ? { hallucination } : {}), ...(fallbackNotice ? { fallbackNotice } : {}) });
+    const message: SessionMessage = { id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}), ...(hallucination?.signals.length ? { hallucination } : {}), ...(fallbackNotice ? { fallbackNotice } : {}) };
+    session.messages.push(message);
     session.meta.updatedAt = now;
     if (role === "user" && session.meta.title === "新会话") session.meta.title = content.replace(/\s+/g, " ").slice(0, 28) || "新会话";
-    this.writeSession(session);
-    this.touchIndex(session);
+    withImmediateTransaction(this.db, () => {
+      insertMessageRow(this.db, { id: message.id, sessionId: id, seq: nextMessageSeq(this.db, id), role, content, createdAt: now, payload: payloadOf(message) });
+      updateSessionMeta(this.db, id, { title: session.meta.title, updatedAt: now, preview: previewOfSession(session) });
+    });
     return session;
   }
   setTitle(id: string, title: string): SessionData {
     const session = this.get(id);
     const cleanTitle = title.trim();
     if (!cleanTitle) return session;
-    session.meta.title = cleanTitle;
-    session.meta.updatedAt = new Date().toISOString();
-    this.writeSession(session);
-    this.touchIndex(session);
-    return session;
+    const updatedAt = new Date().toISOString();
+    updateSessionMeta(this.db, id, { title: cleanTitle, updatedAt, preview: previewOfSession(session) });
+    return { ...session, meta: { ...session.meta, title: cleanTitle, updatedAt } };
   }
   appendRuntimeEvent(id: string, event: { sequence?: number; at?: string; stage: string; data: unknown }): void {
     /* 落盘前脱敏：同一事件还会经 IPC 直播给 renderer（渲染层另行掩码）与进入
@@ -175,18 +220,116 @@ export class SessionStore {
   }
   setAutoLoadedSkills(id: string, skills: string[]): void {
     const session = this.get(id);
-    session.autoLoadedSkills = [...new Set(skills)];
-    session.meta.updatedAt = new Date().toISOString();
-    this.writeSession(session);
-    this.touchIndex(session);
+    const unique = [...new Set(skills)];
+    updateSessionAutoLoadedSkills(this.db, id, unique, new Date().toISOString(), previewOfSession(session));
   }
-  private readIndex(): SessionMeta[] {
-    const file = path.join(this.root, "index.json");
-    return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) as SessionMeta[] : [];
-  }
-  private writeIndex(index: SessionMeta[]): void { fs.writeFileSync(path.join(this.root, "index.json"), JSON.stringify(index, null, 2) + "\n", "utf8"); }
-  private writeSession(session: SessionData): void { fs.writeFileSync(path.join(this.sessionDir(session.meta.id), "session.json"), JSON.stringify(session, null, 2) + "\n", "utf8"); }
+
   private sessionDir(id: string): string { return path.join(this.root, id); }
+
+  /**
+   * 旧版 JSON 存储的一次性导入。
+   *
+   * 旧布局：`sessions/index.json`（元数据 + preview）+ 每会话
+   * `sessions/<id>/session.json`（全量数据）。迁移完成后原文件改名为
+   * `*.migrated` 保留备份（不删除）；`meta.legacy_migrated=1` 防止重复导入，
+   * 因此正常启动只多一次 existsSync。
+   *
+   * 触发条件刻意放宽：只要还看到 index.json 就再扫一遍——用户降级到旧版
+   * 后旧版会继续写 JSON，再升级时按 updated_at 增量补录（新版本消息不丢）；
+   * DB 被删除时也能从 `*.migrated` 备份回灌。
+   *
+   * 迁移不在构造期回填 runtime.jsonl 工具调用（229MB 日志会拖慢启动），
+   * legacy_hydrated 沿旧值，交给首次 get() 懒回填。
+   *
+   * 索引可读性决定 listed 默认值：旧版 index.json 只收常规会话（唤醒会话
+   * 从不入索引），所以「索引里没有 = listed:false」。但索引缺失/损坏时无法
+   * 区分，此时宁可全部按 listed:true 导入——会话突然消失比多出一个后台
+   * 会话更糟。损坏的 index.json 仍会回退到 `index.json.migrated` 备份。
+   */
+  private migrateLegacyJson(): void {
+    const indexFile = path.join(this.root, "index.json");
+    if (readSessionDbMeta(this.db, "legacy_migrated") === "1" && !fs.existsSync(indexFile)) return;
+    const legacyIndex = this.readLegacyIndexWithFallback(indexFile);
+    const entries = new Map<string, { meta: SessionMeta; preview?: string; listed: boolean; data?: SessionData }>();
+    for (const meta of legacyIndex ?? []) entries.set(meta.id, { meta, ...(typeof meta.preview === "string" ? { preview: meta.preview } : {}), listed: true });
+    const files: string[] = [];
+    for (const dirent of fs.readdirSync(this.root, { withFileTypes: true })) {
+      if (!dirent.isDirectory()) continue;
+      const file = [path.join(this.root, dirent.name, "session.json"), path.join(this.root, dirent.name, "session.json.migrated")].find((candidate) => fs.existsSync(candidate));
+      if (!file) continue;
+      files.push(file);
+      try {
+        const data = JSON.parse(fs.readFileSync(file, "utf8")) as SessionData;
+        const id = data?.meta?.id;
+        if (typeof id !== "string" || !id) continue;
+        const prior = entries.get(id);
+        entries.set(id, {
+          // 归档标记只存在旧 index.json 里，合并时不能丢。
+          meta: prior?.meta.archived ? { ...data.meta, archived: true } : data.meta,
+          ...(prior?.preview !== undefined ? { preview: prior.preview } : {}),
+          listed: prior?.listed ?? legacyIndex === undefined,
+          data,
+        });
+      } catch { /* 单个损坏的旧会话文件不阻塞启动 */ }
+    }
+    if (entries.size) {
+      withImmediateTransaction(this.db, () => {
+        for (const [id, entry] of entries) {
+          const existing = readSessionRow(this.db, id);
+          if (existing) {
+            // 只有旧 JSON 更新时才覆盖（降级写回场景）；没有正文数据时不动已有消息。
+            if (!entry.data || existing.updatedAt >= entry.meta.updatedAt) continue;
+            deleteSessionRow(this.db, id); // 级联清掉旧消息，再整份重建
+          }
+          insertSessionRow(this.db, {
+            id,
+            title: entry.meta.title,
+            createdAt: entry.meta.createdAt,
+            updatedAt: entry.meta.updatedAt,
+            preview: entry.preview ?? (entry.data ? previewOfSession(entry.data) : null),
+            archived: entry.meta.archived === true,
+            listed: entry.listed,
+            ...(entry.data?.autoLoadedSkills?.length ? { autoLoadedSkills: entry.data.autoLoadedSkills } : {}),
+            legacyHydrated: entry.data?.legacyHydrated === true,
+          });
+          (entry.data?.messages ?? []).forEach((message, seq) => {
+            insertMessageRow(this.db, { id: message.id, sessionId: id, seq, role: message.role, content: message.content, createdAt: message.createdAt, payload: payloadOf(message) });
+          });
+        }
+        writeSessionDbMeta(this.db, "legacy_migrated", "1");
+      });
+    } else {
+      writeSessionDbMeta(this.db, "legacy_migrated", "1");
+    }
+    this.retireLegacyFile(indexFile);
+    for (const file of files) this.retireLegacyFile(file);
+  }
+
+  /** 返回 undefined 表示索引不可读（缺失/损坏），而不是「索引里没有该会话」。 */
+  private readLegacyIndexWithFallback(file: string): SessionMeta[] | undefined {
+    const primary = this.readLegacyIndex(file);
+    if (primary !== undefined) return primary;
+    return this.readLegacyIndex(`${file}.migrated`);
+  }
+
+  private readLegacyIndex(file: string): SessionMeta[] | undefined {
+    if (!fs.existsSync(file)) return undefined;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, "utf8")) as SessionMeta[];
+      if (!Array.isArray(parsed)) return undefined;
+      return parsed.filter((meta) => typeof meta?.id === "string" && typeof meta.title === "string" && typeof meta.updatedAt === "string");
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 旧文件改名保留备份；目标已存在或改名失败都不影响 DB（DB 已是权威）。 */
+  private retireLegacyFile(file: string): void {
+    const target = `${file}.migrated`;
+    if (!fs.existsSync(file) || fs.existsSync(target)) return;
+    try { fs.renameSync(file, target); } catch { /* 权限/占用：留着旧文件，下次启动幂等重试 */ }
+  }
+
   /** Backfill sessions created before tool calls were attached directly to assistant messages. */
   private hydrateLegacyToolCalls(session: SessionData): boolean {
     const log = path.join(this.sessionDir(session.meta.id), "runtime.jsonl");
@@ -222,4 +365,38 @@ export class SessionStore {
     }
     return changed;
   }
+}
+
+function metaOfRow(row: SessionRow): SessionMeta {
+  return {
+    id: row.id,
+    title: row.title,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    ...(row.preview !== null ? { preview: row.preview } : {}),
+    ...(row.archived ? { archived: true } : {}),
+  };
+}
+
+function messageOfRow(row: MessageRow): SessionMessage {
+  let extra: Partial<SessionMessage> = {};
+  if (row.payload) {
+    try {
+      const parsed = JSON.parse(row.payload) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) extra = parsed as Partial<SessionMessage>;
+    } catch { /* 损坏的 payload 只丢可选字段，正文仍可读 */ }
+  }
+  return { ...extra, id: row.id, role: row.role as SessionMessage["role"], content: row.content, createdAt: row.createdAt };
+}
+
+/** 可选字段序列化进 messages.payload；全部缺省时写 null（不占空间）。 */
+function payloadOf(message: SessionMessage): string | null {
+  const extra: Record<string, unknown> = {};
+  if (message.attachments?.length) extra.attachments = message.attachments;
+  if (message.toolCalls?.length) extra.toolCalls = message.toolCalls;
+  if (message.activities?.length) extra.activities = message.activities;
+  if (message.stopped) extra.stopped = true;
+  if (message.hallucination?.signals.length) extra.hallucination = message.hallucination;
+  if (message.fallbackNotice) extra.fallbackNotice = message.fallbackNotice;
+  return Object.keys(extra).length ? JSON.stringify(extra) : null;
 }
