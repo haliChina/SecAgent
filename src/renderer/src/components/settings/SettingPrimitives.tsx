@@ -103,11 +103,24 @@ export function SettingsConfirmDialog({ open, title, message, confirmLabel = "�
   onConfirm: () => void;
 }) {
   const cancelRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) return;
     cancelRef.current?.focus();
     const onKeydown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+      if (event.key === "Escape") { event.preventDefault(); onCancel(); return; }
+      /* 焦点圈禁：Tab / Shift+Tab 在弹窗内循环，避免键盘用户跑到底层页面。 */
+      if (event.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+        .filter((element) => !element.hasAttribute("disabled") && element.tabIndex >= 0);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || !root.contains(active))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (active === last || !root.contains(active))) { event.preventDefault(); first.focus(); }
     };
     document.addEventListener("keydown", onKeydown, true);
     return () => document.removeEventListener("keydown", onKeydown, true);
@@ -120,7 +133,7 @@ export function SettingsConfirmDialog({ open, title, message, confirmLabel = "�
     aria-label={title}
     onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}
   >
-    <div className="settings-modal set-confirm">
+    <div className="settings-modal set-confirm" ref={dialogRef}>
       <div className="card-heading"><strong>{title}</strong></div>
       <p className="set-confirm-text">{message}</p>
       <div className="modal-actions">
