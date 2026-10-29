@@ -51,6 +51,17 @@ export function SettingsAccountPage(props: AccountPageProps) {
   const [cacheLabel, setCacheLabel] = useState("计算中…");
   const [cacheBusy, setCacheBusy] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  /* theme=system 时开关态依赖系统外观；订阅 matchMedia 变化，设置窗开着
+     期间系统切换深/浅色也能实时刷新（旧实现只在渲染时读一次）。 */
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
+
+  useEffect(() => {
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const onChange = (event: MediaQueryListEvent): void => setSystemDark(event.matches);
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
 
   const refreshCacheLabel = async (): Promise<void> => setCacheLabel(await estimateCacheLabel());
 
@@ -73,7 +84,7 @@ export function SettingsAccountPage(props: AccountPageProps) {
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [menuOpen]);
 
-  const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const prefersDark = systemDark;
   const darkActive = props.theme === "dark" || (props.theme === "system" && prefersDark);
   const accountName = props.officialLoggedIn && props.officialEmail ? props.officialEmail.split("@")[0] : "本地模式";
   const accountRole = props.officialLoggedIn
@@ -216,7 +227,7 @@ export function SettingsAccountPage(props: AccountPageProps) {
     <SettingsConfirmDialog
       open={confirmDialog === "cache"}
       title="清除缓存"
-      message="将清空本地存储、会话存储与站点缓存（不含网络请求的磁盘缓存）。已保存的配置与 API Key 位于工作区文件，不受影响。确定继续吗？"
+      message="将清空本地存储、会话存储与站点缓存（不含网络请求的磁盘缓存）；除主题外的其他本地偏好也会重置。已保存的配置与 API Key 位于工作区文件，不受影响。确定继续吗？"
       confirmLabel="清除"
       danger
       onCancel={() => setConfirmDialog(null)}
