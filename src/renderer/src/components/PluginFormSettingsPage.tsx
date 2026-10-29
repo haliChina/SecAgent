@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, FolderOpen, RotateCcw } from "lucide-react";
 import { SelectCombobox } from "./SelectCombobox.js";
+import { SettingsConfirmDialog, SettingsGroup, SettingsSwitchRow } from "./settings/SettingPrimitives.js";
 import {
   normalizePluginSettings,
   pluginFieldDefault,
@@ -16,20 +17,19 @@ import {
   type PluginSettingsSection
 } from "../plugin-settings.js";
 
-/* R76/R81：通用插件设置表单。
+/* R76/R80：通用插件设置表单。
  *
  * 插件经 `api.registerSettingsHandler` 提供 describe/set/action 协议即可在
  * 宿主设置页渲染可调参数；特例（OAuth 等）仍由插件专属组件接管。
  *
- * R81（对照 ClassIsland联动 / 桌宠 / Computer Use 三个仓库补齐）：
+ * R80（对照 ClassIsland联动 / 桌宠 / Computer Use 三个仓库补齐）：
  *   - hidden 字段不再误渲染；
  *   - effect=immediate/guidance 显示「立即生效 / 提示词引导」徽标；
  *   - actions 渲染按钮（ClassIsland 的「测试连接」、桌宠的「皮肤列表」），
  *     支持确认弹窗与结果展示；
  *   - path 字段带原生文件/目录选择器，免手输 Windows 路径；
  *   - password 可显隐、textarea 多行、数字保留编辑中间态；
- *   - 每字段「恢复默认值」；保存按钮随 dirty 状态禁用，不再重复提交。
- * 布局沿用本分支既有的 settings-card + plugin-form-fields 单列结构。 */
+ *   - 每字段「恢复默认值」；保存按钮随 dirty 状态禁用，不再重复提交。 */
 
 type SaveResult = { ok?: boolean; values?: Record<string, unknown>; note?: string; refresh?: boolean } | null;
 
@@ -87,13 +87,6 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     void load();
     return () => { aliveRef.current = false; };
   }, [pluginId, pageId]);
-
-  useEffect(() => {
-    if (!pendingAction) return;
-    const onKeydown = (event: KeyboardEvent): void => { if (event.key === "Escape") setPendingAction(null); };
-    document.addEventListener("keydown", onKeydown, true);
-    return () => document.removeEventListener("keydown", onKeydown, true);
-  }, [pendingAction]);
 
   const save = async (): Promise<void> => {
     if (busy || pluginValuesEqual(values, initialValues)) return;
@@ -231,29 +224,32 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     />;
   };
 
-  const renderEffectBadge = (field: PluginSettingField) => {
-    if (field.effect !== "immediate" && field.effect !== "guidance") return null;
-    return <span
-      className={field.effect === "immediate" ? "plugin-effect-badge" : "plugin-effect-badge guidance"}
-      title={field.effect === "immediate" ? "保存后立即生效" : "通过提示词引导模型行为，引擎不强制"}
-    >{field.effect === "immediate" ? "立即生效" : "提示词引导"}</span>;
-  };
-
+  /* R80：与设置页其它分区一致的行式布局；布尔复用 .set-switch。 */
   const renderField = (field: PluginSettingField) => {
     const kind = pluginFieldKind(field);
     const label = field.label || field.key;
     const hint = pluginFieldHint(field);
+    const effect = field.effect === "immediate" || field.effect === "guidance" ? field.effect : undefined;
     if (kind === "boolean") {
-      return <label className="toggle-row" key={field.key}>
-        <span className="toggle-copy"><strong>{label}{renderEffectBadge(field)}</strong>{hint && <small>{hint}</small>}</span>
-        <input type="checkbox" checked={values[field.key] === true} onChange={(event) => setField(field.key, event.target.checked)} />
-      </label>;
+      return <SettingsSwitchRow
+        key={field.key}
+        title={label}
+        desc={hint}
+        checked={values[field.key] === true}
+        onChange={(next) => setField(field.key, next)}
+      />;
     }
     const fallback = pluginFieldDefault(field);
     const canReset = fallback !== undefined && !pluginValueMatchesDefault(field, values[field.key]);
-    return <label key={field.key}>
-      <span className="plugin-field-label">{label}{renderEffectBadge(field)}</span>
-      <div className="plugin-field-control">
+    return <div className="set-row set-row-static" key={field.key}>
+      <span className="set-row-main">
+        <span className="set-row-title">{label}{effect ? <span
+          className={effect === "immediate" ? "plugin-effect-badge" : "plugin-effect-badge guidance"}
+          title={effect === "immediate" ? "保存后立即生效" : "通过提示词引导模型行为，引擎不强制"}
+        >{effect === "immediate" ? "立即生效" : "提示词引导"}</span> : null}</span>
+        {hint ? <span className="set-row-desc">{hint}</span> : null}
+      </span>
+      <span className="set-row-right plugin-set-control">
         {renderControl(field)}
         {canReset ? <button
           type="button"
@@ -262,20 +258,17 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
           aria-label={`恢复 ${label} 的默认值`}
           onClick={() => setField(field.key, fallback)}
         ><RotateCcw size={13} aria-hidden /></button> : null}
-      </div>
-      {hint && <small className="settings-note-inline">{hint}</small>}
-    </label>;
+      </span>
+    </div>;
   };
 
   return <>
     {error && <div className="settings-error">{error}</div>}
     {note && <div className="settings-success">{note}</div>}
-    {sections.map((section, index) => <article className="settings-card" key={`${section.title}-${index}`}>
-      <div className="card-heading"><div><strong>{section.title}</strong>{section.description && <span>{section.description}</span>}</div></div>
-      <div className="plugin-form-fields">{section.fields.map(renderField)}</div>
-    </article>)}
-    {actions.length > 0 && <article className="settings-card">
-      <div className="card-heading"><div><strong>插件操作</strong><span>由插件提供的即时操作，结果会在下方显示。</span></div></div>
+    {sections.map((section, index) => <SettingsGroup key={`${section.title}-${index}`} label={section.title} desc={section.description}>
+      {section.fields.map(renderField)}
+    </SettingsGroup>)}
+    {actions.length > 0 && <SettingsGroup label="插件操作" desc="由插件提供的即时操作，结果会在下方显示。">
       <div className="plugin-actions-row">
         {actions.map((action) => <button
           key={action.id}
@@ -287,23 +280,19 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
         >{actionBusy === action.id ? "执行中…" : action.label}</button>)}
       </div>
       {actionResult ? <div className={actionResult.ok ? "settings-success plugin-action-result" : "settings-error plugin-action-result"} role="status">{actionResult.text}</div> : null}
-    </article>}
+    </SettingsGroup>}
     <div className="plugin-form-actions">
       <button className="primary-button" type="button" disabled={busy || !dirty} onClick={() => void save()}>{busy ? "保存中…" : saved ? "已保存" : dirty ? "保存设置" : "已是最新"}</button>
       {dirty ? <span className="plugin-form-state">有未保存的改动</span> : null}
     </div>
-    {pendingAction && <div
-      className="settings-modal-backdrop"
-      onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingAction(null); }}
-    >
-      <div className="settings-modal plugin-confirm-modal" role="dialog" aria-modal="true" aria-label={`执行「${pendingAction.label}」`}>
-        <div className="card-heading"><strong>执行「{pendingAction.label}」</strong></div>
-        {pendingAction.confirm ? <p className="settings-help">{pendingAction.confirm}</p> : null}
-        <div className="modal-actions">
-          <button type="button" className="secondary-button" autoFocus onClick={() => setPendingAction(null)}>取消</button>
-          <button type="button" className={pendingAction.danger ? "primary-button plugin-danger-button" : "primary-button"} onClick={() => { const action = pendingAction; setPendingAction(null); if (action) void runAction(action); }}>{pendingAction.label}</button>
-        </div>
-      </div>
-    </div>}
+    <SettingsConfirmDialog
+      open={pendingAction !== null}
+      title={pendingAction ? `执行「${pendingAction.label}」` : ""}
+      message={pendingAction?.confirm || ""}
+      confirmLabel={pendingAction?.label || "执行"}
+      danger={pendingAction?.danger === true}
+      onCancel={() => setPendingAction(null)}
+      onConfirm={() => { const action = pendingAction; setPendingAction(null); if (action) void runAction(action); }}
+    />
   </>;
 }

@@ -17,7 +17,6 @@ import { SettingsConfirmDialog, SettingsGroup, SettingsInfoRow, SettingsLinkRow,
 
 const PRIVACY_URL = "https://github.com/haliChina/SecAgent/blob/master/docs/privacy-policy.zh-CN.md";
 const FEEDBACK_URL = "https://github.com/haliChina/SecAgent/issues";
-const NOTIFY_STORAGE_KEY = "secagent:notifications";
 /** 与 theme.ts 的 STORAGE_KEY 一致（首帧防闪烁缓存，属于偏好而非缓存）。 */
 const THEME_STORAGE_KEY = "secagent-theme";
 
@@ -33,14 +32,6 @@ type AccountPageProps = {
   onOpenExternal: (url: string) => void;
   onLogout: () => Promise<void> | void;
 };
-
-function readNotifyPreference(): boolean {
-  try { return window.localStorage.getItem(NOTIFY_STORAGE_KEY) !== "off"; } catch { return true; }
-}
-
-function writeNotifyPreference(enabled: boolean): void {
-  try { window.localStorage.setItem(NOTIFY_STORAGE_KEY, enabled ? "on" : "off"); } catch { /* 隐私模式忽略 */ }
-}
 
 /** 缓存用量估算（renderer 侧 storage API；主进程 HTTP 缓存不计入）。 */
 async function estimateCacheLabel(): Promise<string> {
@@ -59,7 +50,6 @@ export function SettingsAccountPage(props: AccountPageProps) {
   const [confirmDialog, setConfirmDialog] = useState<"logout" | "cache" | null>(null);
   const [cacheLabel, setCacheLabel] = useState("计算中…");
   const [cacheBusy, setCacheBusy] = useState(false);
-  const [notifications, setNotifications] = useState(readNotifyPreference);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   const refreshCacheLabel = async (): Promise<void> => setCacheLabel(await estimateCacheLabel());
@@ -94,33 +84,23 @@ export function SettingsAccountPage(props: AccountPageProps) {
     { value: String(props.modelCount), label: "可用模型" }
   ];
 
-  const toggleNotifications = (next: boolean): void => {
-    setNotifications(next);
-    writeNotifyPreference(next);
-    setNotice(next ? "已开启通知偏好（系统通知渠道将在后续版本接入）。" : "已关闭通知偏好。");
-  };
-
   const clearCache = async (): Promise<void> => {
     setCacheBusy(true);
     try {
-      // 偏好不是缓存：清空前记下主题与通知开关，清完原样写回。
+      // 偏好不是缓存：清空前记下主题，清完原样写回。
       let themeCache: string | null = null;
-      let notifyPreference: string | null = null;
       try {
         themeCache = window.localStorage.getItem(THEME_STORAGE_KEY);
-        notifyPreference = window.localStorage.getItem(NOTIFY_STORAGE_KEY);
       } catch { /* 忽略 */ }
       try { window.localStorage.clear(); } catch { /* 忽略 */ }
       try { window.sessionStorage.clear(); } catch { /* 忽略 */ }
       try {
         if (themeCache !== null) window.localStorage.setItem(THEME_STORAGE_KEY, themeCache);
-        if (notifyPreference !== null) window.localStorage.setItem(NOTIFY_STORAGE_KEY, notifyPreference);
       } catch { /* 忽略 */ }
       if (typeof caches !== "undefined") {
         const keys = await caches.keys();
         await Promise.all(keys.map((key) => caches.delete(key)));
       }
-      setNotifications(readNotifyPreference());
       await refreshCacheLabel();
       setNotice("缓存已清除。");
     } finally {
@@ -132,7 +112,7 @@ export function SettingsAccountPage(props: AccountPageProps) {
   const logout = async (): Promise<void> => {
     await props.onLogout();
     setConfirmDialog(null);
-    setNotice("已退出 SECTL 账号。");
+    setNotice("已退出登录。");
   };
 
   type RowDefinition =
@@ -144,25 +124,22 @@ export function SettingsAccountPage(props: AccountPageProps) {
     {
       label: "账号与偏好",
       rows: [
-        { kind: "link", title: "账号与安全", desc: "登录状态、凭据与模型服务授权", value: props.officialLoggedIn ? "已登录" : "未登录", onSelect: () => props.onNavigate("settings-models") },
-        { kind: "switch", title: "通知", desc: "保存桌面通知偏好；系统通知渠道接入后按此开关生效", checked: notifications, onChange: toggleNotifications },
-        { kind: "switch", title: "深色模式", desc: "即时切换整个应用的深浅配色；「跟随系统」仍可在系统分区选择", checked: darkActive, onChange: (next) => props.onThemeChange(next ? "dark" : "light") },
-        { kind: "link", title: "语言", desc: "界面与提示文案的语言", value: "简体中文", onSelect: () => setNotice("当前仅提供简体中文界面，多语言支持仍在规划中。") }
+        { kind: "link", title: "账号与安全", desc: "登录状态与账号凭据", value: props.officialLoggedIn ? "已登录" : "未登录", onSelect: () => props.onNavigate("settings-models") },
+        { kind: "switch", title: "深色模式", checked: darkActive, onChange: (next) => props.onThemeChange(next ? "dark" : "light") }
       ]
     },
     {
       label: "存储与数据",
       rows: [
-        { kind: "link", title: "清除缓存", desc: "清空本地存储、会话缓存与站点缓存", value: cacheBusy ? "清理中…" : cacheLabel, onSelect: () => setConfirmDialog("cache"), disabled: cacheBusy }
+        { kind: "link", title: "清除缓存", desc: "本地存储与站点缓存", value: cacheBusy ? "清理中…" : cacheLabel, onSelect: () => setConfirmDialog("cache"), disabled: cacheBusy }
       ]
     },
     {
       label: "关于与法律",
       rows: [
-        { kind: "link", title: "隐私政策", desc: "数据采集范围与遥测说明", onSelect: () => props.onOpenExternal(PRIVACY_URL) },
-        { kind: "link", title: "用户协议", desc: "使用条款与免责声明", onSelect: () => setNotice("用户协议页面尚未发布，发布后会在这里跳转。") },
+        { kind: "link", title: "隐私政策", desc: "数据采集与遥测", onSelect: () => props.onOpenExternal(PRIVACY_URL) },
         { kind: "link", title: "帮助与反馈", desc: "问题反馈与功能建议", onSelect: () => props.onOpenExternal(FEEDBACK_URL) },
-        { kind: "info", title: "关于", desc: "SecAgent 桌面端", value: props.version ? `v${props.version}` : "读取中…" }
+        { kind: "info", title: "关于", value: props.version ? `v${props.version}` : "读取中…" }
       ]
     }
   ];
@@ -179,14 +156,13 @@ export function SettingsAccountPage(props: AccountPageProps) {
   const menuItems = [
     { icon: <RefreshCw aria-hidden />, label: "检查更新", run: () => { setMenuOpen(false); props.onNavigate("settings-updates"); } },
     { icon: <CircleHelp aria-hidden />, label: "反馈问题", run: () => { setMenuOpen(false); props.onOpenExternal(FEEDBACK_URL); } },
-    { icon: <Info aria-hidden />, label: "关于 SecAgent", run: () => { setMenuOpen(false); setNotice(`SecAgent ${props.version ? `v${props.version}` : ""} · Electron 桌面端 · 设置页快捷键 Alt + 方向键`); } }
+    { icon: <Info aria-hidden />, label: "关于 SecAgent", run: () => { setMenuOpen(false); setNotice(`SecAgent ${props.version ? `v${props.version}` : ""} · Electron 桌面端`); } }
   ];
 
   return <>
     <div className="set-head">
       <div className="set-head-copy">
         <h2 className="set-head-title">设置</h2>
-        <p className="set-head-sub">账号、外观与偏好集中在这里；左侧是全部设置分区。</p>
       </div>
       <div className="set-head-actions" ref={menuRef}>
         <button type="button" className="set-icon-button" aria-label="更多设置操作" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>

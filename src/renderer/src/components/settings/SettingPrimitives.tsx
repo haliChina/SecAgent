@@ -9,9 +9,10 @@ import { useEffect, useRef, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
 
 /** 一组设置项：可选的小标题 + 圆角分组卡片。 */
-export function SettingsGroup({ label, children }: { label?: string; children: ReactNode }) {
+export function SettingsGroup({ label, desc, children }: { label?: string; desc?: string; children: ReactNode }) {
   return <div className="set-group-wrap">
     {label ? <h3 className="set-group-label">{label}</h3> : null}
+    {desc ? <p className="set-group-desc">{desc}</p> : null}
     <div className="set-group">{children}</div>
   </div>;
 }
