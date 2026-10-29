@@ -2,17 +2,13 @@
 
 ## Agent Plugins 兼容格式
 
-SecAgent 同时接受自有 `secagent-plugin.json` 格式、[Agent Plugins 1.0.0](https://agent-plugins.org/) 格式，以及 ZCode 官方插件布局（`.zcode-plugin/plugin.json`）。
+SecAgent 接受自有 `secagent-plugin.json` 格式与 [Agent Plugins 1.0.0](https://agent-plugins.org/) 格式。ZCode 官方插件（`.zcode-plugin/plugin.json`）已不再支持。
 
-## ZCode 插件兼容
+## ZCode 插件
 
-ZCode 官方插件包（如 zcode-plugins-official 里的 computer-use、browser-use、documents）可直接安装：
+ZCode 官方插件自 2026-10-26 起不再支持：安装会被直接拒绝，升级前已安装的会在启动时被清理（`plugin-manager.ts` 的 `sweepZcodePlugins`）。请改用 SecAgent 插件格式或 Agent Plugins 1.0.0 包。
 
-- 清单位于 `.zcode-plugin/plugin.json`（包根或 `<插件名>/<版本>/` 两层嵌套均可识别）；
-- `skills/<name>/SKILL.md` 与 Agent Plugins 相同，自动发现并挂载；
-- 清单内联的 `mcpServers` 会做变量展开（`${CLAUDE_PLUGIN_ROOT}`/`${ZCODE_PLUGIN_ROOT}` → 插件根，`${ZCODE_PLUGIN_DATA}`/`${ZCODE_PROJECT_DIR}` → 插件数据目录，`${user_config.*}` → 空串）与缓存路径重写（清单里指向 ZCode 本机缓存的 `dist/mcp/server.js` 等参数会改写到本机解包根）；命令本体保持原样尽力执行——依赖 ZCode 桌面运行时（如 `ZCode.exe`）的服务在未安装 ZCode 的机器上会显示为启动失败，不影响插件其他部分；
-- `ui`、`agents`、`commands`、`userConfig`、`isolation` 是 ZCode 桌面专属能力，忽略不加载；
-- 整包 marketplace 合集（一个 zip 含多个 `.zcode-plugin` 清单）不支持直接安装——请只打包单个插件目录的内容再安装。Agent Plugins 包使用根目录 `plugin.json`，可选的 `skills/<name>/SKILL.md` 会被自动发现；可选的 `mcp.json` 会被加载为 MCP 服务，其中支持 `stdio` 和 `streamable-http`，服务名会按 `<plugin-name>__<server-name>` 加前缀以避免冲突。
+Agent Plugins 包使用根目录 `plugin.json`，可选的 `skills/<name>/SKILL.md` 会被自动发现；可选的 `mcp.json` 会被加载为 MCP 服务，其中支持 `stdio` 和 `streamable-http`，服务名会按 `<plugin-name>__<server-name>` 加前缀以避免冲突。
 
 Agent Plugins 不执行 JavaScript `activate(api)`，也不要求声明 SecAgent 私有权限。其 `plugin.json`、Skill 和 MCP 配置仍会进行本地校验；单个无效 Skill 或 MCP 服务不会阻止同一包的其他组件加载。stdio 服务的 `PLUGIN_ROOT` 和持久化 `PLUGIN_DATA` 变量由宿主提供。
 

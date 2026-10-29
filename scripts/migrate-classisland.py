@@ -29,7 +29,7 @@ for start in sorted(st.keys(), reverse=True):
         end = start
     else:
         end = start
-        while lines[end] != "}":
+        while end < len(lines) and lines[end] != "}":
             end += 1
     del lines[start:end+1]
     while start < len(lines) and lines[start].strip() == "":

@@ -50,13 +50,18 @@ export function stripAnsi(text: string): string {
 }
 
 /** 对任意 JSON 形状的值做深遍历，剥掉所有字符串里的 ANSI 序列。 */
-export function stripAnsiDeep<T>(value: T): T {
+const ANSI_MAX_DEPTH = 64;
+export function stripAnsiDeep<T>(value: T, depth = 0): T {
+  /* 工具 arguments/result 是不可信输入，深度上限与 redact.ts 对齐，
+     防止构造性深层嵌套在渲染进程打爆栈（仅本地 DoS 面）。超限原样返回：
+     ANSI 只是显示层清理，不值得为此改变用户数据的形状。 */
+  if (depth > ANSI_MAX_DEPTH) return value;
   if (typeof value === "string") return stripAnsi(value) as unknown as T;
-  if (Array.isArray(value)) return value.map(stripAnsiDeep) as unknown as T;
+  if (Array.isArray(value)) return value.map((item) => stripAnsiDeep(item, depth + 1)) as unknown as T;
   if (value && typeof value === "object") {
     const source = value as Record<string, unknown>;
     const target: Record<string, unknown> = {};
-    for (const key of Object.keys(source)) target[key] = stripAnsiDeep(source[key]);
+    for (const key of Object.keys(source)) target[key] = stripAnsiDeep(source[key], depth + 1);
     return target as unknown as T;
   }
   return value;

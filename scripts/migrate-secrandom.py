@@ -28,7 +28,7 @@ for start in sorted(st.keys(), reverse=True):
         end = start  # 单行函数：签名行即完整函数
     else:
         end = start
-        while lines[end] != "}":
+        while end < len(lines) and lines[end] != "}":
             end += 1
     del lines[start:end+1]
     # 吞块后空行（保持段落）

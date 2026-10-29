@@ -781,9 +781,14 @@ export class PluginManager {
     const dropped: string[] = [];
     this.state.plugins = this.state.plugins.filter((item) => {
       if (!fs.existsSync(path.join(this.installedRoot, item.id, item.version, ".zcode-plugin"))) return true;
+      try {
+        fs.rmSync(path.join(this.installedRoot, item.id), { recursive: true, force: true });
+        fs.rmSync(path.join(this.runtimeRoot, item.id), { recursive: true, force: true });
+      } catch {
+        // 删除失败时保留状态记录，否则下次启动只遍历 state.plugins，残留目录永远无人清扫。
+        return true;
+      }
       dropped.push(item.id);
-      try { fs.rmSync(path.join(this.installedRoot, item.id), { recursive: true, force: true }); } catch { /* 文件锁留待下次启动 */ }
-      try { fs.rmSync(path.join(this.runtimeRoot, item.id), { recursive: true, force: true }); } catch { /* 同上 */ }
       return false;
     });
     if (dropped.length) { this.saveState(); console.warn(`[secagent] 已移除 ZCode 格式插件（不再支持）：${dropped.join(", ")}`); }

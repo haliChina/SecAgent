@@ -60,7 +60,9 @@ export function AuroraBackdrop() {
       canvas.height = Math.max(1, Math.round(rect.height * dpr));
     };
     resize();
-    const observer = new ResizeObserver(resize);
+    /* reduced-motion 下没有 rAF 循环，resize 会重置画布缓冲（清空画面）。
+       尺寸变化后补画一帧，否则窗口缩放会让极光变空白。 */
+    const observer = new ResizeObserver(() => { resize(); if (reducedMotion) draw(0); });
     observer.observe(container);
 
     const blobs = [

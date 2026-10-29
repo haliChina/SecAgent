@@ -55,7 +55,7 @@ s = "\n".join(lines)
 lines2 = s.split("\n")
 i0 = next(i for i, l in enumerate(lines2) if l.startswith("interface ClassWidgetsReleaseMetadata {"))
 i1 = i0
-while lines2[i1] != "}":
+while i1 < len(lines2) and lines2[i1] != "}":
     i1 += 1
 del lines2[i0:i1+2]
 s = "\n".join(lines2)

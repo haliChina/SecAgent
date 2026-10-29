@@ -110,6 +110,17 @@ test("maskSecretsDeep 剪枝循环引用不栈溢出（R63 防护回归）", () 
   assert.strictEqual(out.self, "[循环引用]");
 });
 
+test("maskSecretsDeep 不把 DAG 共享引用误判为循环", () => {
+  const shared = { host: "db.internal", password: "s3cr3t!" };
+  const out = maskSecretsDeep({ first: shared, second: shared }) as Record<string, unknown>;
+  const first = out.first as Record<string, unknown>;
+  const second = out.second as Record<string, unknown>;
+  assert.equal(first.host, "db.internal");
+  assert.equal(second.host, "db.internal", "共享子对象第二次出现不得变成 [循环引用]");
+  assert.equal(first.password, MASKED_SECRET);
+  assert.equal(second.password, MASKED_SECRET);
+});
+
 test("maskSecretsDeep 深度截断防解析炸弹", () => {
   let deep: unknown = { apiKey: "sk-live" };
   for (let i = 0; i < 100; i += 1) deep = { nested: deep };

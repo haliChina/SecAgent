@@ -46,6 +46,13 @@ test("stripAnsiDeep 深遍历清理嵌套结构", () => {
   assert.equal(input.stdout, "\u001b[32mok\u001b[0m");
 });
 
+test("stripAnsiDeep 深度上限防止构造性嵌套打爆栈", () => {
+  let deep: unknown = { text: "\u001b[31mx\u001b[0m" };
+  for (let index = 0; index < 100; index += 1) deep = { nested: deep };
+  const cleaned = stripAnsiDeep(deep);
+  assert.ok(cleaned !== undefined, "超深结构应原样返回而不是栈溢出");
+});
+
 test("MarkdownContent URL 协议白名单：javascript:/data: 丢弃，安全协议保留", () => {
   assert.equal(defaultUrlTransform("javascript:alert(1)"), "");
   assert.equal(defaultUrlTransform("JaVaScRiPt:alert(1)"), "");

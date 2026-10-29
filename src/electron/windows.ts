@@ -422,7 +422,7 @@ export const agentActivityBadge: AgentActivityHandler = ({ active, label }) => {
     // touch 续期（label 变化时热更新文本，不重建窗口）
     else if (label) {
       badgeWin.webContents
-        .executeJavaScript(`var el=document.getElementById("lbl"); if(el) el.textContent=${JSON.stringify(label)};`)
+        .executeJavaScript(`var el=document.getElementById("lbl"); if(el) el.textContent=${JSON.stringify(`·${label}`)};`)
         .catch(() => { /* 文本更新失败无碍 */ });
     }
     if (badgeIdleTimer) clearTimeout(badgeIdleTimer);
@@ -448,11 +448,12 @@ function createBadgeWindow(label?: string): void {
     `box-shadow:0 0 8px 2px rgba(255,138,61,.66);animation:pulse 1.15s ease-in-out infinite}` +
     `.txt{white-space:nowrap}` +
     `.sub{color:rgba(255,164,102,.95);font-weight:600}` +
+    `.sub:empty{display:none}` +
     `@keyframes in{to{opacity:1}}` +
     `@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}` +
     `</style></head><body><div class="badge">` +
     `<span class="dot"></span><span class="txt">SecAgent 正在操作电脑</span>` +
-    (labelText ? `<span class="sub">${labelText}</span>` : ``) +
+    (labelText ? `<span class="sub" id="lbl">${labelText}</span>` : `<span class="sub" id="lbl"></span>`) +
     `</div></body></html>`;
   badgeWin = new BrowserWindow({
     x: Math.round(workArea.x + workArea.width - W - 20),
@@ -572,9 +573,17 @@ export function openSettings(oobeOrMenuItem: boolean | Electron.MenuItem = false
   if (settingsWindow && !settingsWindow.isDestroyed()) {
     settingsWindow.show();
     settingsWindow.focus();
-    /* R73：定位分区（如从侧栏归档入口进 settings-sessions）。 */
-    if (typeof page === "string" && page && !settingsWindow.webContents.isLoading()) {
-      settingsWindow.webContents.send("settings:navigate", page);
+    /* R73：定位分区（如从侧栏归档入口进 settings-sessions）。窗口还在加载
+       时直接 send 会丢事件（renderer 尚未订阅），排队到 did-finish-load。 */
+    if (typeof page === "string" && page) {
+      const target = settingsWindow;
+      if (target.webContents.isLoading()) {
+        target.webContents.once("did-finish-load", () => {
+          if (!target.isDestroyed()) target.webContents.send("settings:navigate", page);
+        });
+      } else {
+        target.webContents.send("settings:navigate", page);
+      }
     }
     return;
   }

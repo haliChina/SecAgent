@@ -28,6 +28,9 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
   /* R68 重命名：menu.id 与 renameId 分开记——菜单里点「重命名」后菜单收起、
      该行切行内输入框；renameDraft 是受控草稿。 */
   const [renameState, setRenameState] = useState<{ id: string; draft: string } | null>(null);
+  /* Esc/Enter 后输入框会卸载并触发 blur；旧闭包里的 draft 会把已取消的改名
+     再次提交。用 ref 标记「本次重命名已结束」，blur 先查标记再决定是否提交。 */
+  const renameDoneRef = useRef(false);
   useEffect(() => { try { window.localStorage.setItem(COLLAPSED_KEY, collapsed ? "1" : "0"); } catch { /* 隐私模式等场景忽略 */ } }, [collapsed]);
 
   /* 菜单坐标：fixed 定位挂 ⋯ 的屏幕位置，滚动容器不裁剪（R62 教训）。
@@ -107,11 +110,19 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   const next = renameState.draft.trim();
+                  renameDoneRef.current = true;
                   setRenameState(null);
                   if (next && next !== item.title) onRename(item.id, next);
-                } else if (event.key === "Escape") setRenameState(null);
+                } else if (event.key === "Escape") {
+                  renameDoneRef.current = true;
+                  setRenameState(null);
+                }
               }}
               onBlur={() => {
+                if (renameDoneRef.current) {
+                  renameDoneRef.current = false;
+                  return;
+                }
                 const next = renameState.draft.trim();
                 setRenameState(null);
                 if (next && next !== item.title) onRename(item.id, next);
@@ -142,7 +153,7 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
       <div className="sidebar-menu-backdrop" onClick={() => setMenu(null)} aria-hidden />
       <div className="sidebar-menu" role="menu" aria-label="会话操作" ref={menuRef} style={{ top: menuPos.top, left: menuPos.left }}>
         <div className="sidebar-menu-row">
-          <button className="sidebar-menu-rename" type="button" role="menuitem" onClick={() => { const target = sessions.find((entry) => entry.id === menu.id); setRenameState({ id: menu.id, draft: target?.title ?? "" }); setMenu(null); }}><PencilLine size={15} aria-hidden /> 重命名</button>
+          <button className="sidebar-menu-rename" type="button" role="menuitem" onClick={() => { const target = sessions.find((entry) => entry.id === menu.id); renameDoneRef.current = false; setRenameState({ id: menu.id, draft: target?.title ?? "" }); setMenu(null); }}><PencilLine size={15} aria-hidden /> 重命名</button>
         </div>
         <div className="sidebar-menu-row">
           <FuseButton role="menuitem" className="sidebar-menu-fuse" label="归档会话" undoLabel="已撤销" doneLabel="已归档" fuse="outline" commitOn="press" settle="reset" onCommit={() => { onArchive(menu.id, true); setMenu(null); }} onUndo={() => onArchive(menu.id, false)} />
