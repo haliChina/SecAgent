@@ -10,9 +10,12 @@ import { ASR_BAILIAN_PRESETS, ASR_OPENAI_PRESETS, BAILIAN_DEFAULTS, MIMO_ASR_DEF
 import { emptyMcp, emptyProvider, isOfficialVisionModel, reasoningEffortsForModel } from "../utils.js";
 import { formatOfficialBalanceExpiry, formatOfficialPoints } from "../official-balance.js";
 import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js";
+import { SettingsAccountPage } from "./settings/SettingsAccountPage.js";
+import { applyTheme, cacheTheme } from "../theme.js";
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
+  { label: "通用", items: [{ id: "settings-account", label: "账户与通用" }] },
   { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
   { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
   { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }] }
@@ -43,6 +46,7 @@ export function SettingsApp() {
   const [officialPointBalances, setOfficialPointBalances] = useState<Array<{ points: number; expiresAt: string | null }>>([]);
   const [officialPointsBusy, setOfficialPointsBusy] = useState(false);
   const [officialLoggedIn, setOfficialLoggedIn] = useState(false);
+  const [officialEmail, setOfficialEmail] = useState("");
   const [officialExpired, setOfficialExpired] = useState(false);
   const [officialBusy, setOfficialBusy] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
@@ -66,8 +70,8 @@ export function SettingsApp() {
   const skipAutosave = useRef(true);
   const [activePage, setActivePage] = useState(() => {
     const hash = window.location.hash.replace(/^#/, "");
-    const builtInPage = ["settings-wake", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
-    return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-tts");
+    const builtInPage = ["settings-account", "settings-wake", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
+    return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-account");
   });
   // R73：已归档会话分区——进入分区时拉取；设置窗已开时经 settings:navigate 跳页。
   useEffect(() => { if (activePage === "settings-sessions") void refreshArchivedSessions(); }, [activePage]);
@@ -139,7 +143,7 @@ export function SettingsApp() {
       }
     } catch { setOfficialPoints(null); setOfficialPointBalances([]); setOfficialExpired(false); } finally { setOfficialPointsBusy(false); }
   };
-  useEffect(() => { void bridge.officialStatus().then((status) => { setOfficialLoggedIn(status.loggedIn); if (status.loggedIn) void refreshOfficialPoints(); }).catch(() => undefined); }, [bridge]);
+  useEffect(() => { void bridge.officialStatus().then((status) => { setOfficialLoggedIn(status.loggedIn); setOfficialEmail(typeof status.email === "string" ? status.email : ""); if (status.loggedIn) void refreshOfficialPoints(); }).catch(() => undefined); }, [bridge]);
   useEffect(() => {
     if (isOobe || !settings || !settingsLoaded.current) return;
     if (skipAutosave.current) {
@@ -399,6 +403,26 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     />}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
+    {!isOobe && <section id="settings-account" className={`settings-section ${activePage === "settings-account" ? "settings-section-active" : ""}`}>
+      {/* R78：新「账户与通用」页——行式分组 + 用户卡片 + 二次确认退出/清缓存。 */}
+      <SettingsAccountPage
+        theme={settings.theme || "light"}
+        onThemeChange={(theme) => {
+          // 先本地即时换肤（设置窗自身），再交给自动保存落盘并广播主窗。
+          cacheTheme(theme);
+          applyTheme(theme);
+          setSettings((current) => current && { ...current, theme });
+        }}
+        version={updateState?.currentVersion}
+        officialLoggedIn={officialLoggedIn}
+        officialEmail={officialEmail}
+        points={officialPoints}
+        modelCount={availableModels.length}
+        onNavigate={(page) => { setActivePage(page); window.history.replaceState(null, "", `#${page}`); }}
+        onOpenExternal={(url) => void bridge.openExternal(url)}
+        onLogout={officialLogout}
+      />
+    </section>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2><p>按下全局快捷键后，在当前显示器工作区唤起语音 Agent。窗口不会覆盖任务栏。</p></div></div>
       <article className="settings-card"><WakeHotkeyField value={settings.wake.hotkey} platform={bridge.platform} onChange={(hotkey) => setSettings((current) => current && { ...current, wake: { ...current.wake, hotkey } })} /><div className="form-grid wake-model-setting"><label>随时唤起使用的模型<SelectCombobox ariaLabel="随时唤起使用的模型" value={settings.wake.modelId || settings.defaultModelId || mainModelOptions[0]?.id || ""} options={mainModelOptions.map((model) => ({ value: model.id, label: model.name, group: model.providerLabel }))} onChange={(modelId) => setSettings((current) => current && { ...current, wake: { ...current.wake, modelId } })} /></label></div><label className="toggle-row"><span className="toggle-copy"><strong>语音唤醒</strong><small>开启后持续使用麦克风，识别到唤醒词后等同于按下上面的快捷键。</small></span><input type="checkbox" checked={settings.wake.voiceEnabled === true} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voiceEnabled: event.target.checked } })} /></label><label className="wake-phrase-field">唤醒词<input value={settings.wake.voicePhrase || "小泽同学"} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voicePhrase: event.target.value } })} placeholder="小泽同学" /></label><p className="settings-help">Windows/Linux 默认 Ctrl Alt A；macOS 默认 Ctrl Option A。语音唤醒始终使用随安装包提供的本地模型，无需网络。</p></article>    </section>
     <section id="settings-sessions" className={`settings-section ${activePage === "settings-sessions" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>已归档会话</h2><p>归档的会话不再出现在主侧栏，可在此浏览、恢复或删除。</p></div></div>

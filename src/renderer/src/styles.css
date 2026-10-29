@@ -1013,3 +1013,149 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .tool-confirmation-card .settings-help { margin: 12px 20px 0; font-size: 12px; }
 .tool-confirmation-keys { margin: 0 20px; color: var(--text-3); font-size: 11px; text-align: center; letter-spacing: .01em; }
 .tool-confirmation-actions { display: flex; gap: 10px; padding: 16px 20px 18px; margin-top: 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg-2) 55%, transparent); }
+
+/* ===== R78：设置页右侧重做——分组卡片 + 行式条目（对齐 Trae 设置分栏语言） =====
+   问题：右侧每张卡里多个块零间距叠加，开关行只有 hairline 无行高，长页面读不出层级。
+   做法：卡片 = 分组容器（零内边距），每个直接子块 = 带内边距与发丝分隔线的行；
+   组与组 24px；行最小高度 52px（点击热区 ≥44px）。作用域限定非 OOBE 设置窗，
+   OOBE 向导保持原有密度。全部取既有 token（--bg-* / --text-* / --line / --accent），
+   暗色由 :root[data-theme="dark"] 自动跟随。 */
+
+/* 组间距 24px（原 12px 过密，是「多项无间距叠加」最直接的观感来源）。 */
+.settings-shell:not(.oobe-shell) .settings-section-active { gap: 24px; }
+
+/* 页头：标题左、操作右。 */
+.settings-shell:not(.oobe-shell) .settings-section-active > .section-title { margin: 0; padding: 0 2px; align-items: flex-start; }
+.settings-shell:not(.oobe-shell) .settings-section-active > .section-title h2 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+.settings-shell:not(.oobe-shell) .settings-section-active > .section-title p { margin: 6px 0 0; max-width: 720px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+
+/* 卡片 = 分组容器。plugin-service-status / empty-card 保持独立布局。 */
+.settings-shell:not(.oobe-shell) .settings-card:not(.plugin-service-status):not(.settings-empty-card),
+.settings-shell:not(.oobe-shell) .set-group {
+  display: flex; flex-direction: column;
+  padding: 0; overflow: hidden;
+  border: 1px solid var(--line); border-radius: 14px;
+  background: var(--bg-1);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+}
+
+/* 卡片直接子块：统一内边距 + 发丝分隔线（原本互不相关的块从此有节奏）。 */
+.settings-shell:not(.oobe-shell) .settings-card > *,
+.settings-shell:not(.oobe-shell) .set-group > * { min-width: 0; margin: 0; padding: 14px 18px; }
+.settings-shell:not(.oobe-shell) .settings-card > * + *,
+.settings-shell:not(.oobe-shell) .set-group > * + * { border-top: 1px solid var(--line); }
+/* 卡片脚注：贴着上文，不单独拉分隔线。 */
+.settings-shell:not(.oobe-shell) .settings-card > .settings-help:not(:first-child),
+.settings-shell:not(.oobe-shell) .settings-card > .settings-hint:not(:first-child) { border-top: 0; padding-top: 10px; }
+
+/* 行条目：旧 toggle-row 与新版 set-row 共用同一套视觉（行高 52px、hover 高亮）。 */
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row,
+.settings-shell:not(.oobe-shell) .set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  width: 100%; min-height: 52px; margin: 0; padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  color: var(--text-1); text-align: left; cursor: pointer;
+  transition: background .16s ease;
+}
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row:first-child,
+.settings-shell:not(.oobe-shell) .set-group > .set-row:first-child { border-top: 0; }
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row:hover,
+.settings-shell:not(.oobe-shell) .set-row:hover { background: var(--bg-2); }
+.settings-shell:not(.oobe-shell) .set-row:focus-visible { outline: 2px solid var(--accent-border); outline-offset: -2px; }
+.settings-shell:not(.oobe-shell) .set-row:disabled { cursor: default; opacity: .55; }
+.settings-shell:not(.oobe-shell) .set-row:disabled:hover { background: transparent; }
+/* 子开关行缩进（原 margin-left 会在整行高亮里留出豁口）。 */
+.settings-shell:not(.oobe-shell) .toggle-row.nested-toggle-row { margin-left: 0; padding-left: 34px; }
+
+/* iOS 风格开关：原生 checkbox 重绘，状态逻辑零改动。 */
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"],
+.settings-shell:not(.oobe-shell) .set-switch {
+  appearance: none; -webkit-appearance: none;
+  position: relative; flex: none;
+  width: 44px; height: 26px; margin: 0; padding: 0;
+  border: 0; border-radius: 999px;
+  background: var(--bg-3);
+  cursor: pointer;
+  transition: background .18s ease;
+}
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]::after,
+.settings-shell:not(.oobe-shell) .set-switch::after {
+  content: ""; position: absolute; top: 3px; left: 3px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .35);
+  transition: transform .18s cubic-bezier(.2, .8, .25, 1);
+}
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:checked,
+.settings-shell:not(.oobe-shell) .set-switch:checked { background: var(--accent); }
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:checked::after,
+.settings-shell:not(.oobe-shell) .set-switch:checked::after { transform: translateX(18px); }
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:focus-visible,
+.settings-shell:not(.oobe-shell) .set-switch:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; }
+
+/* 行文案层级：标题 14/600，说明 12/text-2。 */
+.set-row-main { min-width: 0; display: grid; gap: 4px; }
+.set-row-title { color: var(--text-1); font-size: 14px; font-weight: 600; }
+.set-row-desc { color: var(--text-2); font-size: 12px; line-height: 1.55; }
+.set-row-right { display: flex; flex: none; align-items: center; gap: 8px; }
+.set-row-value { max-width: 320px; overflow: hidden; color: var(--text-3); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.set-row-chevron { width: 16px; height: 16px; flex: none; color: var(--text-3); }
+
+/* 分组小标题（组与组之间的语义标签，Trae 同款）。 */
+.set-group-wrap { display: grid; }
+.set-group-label { margin: 0 0 10px; padding-left: 4px; color: var(--text-3); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+
+/* 页头（新「账户与通用」页）：标题 + ⋯ 更多。 */
+.set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 0 2px; }
+.set-head-copy { min-width: 0; }
+.set-head-title { margin: 0; color: var(--text-1); font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
+.set-head-sub { margin: 6px 0 0; max-width: 680px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.set-head-actions { position: relative; display: flex; flex: none; gap: 8px; }
+.set-icon-button { display: grid; place-items: center; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); color: var(--text-2); }
+.set-icon-button:hover { background: var(--bg-2); color: var(--text-1); }
+.set-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 6; display: grid; gap: 2px; min-width: 196px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); box-shadow: 0 12px 30px rgba(15, 23, 42, .16); }
+.set-menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 10px; border-radius: 8px; color: var(--text-1); font-size: 13px; text-align: left; }
+.set-menu button:hover { background: var(--bg-2); }
+.set-menu button svg { width: 15px; height: 15px; color: var(--text-3); }
+
+/* 搜索设置项（列表项 > 5 条时出现）。 */
+.set-search { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); color: var(--text-3); }
+.set-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent); }
+.set-search input { flex: 1 1 auto; min-width: 0; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text-1); font-size: 13px; }
+.set-search input::placeholder { color: var(--text-3); }
+.set-search svg { width: 15px; height: 15px; flex: none; }
+
+/* 用户信息卡片：头像 + 身份 + 右侧纵向两组数据。 */
+.set-user { display: flex; align-items: center; gap: 18px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1); box-shadow: 0 1px 3px rgba(15, 23, 42, .05); }
+.set-user-avatar { display: grid; place-items: center; flex: none; width: 56px; height: 56px; border: 1px solid var(--accent-border); border-radius: 50%; background: var(--accent-soft); color: var(--accent-text); font-size: 24px; font-weight: 700; text-transform: uppercase; }
+.set-user-main { min-width: 0; flex: 1 1 auto; display: grid; gap: 4px; }
+.set-user-name { overflow: hidden; color: var(--text-1); font-size: 18px; font-weight: 700; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.set-user-role { overflow: hidden; color: var(--text-3); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.set-user-stats { display: grid; flex: none; gap: 10px; padding-left: 18px; border-left: 1px solid var(--line); text-align: right; }
+.set-user-stat { display: grid; gap: 2px; }
+.set-user-stat strong { color: var(--text-1); font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.set-user-stat span { color: var(--text-3); font-size: 11px; }
+
+/* 一次性提示条（语言/协议等占位反馈）。 */
+.set-notice { margin: 0; padding: 10px 14px; border: 1px solid var(--accent-border); border-radius: 10px; background: var(--accent-soft); color: var(--accent-text); font-size: 12px; }
+
+/* 底部退出登录：整宽警示按钮（二次确认由确认弹窗负责）。 */
+.set-danger { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 52px; padding: 12px 18px; border: 1px solid rgba(248, 113, 113, .45); border-radius: 14px; background: var(--bg-1); color: #F87171; font-size: 14px; font-weight: 600; }
+.set-danger:hover:not(:disabled) { background: rgba(248, 113, 113, .12); }
+.set-danger:disabled { cursor: not-allowed; opacity: .55; }
+.set-danger svg { width: 16px; height: 16px; }
+
+/* 确认弹窗：复用 settings-modal 外壳，收窄为确认卡。 */
+.set-confirm { width: min(440px, 100%); }
+.set-confirm-text { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.65; }
+.set-confirm .modal-actions { margin-top: 18px; }
+.set-danger-button { border-color: #DC2626; background: #DC2626; box-shadow: 0 1px 2px rgba(220, 38, 38, .25); }
+.set-danger-button:hover:not(:disabled) { filter: brightness(1.06); }
+
+@media (max-width: 720px) {
+  .set-user { flex-wrap: wrap; }
+  .set-user-stats { width: 100%; margin-top: 4px; padding: 12px 0 0; border-left: 0; border-top: 1px solid var(--line); text-align: left; }
+  .set-row-value { max-width: 160px; }
+}
+/* 纯展示行：不可点击，不跟随 hover 高亮。 */
+.settings-shell:not(.oobe-shell) .set-row-static { cursor: default; }
+.settings-shell:not(.oobe-shell) .set-row-static:hover { background: transparent; }
