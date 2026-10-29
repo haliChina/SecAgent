@@ -254,6 +254,29 @@ test("setAutoLoadedSkills 去重，setArchived 不影响列表外会话", () => 
   }
 });
 
+test("旧索引缺失或损坏时，session.json 会话仍按可见状态导入", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-index-corrupt-"));
+  try {
+    const root = path.join(workspace, "sessions");
+    const id = "legacy-no-index";
+    const at = "2026-01-04T00:00:00.000Z";
+    fs.mkdirSync(path.join(root, id), { recursive: true });
+    fs.writeFileSync(path.join(root, "index.json"), "{broken json", "utf8");
+    fs.writeFileSync(path.join(root, id, "session.json"), JSON.stringify({
+      meta: { id, title: "索引损坏的会话", createdAt: at, updatedAt: at },
+      messages: [{ id: "n1", role: "user", content: "还在吗", createdAt: at }],
+      legacyHydrated: true,
+    }), "utf8");
+
+    const store = new SessionStore(workspace);
+    assert.equal(store.list()[0]?.id, id, "索引不可读时不得把会话隐藏为 listed:false");
+    assert.equal(store.get(id).messages.length, 1);
+  } finally {
+    closeSessionDb(workspace);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("旧会话工具调用只从 runtime.jsonl 回填一次并落库", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-hydrate-"));
   try {

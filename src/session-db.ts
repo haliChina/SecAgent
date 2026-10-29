@@ -54,6 +54,8 @@ export function openSessionDb(workspace: string): DatabaseSync {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA busy_timeout = 5000");
+  /* synchronous=NORMAL（WAL）：保证进程崩溃不丢已提交事务；断电/系统崩溃时
+     最后一次提交可能回滚。单条会话消息可接受；若要宣传「断电安全」需改 FULL。 */
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
   db.exec(`
@@ -84,7 +86,7 @@ export function openSessionDb(workspace: string): DatabaseSync {
   const version = readSessionDbMeta(db, "schema_version");
   if (version !== undefined && Number(version) > SESSION_SCHEMA_VERSION) {
     db.close();
-    throw new Error(`会话数据库版本 ${version} 高于当前支持的 ${SESSION_SCHEMA_VERSION}，请升级 SecAgent`);
+    throw new Error(`会话数据库版本 ${version} 高于当前支持的 ${SESSION_SCHEMA_VERSION}（${file}）。请升级 SecAgent；如确认要重建，可删除该文件（会丢失已迁移会话，旧 JSON 备份仍保留在 sessions/*.migrated）`);
   }
   writeSessionDbMeta(db, "schema_version", String(SESSION_SCHEMA_VERSION));
   connections.set(file, db);
