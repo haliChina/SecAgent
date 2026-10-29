@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld("secagent", {
   saveSettings: (payload: unknown) => ipcRenderer.invoke("settings:save", payload),
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
   callPluginSettings: (pluginId: string, pageId: string, action: string, args?: unknown) => ipcRenderer.invoke("plugins:settings-call", pluginId, pageId, action, args || {}),
+  pickPluginPath: (kind?: "file" | "directory") => ipcRenderer.invoke("plugins:pick-path", kind === "file" ? "file" : "directory"),
   setPluginEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke("plugins:set-enabled", id, enabled),
   reloadPlugin: (id: string) => ipcRenderer.invoke("plugins:reload", id),
   uninstallPlugin: (id: string) => ipcRenderer.invoke("plugins:uninstall", id),

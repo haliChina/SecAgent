@@ -380,6 +380,56 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .plugin-form-fields label.toggle-row { display: flex; }
 .plugin-form-fields input[type="text"], .plugin-form-fields input[type="number"] { min-width: 0; }
 .plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
+/* R81：插件字段控件行（输入 + 浏览/显隐/恢复默认），颜色全部走主题 token。 */
+.plugin-field-label { display: inline-flex; align-items: center; color: var(--text-2); }
+.plugin-field-control { display: flex; align-items: center; gap: 6px; }
+.plugin-field-control > input[type="text"],
+.plugin-field-control > input[type="password"],
+.plugin-field-control > input[type="number"],
+.plugin-field-control > textarea,
+.plugin-field-control > .select-combobox,
+.plugin-field-control > .plugin-path-field,
+.plugin-field-control > .plugin-secret-field { flex: 1; min-width: 0; }
+.plugin-form-fields input[type="text"],
+.plugin-form-fields input[type="password"],
+.plugin-form-fields input[type="number"],
+.plugin-form-fields textarea {
+  min-height: 36px; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: 8px; outline: none;
+  background: var(--bg-1); color: var(--text-1); font-size: 13px;
+}
+.plugin-form-fields textarea { min-height: 64px; resize: vertical; line-height: 1.5; }
+.plugin-form-fields input[type="text"]:focus,
+.plugin-form-fields input[type="password"]:focus,
+.plugin-form-fields input[type="number"]:focus,
+.plugin-form-fields textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
+.plugin-path-field, .plugin-secret-field { display: flex; align-items: center; gap: 6px; }
+.plugin-set-inline-button {
+  flex: none; min-height: 36px; display: inline-flex; align-items: center; gap: 5px;
+  padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg-1); color: var(--text-2); font-size: 12px; cursor: pointer;
+}
+.plugin-set-inline-button:hover { border-color: var(--accent-border); color: var(--accent-text); }
+.plugin-set-reset {
+  flex: none; width: 30px; height: 30px; display: inline-grid; place-items: center;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--text-3); cursor: pointer;
+}
+.plugin-set-reset:hover { border-color: var(--line); background: var(--bg-2); color: var(--text-1); }
+.plugin-effect-badge {
+  display: inline-flex; margin-left: 8px; padding: 1px 7px;
+  border: 1px solid var(--accent-border); border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent-text);
+  font-size: 11px; font-weight: 600; vertical-align: middle;
+}
+.plugin-effect-badge.guidance { border-color: var(--line); background: var(--bg-2); color: var(--text-2); }
+.plugin-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.plugin-action-button { min-height: 34px; }
+.plugin-action-button.danger { border-color: rgba(248,113,113,.42); color: #F87171; }
+.plugin-action-result { margin-top: 10px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+.plugin-form-state { color: var(--text-3); font-size: 12px; }
+.plugin-confirm-modal { width: min(460px, 100%); }
+.plugin-danger-button { border-color: #DC2626; background: #DC2626; }
 .plugin-service-status strong { color: #4ADE80; font-size: 13px; font-weight: 600; text-align: right; }
 .plugin-service-status.error { border-color: rgba(248,113,113,.35); background: var(--bg-1); }
 .plugin-service-status.error strong { color: #F87171; }
