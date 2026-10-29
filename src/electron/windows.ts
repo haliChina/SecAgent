@@ -325,13 +325,14 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
     } else if (kind === "scroll") {
       // 轻量滚动提示：方向箭头 + 微光（不整环，短促不打扰）。
       // 0.2 轮：箭头 22px 实测太小+260ms 一闪即逝——放大到 30px/420ms。
-      size = 64;
+      // R76：升级包实测 30px 仍不够醒目（高分屏）——再放大到 34 字/38px/窗 74。
+      size = 74;
       const up = Number(opts?.direction) >= 0;
       body =
         `<div class="arrow">${up ? "↑" : "↓"}</div>` +
         `<style>` +
-        `.arrow{position:absolute;left:50%;top:50%;margin:-15px 0 0 -15px;width:30px;height:30px;` +
-        `color:#cab6ff;font:700 26px/30px system-ui;text-shadow:0 0 12px 3px rgba(160,107,255,.8);` +
+        `.arrow{position:absolute;left:50%;top:50%;margin:-19px 0 0 -19px;width:38px;height:38px;` +
+        `color:#cab6ff;font:700 34px/38px system-ui;text-shadow:0 0 14px 4px rgba(160,107,255,.85);` +
         `animation:up ${ms}ms ease-out forwards}` +
         `@keyframes up{from{opacity:.95;transform:translateY(4px)}to{opacity:0;transform:translateY(${up ? -18 : 18}px)}}` +
         `</style>`;
@@ -345,10 +346,10 @@ export const showPluginFlash: FlashHandler = (x, y, opts) => {
       const color = kind === "focus" ? "#ffb02e" : "#ff5238";
       body =
         `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" class="wrap">` +
-        `<circle cx="${c}" cy="${c}" r="${r + 4}" fill="none" stroke="${color}" stroke-opacity=".22" stroke-width="8"/>` +
-        `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="3.5" stroke-linecap="round" ` +
+        `<circle cx="${c}" cy="${c}" r="${r + 4}" fill="none" stroke="${color}" stroke-opacity=".45" stroke-width="8"/>` +
+        `<circle cx="${c}" cy="${c}" r="${r}" fill="none" stroke="${color}" stroke-width="5" stroke-linecap="round" ` +
         `stroke-dasharray="${arc} ${circumference}" class="arc"/>` +
-        `<circle cx="${c}" cy="${c}" r="2.6" fill="#ffffff" fill-opacity=".95"/>` +
+        `<circle cx="${c}" cy="${c}" r="3.8" fill="#ffffff" fill-opacity=".95"/>` +
         `</svg>` +
         `<style>` +
         `.wrap{animation:fade ${ms}ms cubic-bezier(.2,.7,.3,1) forwards}` +
@@ -516,7 +517,12 @@ export async function openPluginOverlay(request: OverlayRequest): Promise<Plugin
       preload: path.join(__dirname, "../preload/overlay-preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true
+      sandbox: true,
+      // R76（升级包 asar 补丁进源码）：桌宠等 overlay 被 Windows 原生
+      // occlusion 误判遮挡时 Chromium 暂停整页 rAF——换肤/改尺寸清空画布后
+      // 永远无人重画（0.5.7 实机「换皮肤后桌宠凭空消失」根因）、抛掷积分冻结。
+      // 关闭后台节流，动画与物理始终全速。CPU 影响可忽略（overlay 本就常驻）。
+      backgroundThrottling: false
     }
   });
   win.on("page-title-updated", (event) => event.preventDefault());

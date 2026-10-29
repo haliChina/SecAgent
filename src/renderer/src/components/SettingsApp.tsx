@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PluginSettingsPanel } from "./PluginSettingsPanel.js";
 import { SecScoreSettingsPage } from "./SecScoreSettingsPage.js";
+import { PluginFormSettingsPage } from "./PluginFormSettingsPage.js";
 import { PresetCombobox } from "./PresetCombobox.js";
 import { SelectCombobox } from "./SelectCombobox.js";
 import { OobeWizard } from "./OobeWizard.js";
@@ -515,10 +516,11 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     </section>
     {!isOobe && plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
       <div className="section-title"><h2>{page.title}</h2></div>
-      {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : <article className={`settings-card plugin-service-status ${plugin.state}`}>
+      {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : plugin.id === "computer-use" ? <article className={`settings-card plugin-service-status ${plugin.state}`}>
+        {/* CU 走自带控制台（settings 工具打开），不渲染表单 */}
         <span>服务状态</span>
         <strong>{plugin.message || (plugin.state === "ready" ? "已就绪" : "未连接")}</strong>
-      </article>}
+      </article> : <PluginFormSettingsPage pluginId={plugin.id} pageId={page.id} />}
     </section>))}
 
     <section id="settings-system" className={"settings-section " + (activePage === "settings-system" ? "settings-section-active" : "")}><div className="section-title"><div><h2>系统</h2><p>开机怎么启动、界面长什么样、模型出问题怎么办——日常开关都在这一页。</p></div></div>
