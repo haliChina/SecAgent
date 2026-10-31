@@ -619,6 +619,7 @@ export function App() {
   }, [session?.messages]);
   const changeSession = async (id: string) => {
     if (!bridge) return;
+    stopReading();
     const [next, runtimeEvents] = await Promise.all([bridge.getSession(id), bridge.getRuntimeEvents(id)]);
     setSession(next);
     setTrace((current) => {
@@ -630,6 +631,7 @@ export function App() {
   };
   const createSession = async () => {
     if (!bridge) return;
+    stopReading();
     // R56 新建防堆积：已存在"空会话"（默认标题且无预览 ⇒ 无消息）时直接切换过去，
     // 不再重复落盘新会话——连续点 + 不会刷出一排"新会话"，也省掉 sessions:list
     // 全量预览扫描随会话数线性变慢的开销。
@@ -661,6 +663,7 @@ export function App() {
     if (!bridge) return;
     const remaining = await bridge.deleteSession(id);
     if (id === session?.meta.id) {
+      stopReading();
       const next = remaining[0] ? await bridge.getSession(remaining[0].id) : await bridge.createSession();
       setSession(next);
       setTrace([]);
@@ -729,6 +732,7 @@ export function App() {
     });
   };
   const submitMessage = async (text: string, sentAttachments: ChatAttachment[], optimisticMessageId?: string) => {
+    stopReading();
     if ((!text && !sentAttachments.length) || !session || runningSessionsRef.current.includes(session.meta.id) || (voicePendingSendRef.current && !optimisticMessageId)) return;
     if (optimisticMessageId) {
       setSession((current) => current && current.meta.id === session.meta.id
@@ -796,6 +800,8 @@ export function App() {
       setSpeechStatus("当前环境不支持麦克风");
       return false;
     }
+    // 录音会拾取扬声器里的朗读声：开麦前先停掉，避免边说边读。
+    stopReading();
     const textArea = textareaRef.current;
     const selection = insert || { start: textArea?.selectionStart ?? draft.length, end: textArea?.selectionEnd ?? draft.length };
     const speechSession = {
@@ -1196,7 +1202,7 @@ export function App() {
               if (key === "new-session") void createSession();
               else if (key === "stop") { if (sessionRunning) void stop(); }
               else if (key === "read") {
-                const target = session?.messages.filter((message) => message.role === "assistant" && message.content).at(-1);
+                const target = session?.messages.filter((message) => message.role === "assistant" && message.content && !message.content.startsWith("执行失败：")).at(-1);
                 if (target) void readMessage(target.id, target.content);
               }
               else if (key === "stop-read") stopReading();
