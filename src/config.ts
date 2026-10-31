@@ -60,6 +60,7 @@ function normalizeTtsBlock(raw: unknown): import("./tts/types.js").TtsSettings {
     chain: chain.length ? chain : [provider],
     voice: text(source.voice, DEFAULT_TTS_VOICE),
     rate: text(source.rate, DEFAULT_TTS_RATE),
+    readCodeBlocks: source.readCodeBlocks === true,
     ...(has(windows) ? { windows: { ...(typeof windows.voice === "string" && windows.voice.trim() ? { voice: windows.voice.trim() } : {}) } } : {}),
     ...(has(mimo) ? { mimo: {
       ...(typeof mimo.apiKeyEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(mimo.apiKeyEnv) ? { apiKeyEnv: mimo.apiKeyEnv } : {}),
@@ -104,7 +105,7 @@ const template = (workspace: string): SecAgentConfig => ({
       maxTokens: DEFAULT_MAX_TOKENS
     }]
   } as SecAgentConfig["agent"],
-  tts: { provider: "edge" as const, chain: ["edge", "windows"], voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE },
+  tts: { provider: "edge" as const, chain: ["edge", "windows"], voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE, readCodeBlocks: false },
   wake: { hotkey: DEFAULT_WAKE_HOTKEY, voiceEnabled: false, voicePhrase: DEFAULT_WAKE_PHRASE },
   updates: { ...DEFAULT_UPDATE_PREFERENCES },
   telemetry: { ...DEFAULT_TELEMETRY_SETTINGS },

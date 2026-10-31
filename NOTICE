@@ -13,7 +13,16 @@ https://github.com/swamimalode07/rare-ui）：
 这些组件在应用内保留可见的 Rare UI 署名链接（设置 → 关于），README「开源致谢」
 与源码文件头也保留了来源说明。
 
-以下为上游许可证全文：
+--------------------------------------------------------------------------
+
+上下文预算与 token 估算思路（src/context-budget.ts）参考自 AIStudio
+（https://github.com/SRInternet-Studio/AIStudio ，Apache License 2.0，
+Copyright (c) 2026 SRInternet-Studio）。本项目按该项目的 CJK 感知估算与
+上下文窗口预算设计自行实现 TypeScript 版本，未复制其源代码；按 Apache-2.0
+保留此署名与算法来源说明。许可证全文见
+https://www.apache.org/licenses/LICENSE-2.0 。
+
+以下为上述 Rare UI 上游许可证全文：
 
 --------------------------------------------------------------------------
 

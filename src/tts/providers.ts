@@ -211,7 +211,7 @@ export class MimoTtsProvider implements TtsProvider {
     }
   }
 
-  async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
+  async synthesize(text: string): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
     if (!clean) return { data: Buffer.alloc(0) };
     const config = resolveMimoTtsConfig(this.options.getSettings(), this.options.getApiKey);
@@ -219,13 +219,15 @@ export class MimoTtsProvider implements TtsProvider {
     const fetchImpl = this.options.fetchImpl || fetch;
     // Docs: user message = 语气描述（voicedesign 必填，其余可选），
     // assistant message = 待合成正文；audio = { format, voice }。
+    // 音色/语气只取 miMo 自己的子配置——全局「语音音色」是 Edge/Windows 的
+    // voice id，传进来会覆盖掉用户选的 MiMo 音色。
     const body = {
       model: config.model,
       messages: [
-        { role: "user", content: options.voice || config.voiceDescription || "默认" },
+        { role: "user", content: config.voiceDescription || "默认" },
         { role: "assistant", content: clean }
       ],
-      audio: { format: config.format, voice: options.voice || config.voice }
+      audio: { format: config.format, voice: config.voice }
     };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60000);
@@ -329,12 +331,13 @@ export class BailianTtsProvider implements TtsProvider {
     }
   }
 
-  async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
+  async synthesize(text: string): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
     if (!clean) return { data: Buffer.alloc(0) };
     const config = resolveBailianTtsConfig(this.options.getSettings(), this.options.getApiKey);
     if (!config) throw new Error("百炼 CosyVoice 未配置：请在工作区 .env 设置 BAILIAN_API_KEY");
-    const voice = options.voice || config.voice;
+    // 同 MiMo：音色只取 CosyVoice 子配置，全局 voice 是 Edge/Windows 的 id。
+    const voice = config.voice;
     const chunks = splitForCosyvoice(clean);
     const parts: Buffer[] = [];
     for (const chunk of chunks) parts.push(await this.runTask(config, chunk, voice));

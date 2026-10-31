@@ -15,6 +15,8 @@ import { EdgeTtsProvider, WindowsSapiTtsProvider, MimoTtsProvider, BailianTtsPro
 import { TtsManager } from "../tts/manager.js";
 import type { TtsProviderKind, TtsSettings } from "../tts/types.js";
 import { DEFAULT_TTS_VOICE, DEFAULT_TTS_RATE } from "../config.js";
+import { markdownToPlainText } from "../tts-text.js";
+import { readTtsCache, writeTtsCache } from "../tts-cache.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -51,12 +53,32 @@ function ensureManager(): TtsManager {
   return manager;
 }
 
+/** 音色缓存键：Edge/Windows 用全局音色；MiMo/Bailian 用各自子配置的音色。 */
+function cacheVoice(kind: TtsProviderKind, settings: TtsSettings): string {
+  if (kind === "mimo") return settings.mimo?.voice?.trim() || "mimo_default";
+  if (kind === "bailian") return settings.bailian?.voice?.trim() || "longanyang";
+  return settings.voice || DEFAULT_TTS_VOICE;
+}
+
 /** Speak `text` through the primary provider, falling back down the chain. */
 export async function synthesizeSpeech(text: string, settingsSnapshot?: TtsSettings): Promise<Buffer> {
   if (settingsSnapshot) configureTts(settingsSnapshot);
-  const clean = text.replace(/\s+/g, " ").trim();
-  if (!clean) return Buffer.alloc(0);
-  const chunk = await ensureManager().synthesize(clean, { voice: ttsSettings?.voice, rate: ttsSettings?.rate });
+  const settings: TtsSettings = ttsSettings ?? { provider: "edge", voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE };
+  // Markdown 清洗在这里统一做：渲染端只负责分句，避免两套规则各删各的符号。
+  const plain = markdownToPlainText(text, { readCodeBlocks: settings.readCodeBlocks === true });
+  if (!plain) return Buffer.alloc(0);
+  const rate = settings.rate || DEFAULT_TTS_RATE;
+  const manager = ensureManager();
+  // 缓存按链路逐个探测：本次实际可能由回退引擎合成，命中任一已缓存引擎即可复用。
+  for (const kind of manager.chain()) {
+    const cached = readTtsCache({ provider: kind, voice: cacheVoice(kind, settings), rate, text: plain });
+    if (cached) {
+      log(`[tts] 缓存命中：${kind}（${cached.length} 字节）`);
+      return cached;
+    }
+  }
+  const chunk = await manager.synthesize(plain, { voice: settings.voice, rate });
+  writeTtsCache({ provider: chunk.provider, voice: cacheVoice(chunk.provider, settings), rate, text: plain }, chunk.data);
   return chunk.data;
 }
 

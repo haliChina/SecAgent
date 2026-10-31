@@ -64,7 +64,9 @@ export function registerSpeechIpc(deps: {
   });
   ipcMain.handle("tts:synthesize", async (_event, text: string) => {
     if (typeof text !== "string" || !text.trim()) return "";
-    const clean = text.slice(0, 1800);
+    // 不再静默截断：渲染端已按句切到 ≤1800 字符，超限只记录便于定位调用方。
+    const clean = text.trim();
+    if (clean.length > 1800) logMain("tts.synthesize.oversized", { characters: clean.length });
     logMain("tts.synthesize.start", { characters: clean.length });
     try {
       const { config } = loadConfig(DEFAULT_WORKSPACE);

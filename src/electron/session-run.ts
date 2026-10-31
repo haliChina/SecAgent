@@ -23,6 +23,7 @@ import type { PluginManager } from "../plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort } from "../types.js";
 import type { ConversationMessage } from "../model-provider.js";
 import type { ToolConfirmWindowHooks } from "./tool-confirm.js";
+import { HISTORY_MESSAGE_WINDOW } from "../context-budget.js";
 
 interface SessionRunDeps {
   getPluginManager: () => PluginManager | undefined;
@@ -62,12 +63,12 @@ function classifyAgentFailure(error: unknown): string {
 }
 
 function historyInput(session: SessionData, current: string): string {
-  const history = session.messages.slice(-20).map((message) => `${message.role === "user" ? "教师" : "SecAgent"}：${message.content}`).join("\n");
+  const history = session.messages.slice(-HISTORY_MESSAGE_WINDOW).map((message) => `${message.role === "user" ? "教师" : "SecAgent"}：${message.content}`).join("\n");
   return history ? `以下是当前会话的历史，请结合上下文理解最后一条新消息。\n\n${history}\n\n教师的新消息：${current}` : current;
 }
 
 function conversationInput(session: SessionData, current: string, attachments: ChatAttachment[] = []): ConversationMessage[] {
-  const history = session.messages.slice(-20).map((message) => ({
+  const history = session.messages.slice(-HISTORY_MESSAGE_WINDOW).map((message) => ({
     role: message.role,
     content: message.content,
     ...(message.attachments?.length ? { attachments: message.attachments } : {}),

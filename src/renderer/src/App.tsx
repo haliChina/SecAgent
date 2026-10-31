@@ -16,6 +16,8 @@ import type { TraceEvent } from "./constants.js";
 import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
 import { buildQuotedUserMessage, webSearchUrl } from "../../quoted-message.js";
+import { estimateConversationTokens, estimateTokens, formatTokenCount, HISTORY_MESSAGE_WINDOW } from "../../context-budget.js";
+import { markdownToPlainText, splitForSpeech } from "../../tts-text.js";
 import { selectionInElement, copyText, UserQuotedContent } from "./components/MessageQuoted.js";
 import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
 import { TracePanel } from "./components/TracePanel.js";
@@ -440,10 +442,11 @@ export function App() {
   const readMessage = async (messageId: string, content: string) => {
     stopReading();
     const run = speechRun.current;
-    const plain = content.replace(/```[\s\S]*?```/g, (block) => block.replace(/```[a-z]*\n?/i, "").replace(/```$/, ""))
-      .replace(/!\[([^]]*)\]\([^)]*\)/g, "$1").replace(/\[([^]]+)\]\([^)]*\)/g, "$1")
-      .replace(/[#*_>`~-]/g, "").replace(/\s+/g, " ").trim();
-    const chunks = plain.match(/[^。！？!?；;，,：:\n]+[。！？!?；;，,：:]?|[^。！？!?；;，,：:]+$/g)?.map((item) => item.trim()).filter(Boolean) || [];
+    const settings = await bridge.getSettings().catch(() => null);
+    if (speechRun.current !== run) return;
+    // 清洗与分句收敛到 tts-text：跳过结构化块/公式/裸链接，句子超长会二次切分。
+    const plain = markdownToPlainText(content, { readCodeBlocks: settings?.tts?.readCodeBlocks === true });
+    const chunks = splitForSpeech(plain);
     if (!chunks.length) return;
     setSpeakingMessageId(messageId);
     setReadingStatus("loading");
@@ -587,6 +590,14 @@ export function App() {
     return () => cancelAnimationFrame(raf);
   }, [streamingOutput, traceActivities, sessionRunning]);
   const latestAssistantId = useMemo(() => session?.messages.filter((message) => message.role === "assistant").at(-1)?.id, [session?.messages]);
+  /* 上下文用量 chip：与 conversationInput 共用 HISTORY_MESSAGE_WINDOW，避免
+     UI 估算全量历史而实际只发送最近 N 条造成的显示偏差；草稿一并计入，
+     让用户在输入时就能看到接近发送时的规模。 */
+  const contextLabel = useMemo(() => {
+    const history = session?.messages.slice(-HISTORY_MESSAGE_WINDOW) ?? [];
+    const tokens = estimateConversationTokens(history) + estimateTokens(draft);
+    return tokens > 0 ? `~${formatTokenCount(tokens)} tokens` : undefined;
+  }, [session?.messages, draft]);
   // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
   const orbState = recording || speechProcessing ? "listening" : anyRunning || anyFinishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
@@ -1206,6 +1217,7 @@ export function App() {
             onDictateCancel={cancelPromptDictation}
             value={draft}
             onDraftChange={setDraft}
+            contextLabel={contextLabel}
             background="var(--glass-strong)"
             color="var(--text-1)"
             menuBackground="var(--glass-strong)"

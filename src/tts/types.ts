@@ -70,6 +70,8 @@ export interface TtsSettings {
   chain?: TtsProviderKind[];
   voice: string;
   rate: string;
+  /** 朗读时是否读出围栏代码块内容（默认 false，跳过代码）。 */
+  readCodeBlocks?: boolean;
   windows?: WindowsTtsSettings;
   mimo?: MimoTtsSettings;
   bailian?: BailianTtsSettings;

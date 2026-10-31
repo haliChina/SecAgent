@@ -91,6 +91,9 @@ export interface PromptBarProps {
   /* P3-3 命令面板：选中命令后回调动作 key（不传时保持真源行为——
      只把命令名插入草稿）。 */
   onCommandPick?: (key: string) => void;
+  /* 上下文用量 chip（如 "~3.2k tokens"）。由 App 侧估算后传入，组件不计算；
+     不传则不渲染，保持真源布局。 */
+  contextLabel?: string;
   background?: string;
   color?: string;
   menuBackground?: string;
@@ -271,6 +274,7 @@ export const PromptBar = ({
   onAttachRemove,
   onDictateCancel,
   onCommandPick,
+  contextLabel,
   background = '#27272a',
   color = '#f5f5f5',
   menuBackground = '#323236',
@@ -1030,6 +1034,14 @@ export const PromptBar = ({
               <SparklesIcon size={13} strokeWidth={2} />
               <span>{level}</span>
             </button>
+          ) : null}
+          {contextLabel ? (
+            <span
+              className="ml-1 inline-flex h-7 flex-none items-center rounded-lg px-1.5 text-[11px] tabular-nums [color:color-mix(in_srgb,var(--pb-ink)_50%,transparent)]"
+              title="当前上下文估算（按字符数估算，不含图片体积）"
+            >
+              {contextLabel}
+            </span>
           ) : null}
           <span className="flex-auto" />
           {onDictate ? (
