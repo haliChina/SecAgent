@@ -14,17 +14,28 @@ const KWS_DIR = "sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20";
 type Kws = ReturnType<typeof import("sherpa-onnx")["createKws"]>;
 type KwsStream = ReturnType<Kws["createStream"]>;
 
-export interface VoiceWakeOptions {
+interface VoiceWakeOptions {
   extraRoots?: string[];
   log?: (message: string) => void;
 }
 
-export function keywordTokens(phrase: string): string {
-  const syllables = pinyin(phrase.replace(/\s+/g, ""), { toneType: "symbol", type: "array" }) as string[];
+function keywordTokens(phrase: string): string {
+  /* R62 唤醒词修复补遗（此前注释的两处断言经实测不成立，已订正）：
+     - 词表 models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/tokens.txt
+       （263 token）并非"无任何带调韵母"——约 135 个 token 含带调韵母
+       （iǎo/ué/óng/é…）；pinyin-pro 的 toneType:"symbol" 生成的是带调符号
+       （xiǎo/zé/tóng/xué），不是数字调（iao3/e2/ong2）。
+     - toneType:"none" 下 pinyin("女")="nü"(U+00FC)，按声母+韵母切成 "n ü"；
+       但词表没有裸 ü（ü 系只有 ǘ/ǚ/ǜ 与 üè/üě），含女/绿/吕/旅/律的自定
+       义唤醒词永远拼不出关键词图。修：含 ü 的音节单独保留声调。 */
+  const cleaned = phrase.replace(/\s+/g, "");
+  const toneless = pinyin(cleaned, { toneType: "none", type: "array" }) as string[];
+  const toned = pinyin(cleaned, { toneType: "symbol", type: "array" }) as string[];
   const initials = ["zh", "ch", "sh", "b", "p", "m", "f", "d", "t", "n", "l", "g", "k", "h", "j", "q", "x", "r", "z", "c", "s", "y", "w"];
-  return syllables.map((syllable) => {
-    const initial = initials.find((candidate) => syllable.startsWith(candidate)) || "";
-    return `${initial} ${syllable.slice(initial.length)}`;
+  return toneless.map((syllable, index) => {
+    const source = syllable.includes("ü") ? toned[index] : syllable;
+    const initial = initials.find((candidate) => source.startsWith(candidate)) || "";
+    return `${initial} ${source.slice(initial.length)}`.trim();
   }).join(" ");
 }
 
@@ -71,13 +82,20 @@ export class VoiceWakeEngine {
         },
         tokens: path.join(root, "tokens.txt"),
         provider: "cpu",
-        numThreads: 1,
+        numThreads: 2,
         modelingUnit: "ppinyin"
       },
       maxActivePaths: 4,
-      numTrailingBlanks: 1,
-      keywordsScore: 1.5,
-      keywordsThreshold: 0.55,
+      /* R74：numTrailingBlanks 1→2——尾部静音判定太短会让说完关键词的
+         收尾帧被吞（截断式漏检），2 是社区对 3M 模型的常用值。 */
+      numTrailingBlanks: 2,
+      /* R59：threshold 0.55 远高于 sherpa 默认 0.25，回落官方默认。
+         R74 用户实测仍「喊不动」+识别率低——继续放宽：threshold 0.15
+         （3M 小模型召回优先，误触由四字词长度+冷却兜底）、score 1.4
+         （关键词相对背景语料的加分）。配合 VoiceWakeListener 的
+         AudioWorklet 重写（掉帧才是大屏场景的真根因）。 */
+      keywordsScore: 1.4,
+      keywordsThreshold: 0.15,
       keywords: `${keywordTokens(phrase)} @${phrase}`
     });
     this.stream = this.kws.createStream();

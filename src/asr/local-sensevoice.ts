@@ -23,7 +23,7 @@ import { mergeSamples } from "./wav.js";
 const PACK_DIR = "sense-voice";
 const MODEL_FILES = ["model.int8.onnx", "tokens.txt"] as const;
 
-export interface LocalSenseVoiceOptions {
+interface LocalSenseVoiceOptions {
   /** Extra directories that may contain `models/sense-voice`. */
   extraRoots?: string[];
   language?: string; // "" (auto) | zh | en | ja | ko | yue
@@ -48,7 +48,7 @@ function candidateRoots(options: LocalSenseVoiceOptions): string[] {
   ];
 }
 
-export function resolveSenseVoicePack(options: LocalSenseVoiceOptions = {}): string | undefined {
+function resolveSenseVoicePack(options: LocalSenseVoiceOptions = {}): string | undefined {
   for (const root of candidateRoots(options)) {
     const dir = path.join(root, "models", PACK_DIR);
     if (MODEL_FILES.every((file) => fs.existsSync(path.join(dir, file)))) return dir;
@@ -117,7 +117,22 @@ class SenseVoiceSession implements AsrSession {
     if (interval > 0) this.timer = setInterval(() => this.decode(false), interval);
   }
 
-  push(samples: Float32Array): void { if (!this.stopped) this.buffers.push(samples); }
+  /* R75（审计 P2-29）：buffers 旧实现只 push 从不清，且周期 decode 每次
+     mergeSamples(全部) 全量重解码——听写 5 分钟即 O(n²) 解码量+全部音频常驻
+     内存。上限 120s（partial 语义是「到目前为止的转写」，全量重解码保留；
+     超过 120s 丢头部——2 分钟还说不完一句话的听写场景头部已无意义），
+     final 解码后清空。 */
+  private static readonly MAX_BUFFERED_SAMPLES = 16000 * 120;
+
+  push(samples: Float32Array): void {
+    if (this.stopped) return;
+    this.buffers.push(samples);
+    let total = this.buffers.reduce((sum, buffer) => sum + buffer.length, 0);
+    while (total > SenseVoiceSession.MAX_BUFFERED_SAMPLES && this.buffers.length > 1) {
+      total -= this.buffers[0].length;
+      this.buffers.shift();
+    }
+  }
 
   private decode(final: boolean): void {
     const merged = mergeSamples(this.buffers);
@@ -129,6 +144,7 @@ class SenseVoiceSession implements AsrSession {
       this.recognizer.decode(stream);
       const text = (this.recognizer.getResult(stream).text || "").trim();
       if (text) this.sink({ type: final ? "final" : "partial", text, provider: "local-pro" });
+      if (final) this.buffers.length = 0;
     } catch (error) {
       this.sink({ type: "log", message: `[asr:local-pro] decode 失败：${error instanceof Error ? error.message : String(error)}` });
     }

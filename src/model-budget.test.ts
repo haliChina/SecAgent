@@ -57,10 +57,14 @@ test("GUI signatures are stable and honour always-allow", () => {
 test("budget defaults keep previous behaviour", () => {
   const settings = normalizeModelBudgetSettings(undefined);
   assert.equal(settings.maxToolTurns, 0);
+  assert.equal(settings.contextTokens, 0);
   assert.equal(settings.keepRecentImages, DEFAULT_MODEL_BUDGET.keepRecentImages);
-  assert.deepEqual(normalizeModelBudgetSettings({ maxToolTurns: -5 }), { maxToolTurns: 0, keepRecentImages: 2 });
+  assert.deepEqual(normalizeModelBudgetSettings({ maxToolTurns: -5 }), { maxToolTurns: 0, keepRecentImages: 2, contextTokens: 0 });
   assert.equal(normalizeModelBudgetSettings({ maxToolTurns: 12 }).maxToolTurns, 12);
   assert.equal(normalizeModelBudgetSettings({ keepRecentImages: 999 }).keepRecentImages, 24);
+  assert.equal(normalizeModelBudgetSettings({ contextTokens: -1 }).contextTokens, 0);
+  assert.equal(normalizeModelBudgetSettings({ contextTokens: 128_000 }).contextTokens, 128_000);
+  assert.equal(normalizeModelBudgetSettings({ contextTokens: 9_999_999 }).contextTokens, 2_000_000);
 });
 
 const png = (tag: string) => `data:image/png;base64,${tag}`;

@@ -7,6 +7,7 @@ import YAML from "yaml";
 import type { LoadedSkill, SkillAutoLoadPattern } from "./skills.js";
 import type { PluginStatus, PluginToolDefinition } from "./types.js";
 import { isTerminal, phaseOf, sanitizeActivityEvent, type ActivityEvent, type ActivityHandler, type ActivitySnapshot } from "./activity.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 const API_VERSION = 1;
 const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
@@ -126,8 +127,10 @@ export type OverlayHandler = (request: OverlayRequest) => Promise<PluginOverlayH
  * 视觉反馈。坐标为**物理像素**（多显示器绝对坐标），宿主内部换算 DIP。
  * fire-and-forget：实现方必须吞掉一切错误，绝不影响插件动作本身。
  */
-export type FlashMarkerKind = "click" | "type" | "focus" | "scroll";
-export type FlashHandler = (x: number, y: number, opts?: { kind?: FlashMarkerKind; radius?: number; ms?: number }) => void;
+export type FlashMarkerKind = "click" | "type" | "focus" | "scroll" | "chord";
+export type FlashHandler = (x: number, y: number, opts?: { kind?: FlashMarkerKind; radius?: number; ms?: number; label?: string; direction?: number }) => void;
+/** 插件报告「Agent 正在操作用户电脑」的常驻徽标（对齐 ZCode 的使用中标识）。 */
+export type AgentActivityHandler = (input: { active: boolean; label?: string }) => void;
 
 export interface PluginHostApi {
   registerTool(definition: Omit<PluginToolDefinition, "key"> & { name: string }, call: (args: Record<string, unknown>) => Promise<unknown>): void;
@@ -162,7 +165,9 @@ export interface PluginHostApi {
    * 插件的实际操作。无 Electron 桌面端（纯服务端运行）时为 no-op。
    * 无需专门权限：纯几何视觉反馈，不注入任何内容。
    */
-  flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll"; radius?: number; ms?: number }): void;
+  flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll" | "chord"; radius?: number; ms?: number; label?: string; direction?: number }): void;
+  /** 插件动作会话期间反复调用以常驻显示「正在操作电脑」徽标（active=false 立即隐藏）。 */
+  agentActivity(input: { active: boolean; label?: string }): void;
   /**
    * 订阅 Agent 活动事件（回合/工具/审批/完成/失败）。
    * 事件是无内容投影：只有 kind/sessionId/at/label/reason，
@@ -206,7 +211,8 @@ export class PluginManager {
   } = { getSession: async () => null, oauthLogin: async () => { throw new Error("SECTL OAuth login unavailable"); } },
   private readonly previewHandler?: SvgPreviewHandler,
   private readonly overlayHandler?: OverlayHandler,
-  private readonly flashHandler?: FlashHandler) {
+  private readonly flashHandler?: FlashHandler,
+  private readonly badgeHandler?: AgentActivityHandler) {
     this.installedRoot = path.join(workspace, "plugins", "installed");
     this.runtimeRoot = path.join(workspace, ".secagent-runtime", "plugins");
     this.configRoot = path.join(workspace, "plugins", "config");
@@ -218,6 +224,7 @@ export class PluginManager {
     fs.mkdirSync(this.installedRoot, { recursive: true });
     fs.mkdirSync(this.runtimeRoot, { recursive: true });
     this.state = this.readState();
+    this.sweepZcodePlugins();
     // 必须在任何插件激活（可能把 .node 原生模块加载进本进程、在 Windows 上锁住文件）之前清理遗留目录。
     this.sweepStalePluginDirs();
     for (const plugin of this.state.plugins.filter((item) => item.enabled)) await this.activate(plugin.id);
@@ -322,10 +329,21 @@ export class PluginManager {
       if (entry.entryName.includes("..") || path.isAbsolute(entry.entryName) || entry.entryName.startsWith("/")) throw new Error(`插件包包含不安全路径：${entry.entryName}`);
     }
     const ownManifestEntry = this.findArchiveManifest(zip, "secagent-plugin.json");
-    const agentManifestEntry = this.findArchiveManifest(zip, "plugin.json");
-    if (ownManifestEntry && agentManifestEntry) throw new Error("插件包不能同时包含两种根清单");
+    /* .zcode-plugin/plugin.json 的 basename 也是 plugin.json——泛搜必须排除，
+       否则 ZCode 包会被误当 Agent Plugins 清单解析出含混报错。 */
+    const agentManifestEntry = this.findArchiveManifest(zip, "plugin.json", (entryName) => entryName.includes(".zcode-plugin/"));
+    if (ownManifestEntry && agentManifestEntry) throw new Error("插件包不能同时包含多种根清单");
     const manifestEntry = ownManifestEntry || agentManifestEntry;
-    if (!manifestEntry) throw new Error("插件包缺少 secagent-plugin.json 或 plugin.json");
+    if (!manifestEntry) {
+      /* ZCode 官方包（.zcode-plugin/plugin.json）：2026-10-26 移除兼容——其技能
+         依赖 ZCode 宿主运行时（node_repl 等），装进 SecAgent 只是「能装不能用」
+         的陷阱，给出明确指引而不是含混的「缺少清单」。 */
+      const zcodeCount = zip.getEntries().filter((entry) => entry.entryName.endsWith("/.zcode-plugin/plugin.json") && !entry.entryName.endsWith("/")).length;
+      if (zcodeCount > 0) throw new Error(zcodeCount > 1
+        ? `这个 zip 是 ZCode 插件合集（marketplace 结构，含 ${zcodeCount} 个插件），与 SecAgent 不兼容`
+        : "ZCode 官方插件与 SecAgent 不兼容：它的技能依赖 ZCode 宿主运行时（node_repl 等），无法在 SecAgent 里执行");
+      throw new Error("插件包缺少 secagent-plugin.json 或 plugin.json");
+    }
     const manifest = this.validateManifest(JSON.parse(manifestEntry.getData().toString("utf8")), ownManifestEntry ? "secagent" : "agent");
     const previous = this.state.plugins.find((item) => item.id === manifest.id);
     const target = path.join(this.installedRoot, manifest.id, manifest.version);
@@ -644,6 +662,14 @@ export class PluginManager {
           this.flashHandler(Math.round(nx), Math.round(ny), opts);
         } catch { /* ignore */ }
       },
+      agentActivity: (input) => {
+        // fire-and-forget：徽标失败不影响插件动作；无 badgeHandler（纯服务端）静默。
+        try {
+          if (typeof this.badgeHandler !== "function") return;
+          if (!input || typeof input !== "object") return;
+          this.badgeHandler({ active: input.active === true, label: typeof input.label === "string" ? input.label : undefined });
+        } catch { /* ignore */ }
+      },
       onActivity: (handler) => {
         requirePermission("agent.activity");
         if (typeof handler !== "function") throw new Error("插件活动订阅者必须是函数");
@@ -750,6 +776,24 @@ export class PluginManager {
     }
     return undefined;
   }
+  /* 2026-10-26 移除 ZCode 插件兼容：清扫此前装的 ZCode 官方插件——卸状态记录、
+     删安装目录与运行时技能副本（data 目录留着无害），让老用户升级后列表自然干净。 */
+  private sweepZcodePlugins(): void {
+    const dropped: string[] = [];
+    this.state.plugins = this.state.plugins.filter((item) => {
+      if (!fs.existsSync(path.join(this.installedRoot, item.id, item.version, ".zcode-plugin"))) return true;
+      try {
+        fs.rmSync(path.join(this.installedRoot, item.id), { recursive: true, force: true });
+        fs.rmSync(path.join(this.runtimeRoot, item.id), { recursive: true, force: true });
+      } catch {
+        // 删除失败时保留状态记录，否则下次启动只遍历 state.plugins，残留目录永远无人清扫。
+        return true;
+      }
+      dropped.push(item.id);
+      return false;
+    });
+    if (dropped.length) { this.saveState(); console.warn(`[secagent] 已移除 ZCode 格式插件（不再支持）：${dropped.join(", ")}`); }
+  }
   private readReadme(root: string, manifest: PluginManifest): string | undefined {
     const requested = manifest.readme || "README.md";
     try {
@@ -778,10 +822,19 @@ export class PluginManager {
     const children = fs.readdirSync(staging, { withFileTypes: true });
     const candidates = children.filter((entry) => entry.isDirectory() && fs.existsSync(path.join(staging, entry.name, manifestFile)));
     if (candidates.length === 1 && children.every((entry) => entry.name === candidates[0].name || entry.name === ".DS_Store")) return path.join(staging, candidates[0].name);
+    /* 两层嵌套包（用户把插件目录再套一层文件夹打包）：唯一命中深层清单时以它的目录为包根。 */
+    const deep: string[] = [];
+    for (const child of children) {
+      if (!child.isDirectory()) continue;
+      for (const grand of fs.readdirSync(path.join(staging, child.name), { withFileTypes: true })) {
+        if (grand.isDirectory() && fs.existsSync(path.join(staging, child.name, grand.name, manifestFile))) deep.push(path.join(staging, child.name, grand.name));
+      }
+    }
+    if (deep.length === 1) return deep[0];
     throw new Error(`插件包根目录缺少 ${manifestFile}`);
   }
-  private findArchiveManifest(zip: AdmZip, fileName: string) {
-    const entries = zip.getEntries().filter((entry) => entry.entryName === fileName || entry.entryName.endsWith(`/${fileName}`));
+  private findArchiveManifest(zip: AdmZip, fileName: string, exclude?: (entryName: string) => boolean) {
+    const entries = zip.getEntries().filter((entry) => !entry.entryName.endsWith("/") && !exclude?.(entry.entryName) && (entry.entryName === fileName || entry.entryName.endsWith(`/${fileName}`)));
     return entries.length === 1 ? entries[0] : undefined;
   }
   private activateAgentPlugin(plugin: ActivePlugin): void {
@@ -874,7 +927,7 @@ export class PluginManager {
     return { format, apiVersion: API_VERSION, id: data.id, name: data.name, version: data.version, main: data.main, icon: data.icon, description: data.description, author: data.author, repository: data.repository, readme: data.readme, permissions: data.permissions || [], settingsPages: data.settingsPages || [] };
   }
   private readState(): PluginStateFile { try { const raw = JSON.parse(fs.readFileSync(this.statePath, "utf8")) as PluginStateFile; return { plugins: Array.isArray(raw.plugins) ? raw.plugins : [] }; } catch { return { plugins: [] }; } }
-  private saveState(): void { fs.mkdirSync(path.dirname(this.statePath), { recursive: true }); fs.writeFileSync(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`, "utf8"); }
+  private saveState(): void { writeFileAtomic(this.statePath, `${JSON.stringify(this.state, null, 2)}\n`); }
   private pluginConfigPath(plugin: ActivePlugin): string { return path.join(this.configRoot, `${plugin.manifest.id}.json`); }
   private readPluginConfig(plugin: ActivePlugin): Record<string, unknown> {
     try {
@@ -889,9 +942,6 @@ export class PluginManager {
     const serialized = `${JSON.stringify(config, null, 2)}\n`;
     if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) throw new Error("插件配置超过 64 KiB 限制");
     fs.mkdirSync(this.configRoot, { recursive: true });
-    const target = this.pluginConfigPath(plugin);
-    const temporary = `${target}.${process.pid}.${Date.now()}.tmp`;
-    fs.writeFileSync(temporary, serialized, "utf8");
-    fs.renameSync(temporary, target);
+    writeFileAtomic(this.pluginConfigPath(plugin), serialized);
   }
 }

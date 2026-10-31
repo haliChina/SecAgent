@@ -573,3 +573,125 @@ test("flashMarker: 无 flashHandler（纯服务端）时为 no-op 不抛错", as
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 });
+
+// ---- ZCode 插件：2026-10-26 移除兼容——官方包装上明确拒绝 + 存量清扫 ----
+
+test("rejects ZCode official plugin packages with a clear message", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-reject-"));
+  const archivePath = path.join(workspace, "zcode-plugin.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  archive.addFile("computer-use/0.6.5/.zcode-plugin/plugin.json", Buffer.from(JSON.stringify({ name: "computer-use", version: "0.6.5", skills: "skills" })));
+  archive.addFile("computer-use/0.6.5/skills/computer-use/SKILL.md", Buffer.from("---\nname: computer-use\ndescription: x.\n---\n"));
+  archive.writeZip(archivePath);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await assert.rejects(() => manager.install(archivePath), /ZCode 官方插件与 SecAgent 不兼容/);
+    assert.deepEqual(manager.list().map((item) => item.id), [], "拒绝后不得留下半装插件");
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("rejects a ZCode marketplace collection zip with a clear message", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-market-"));
+  const archivePath = path.join(workspace, "marketplace.zip");
+  const archive = new AdmZip() as unknown as { addFile(name: string, data: Buffer): void; writeZip(file: string): void };
+  for (const [name, version] of [["computer-use", "0.6.5"], ["browser-use", "0.5.1"]] as const) {
+    archive.addFile(`${name}/${version}/.zcode-plugin/plugin.json`, Buffer.from(JSON.stringify({ name, version, skills: "skills" })));
+  }
+  archive.writeZip(archivePath);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await assert.rejects(() => manager.install(archivePath), /ZCode 插件合集（marketplace 结构，含 2 个插件）.*不兼容/);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("sweeps previously installed ZCode plugins on initialize", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-zcode-sweep-"));
+  const root = path.join(workspace, "plugins", "installed", "computer-use", "0.6.5");
+  fs.mkdirSync(path.join(root, ".zcode-plugin"), { recursive: true });
+  fs.mkdirSync(path.join(root, "skills", "computer-use"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".zcode-plugin", "plugin.json"), JSON.stringify({ name: "computer-use", version: "0.6.5" }));
+  fs.writeFileSync(path.join(root, "skills", "computer-use", "SKILL.md"), "---\nname: computer-use\ndescription: x.\n---\n");
+  fs.writeFileSync(path.join(workspace, "plugins", "plugins.json"), JSON.stringify({ plugins: [{ id: "computer-use", version: "0.6.5", enabled: true }] }));
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    assert.equal(manager.list().find((item) => item.id === "computer-use"), undefined, "zcode 插件应被清扫出列表");
+    assert.ok(!fs.existsSync(path.join(workspace, "plugins", "installed", "computer-use")), "安装目录应被删除");
+    assert.deepEqual(manager.getSkills(), [], "运行时技能不应残留");
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+// ---- agentActivity（「Agent 正在操作电脑」常驻徽标，2026-10-26，对齐 ZCode）----
+
+test("agentActivity: 转发 badgeHandler（active 归一/label 校验/无 handler 静默）", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const calls: { active: boolean; label?: string }[] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, undefined, undefined, (input) => {
+    calls.push({ ...input });
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { agentActivity(input: { active: boolean; label?: string }): void } }).__overlayTestApi;
+    api.agentActivity({ active: true, label: "computer-use" });
+    api.agentActivity({ active: 1 as unknown as boolean }); // truthy 但非 boolean → 归一 false（立即隐藏）
+    api.agentActivity({ active: true, label: 123 as unknown as string }); // 非法 label → undefined
+    api.agentActivity(null as unknown as { active: boolean }); // null 静默
+    api.agentActivity({ active: false }); // 显式结束
+    assert.deepEqual(calls, [
+      { active: true, label: "computer-use" },
+      { active: false, label: undefined },
+      { active: true, label: undefined },
+      { active: false, label: undefined }
+    ]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("agentActivity: 无 badgeHandler（纯服务端环境）静默不抛", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const manager = new PluginManager(workspace);
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { agentActivity(input: { active: boolean }): void } }).__overlayTestApi;
+    api.agentActivity({ active: true });
+    assert.ok("无 handler 时静默");
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("flashMarker: chord kind 与 label/direction 原样透传（宿主五形态）", async () => {
+  const { workspace, archivePath } = overlayTestZip([]);
+  const calls: unknown[][] = [];
+  const manager = new PluginManager(workspace, undefined, undefined, undefined, (x, y, opts) => {
+    calls.push([x, y, opts]);
+  });
+  try {
+    await manager.initialize();
+    await manager.install(archivePath);
+    const api = (globalThis as unknown as { __overlayTestApi: { flashMarker(x: number, y: number, opts?: { kind?: string; label?: string; direction?: number }): void } }).__overlayTestApi;
+    api.flashMarker(80, 90, { kind: "chord", label: "Ctrl+C" });
+    api.flashMarker(80, 90, { kind: "scroll", direction: -1 });
+    assert.deepEqual(calls[0], [80, 90, { kind: "chord", label: "Ctrl+C" }]);
+    assert.deepEqual(calls[1], [80, 90, { kind: "scroll", direction: -1 }]);
+  } finally {
+    await manager.shutdown();
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

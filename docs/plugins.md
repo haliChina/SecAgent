@@ -2,7 +2,13 @@
 
 ## Agent Plugins 兼容格式
 
-SecAgent 同时接受自有 `secagent-plugin.json` 格式和 [Agent Plugins 1.0.0](https://agent-plugins.org/) 格式。Agent Plugins 包使用根目录 `plugin.json`，可选的 `skills/<name>/SKILL.md` 会被自动发现；可选的 `mcp.json` 会被加载为 MCP 服务，其中支持 `stdio` 和 `streamable-http`，服务名会按 `<plugin-name>__<server-name>` 加前缀以避免冲突。
+SecAgent 接受自有 `secagent-plugin.json` 格式与 [Agent Plugins 1.0.0](https://agent-plugins.org/) 格式。ZCode 官方插件（`.zcode-plugin/plugin.json`）已不再支持。
+
+## ZCode 插件
+
+ZCode 官方插件自 2026-10-26 起不再支持：安装会被直接拒绝，升级前已安装的会在启动时被清理（`plugin-manager.ts` 的 `sweepZcodePlugins`）。请改用 SecAgent 插件格式或 Agent Plugins 1.0.0 包。
+
+Agent Plugins 包使用根目录 `plugin.json`，可选的 `skills/<name>/SKILL.md` 会被自动发现；可选的 `mcp.json` 会被加载为 MCP 服务，其中支持 `stdio` 和 `streamable-http`，服务名会按 `<plugin-name>__<server-name>` 加前缀以避免冲突。
 
 Agent Plugins 不执行 JavaScript `activate(api)`，也不要求声明 SecAgent 私有权限。其 `plugin.json`、Skill 和 MCP 配置仍会进行本地校验；单个无效 Skill 或 MCP 服务不会阻止同一包的其他组件加载。stdio 服务的 `PLUGIN_ROOT` 和持久化 `PLUGIN_DATA` 变量由宿主提供。
 
@@ -53,6 +59,36 @@ api.registerSkill("skills/my-app", "积分|查询学生");
 ```
 
 当正则匹配当前用户消息时，宿主会在该用户消息后追加一条 system 消息，内容包括 Skill 名称、入口路径和 `SKILL.md` 完整内容；一次消息可以命中多个 Skill。同一会话中同一个 Skill 只自动加载一次，模型已经通过 `secagent__read_skill` 读取过的 Skill 也不会再次自动加载。没有自动加载需求时省略第二个参数即可。
+
+## 设置页
+
+在 `secagent-plugin.json` 里声明 `settingsPages` 后，设置窗会出现对应入口。页面通过
+`api.registerSettingsHandler(pageId, handler)` 提供 `describe` / `set` / 自定义 action：
+
+```js
+api.registerSettingsHandler("connection", async (action, args = {}) => {
+  if (action === "describe") return {
+    ok: true,
+    groups: [{ id: "general", title: "常规", description: "连接与开关" }],
+    fields: [
+      { key: "enabled", group: "general", type: "boolean", label: "启用" },
+      { key: "endpoint", group: "general", type: "string", label: "服务地址", placeholder: "http://127.0.0.1:8000", default: "" },
+      { key: "dataDir", group: "general", type: "path", pathKind: "directory", label: "数据目录" }
+    ],
+    actions: [{ id: "test", label: "测试连接", description: "检查服务是否可达" }],
+    values: api.getConfig()
+  };
+  if (action === "set") { api.setConfig({ ...api.getConfig(), ...args }); return { ok: true, values: api.getConfig() }; }
+  if (action === "test") return { ok: true, note: "连接正常" };
+});
+```
+
+- `describe` 两种形态均可：字段平铺 + `groups`（每个 field 带 `group`），或 `groups[].fields` 内嵌。
+- `type`：`string`（默认）/ `number` / `boolean`（兼容 `bool`、`toggle`）/ `select`（需 `options: [{ value, label }]`）/ `password`（兼容 `secret`，可显隐）/ `textarea`（或 `multiline: true`）/ `path`。
+- 通用字段：`label`、`hint`/`help`、`placeholder`、`default`、`min`/`max`/`step`、`hidden`（只提交不渲染）、`effect`（`immediate` 显示「立即生效」，`guidance` 显示「提示词引导」）。
+- `path` 字段由宿主提供原生文件/目录选择器（`pathKind: "file" | "directory"`，默认目录），无需用户手输路径。
+- `actions` 会渲染成按钮；点击时以 `action.id` 调用 handler。返回 `{ ok, note }` 时直接展示 note；`refresh: true` 会重新执行 `describe` 刷新表单。需要二次确认时给 action 加 `confirm: "提示文案"`，危险操作加 `danger: true`。
+- `set` 返回 `values` 时宿主会用它回显归一化后的配置；可附带 `note` 说明被修正的键。
 
 ## 前置规则
 

@@ -32,7 +32,7 @@ export const MIMO_ASR_DEFAULTS = {
   language: "auto"
 } as const;
 
-export interface MimoAsrProviderOptions {
+interface MimoAsrProviderOptions {
   getSettings(): MimoAsrSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
@@ -45,14 +45,14 @@ function text(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-export interface ResolvedMimoAsrConfig {
+interface ResolvedMimoAsrConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
   language: string;
 }
 
-export function resolveMimoAsrConfig(settings: MimoAsrSettings | undefined, getApiKey: (name: string) => string | undefined, env: NodeJS.ProcessEnv = process.env): ResolvedMimoAsrConfig | null {
+function resolveMimoAsrConfig(settings: MimoAsrSettings | undefined, getApiKey: (name: string) => string | undefined, env: NodeJS.ProcessEnv = process.env): ResolvedMimoAsrConfig | null {
   const apiKey = (text(settings?.apiKeyEnv) && getApiKey(text(settings!.apiKeyEnv)!)) || text(env.MIMO_API_KEY);
   if (!apiKey) return null;
   return {
@@ -70,7 +70,7 @@ interface MimoAsrSessionDeps {
   log(message: string): void;
 }
 
-export class MimoAsrSession implements AsrSession {
+class MimoAsrSession implements AsrSession {
   readonly providerId = "mimo";
   private readonly deps: MimoAsrSessionDeps;
   private buffer: Float32Array = new Float32Array(0);
@@ -79,12 +79,18 @@ export class MimoAsrSession implements AsrSession {
 
   constructor(deps: MimoAsrSessionDeps) { this.deps = deps; }
 
+  /* R75（审计 P2-28）：partial 转写不清 buffer——每 3s 重传从头累计的全部
+     音频（O(n²) 上行流量+内存无界）。partial 语义依赖全量重传（远端返回
+     「到目前为止的完整文本」），不能简单清空；先加 60s 缓冲上限保内存有界
+     （真正的增量游标需 UI 端配合累计，留下轮）。 */
+  private static readonly MAX_BUFFERED_SAMPLES = 16000 * 60;
+
   push(samples: Float32Array): void {
     if (this.stopped || samples.length === 0) return;
     const merged = new Float32Array(this.buffer.length + samples.length);
     merged.set(this.buffer, 0);
     merged.set(samples, this.buffer.length);
-    this.buffer = merged;
+    this.buffer = merged.length > MimoAsrSession.MAX_BUFFERED_SAMPLES ? merged.subarray(merged.length - MimoAsrSession.MAX_BUFFERED_SAMPLES) : merged;
     if (this.buffer.length >= 48000) void this.flush("partial");
   }
 

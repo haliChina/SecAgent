@@ -9,6 +9,9 @@
  *   - maxToolTurns: 0 = unlimited (unchanged default).
  *   - keepRecentImages: 2 = only the newest 2 images survive; older ones
  *     become a short text marker so the provider still sees the sequence.
+ *   - contextTokens: 0 = unlimited (unchanged default). When set, the request
+ *     keeps only the newest whole messages that fit, so long sessions do not
+ *     overflow the provider window or keep re-sending old tool payloads.
  */
 
 export interface ModelBudgetSettings {
@@ -16,17 +19,21 @@ export interface ModelBudgetSettings {
   maxToolTurns: number;
   /** How many image payloads survive in the conversation history. */
   keepRecentImages: number;
+  /** 0 disables context trimming; otherwise the prompt budget in tokens. */
+  contextTokens: number;
 }
 
-export const DEFAULT_MODEL_BUDGET: ModelBudgetSettings = { maxToolTurns: 0, keepRecentImages: 2 };
+export const DEFAULT_MODEL_BUDGET: ModelBudgetSettings = { maxToolTurns: 0, keepRecentImages: 2, contextTokens: 0 };
 
 export function normalizeModelBudgetSettings(raw: unknown): ModelBudgetSettings {
   const input = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const turns = Number(input.maxToolTurns);
   const images = Number(input.keepRecentImages);
+  const context = Number(input.contextTokens);
   return {
     maxToolTurns: Number.isFinite(turns) && turns > 0 ? Math.min(200, Math.floor(turns)) : 0,
-    keepRecentImages: Number.isFinite(images) ? Math.min(24, Math.max(0, Math.floor(images))) : DEFAULT_MODEL_BUDGET.keepRecentImages
+    keepRecentImages: Number.isFinite(images) ? Math.min(24, Math.max(0, Math.floor(images))) : DEFAULT_MODEL_BUDGET.keepRecentImages,
+    contextTokens: Number.isFinite(context) && context > 0 ? Math.min(2_000_000, Math.floor(context)) : 0
   };
 }
 

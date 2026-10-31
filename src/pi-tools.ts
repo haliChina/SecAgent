@@ -4,6 +4,8 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
+import { runWebFetch, runWebSearch } from "./web-search.js";
+import { evaluateExpression } from "./calc.js";
 
 const execAsync = promisify(exec);
 
@@ -42,7 +44,10 @@ export const piTools: AgentTool[] = [
   { key: "read", description: "读取文件内容。path 可使用绝对路径或相对于工作区的路径。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } } } },
   { key: "write", description: "写入文件内容；父目录不存在时自动创建。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } },
   { key: "edit", description: "将文件中唯一匹配的 oldText 替换为 newText。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "oldText", "newText"], properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } } } },
-  { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } }
+  { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } },
+  { key: "web_search", description: "联网搜索最新信息（新闻、政策、价格、日期等时效性内容）。返回标题、链接与摘要列表；回答中引用来源并把链接给用户。", inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "搜索词，1～128 个字符" }, count: { type: "integer", minimum: 1, maximum: 10, description: "返回条数，默认 6" } } } },
+  { key: "web_fetch", description: "抓取网页正文（Markdown/纯文本）。当 web_search 摘要不够、需要读页面全文时调用。", inputSchema: { type: "object", additionalProperties: false, required: ["url"], properties: { url: { type: "string", description: "http(s) 网页链接，≤8192 字符" } } } },
+  { key: "calculator", description: "精确计算数学表达式（四则运算、幂、取模、sqrt/sin/cos/ln/log/min/max 等）。算钱、分数、百分比、单位换算等任何数值计算都用这个工具，不要心算。", inputSchema: { type: "object", additionalProperties: false, required: ["expression"], properties: { expression: { type: "string", description: "数学表达式，如 (1+2)*3.5、sqrt(2)、2^10、120*0.85" } } } },
 ];
 
 function resolvePath(workspace: string, filePath: string): string { return path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath); }
@@ -84,11 +89,49 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     await fs.writeFile(filePath, content.replace(oldText, String(args.newText ?? "")), "utf8");
     return { path: filePath, replaced: 1 };
   }
+  if (key === "web_search") {
+    const query = typeof args.query === "string" ? args.query : "";
+    const count = typeof args.count === "number" && Number.isFinite(args.count) ? args.count : 6;
+    /* R62：runWebSearch 自带 官方中继→BigModel→DeepSeek→本地 Bing 抓取 的
+       分层回退，零密钥也能出结果（兜底层）。 */
+    return await runWebSearch(query, count);
+  }
+  if (key === "web_fetch") {
+    const url = typeof args.url === "string" ? args.url : "";
+    /* R63：DeepSeek fetch API 优先，本地直抓兜底（见 web-search.ts）。 */
+    return await runWebFetch(url);
+  }
+  if (key === "calculator") {
+    /* R65：零依赖安全求值器（递归下降，无 eval）——见 src/calc.ts。 */
+    const expression = typeof args.expression === "string" ? args.expression : "";
+    if (!expression.trim()) throw new Error("calculator 需要 expression");
+    const { value, pretty } = evaluateExpression(expression);
+    return { expression, value, formatted: pretty };
+  }
   if (key === "bash") {
     const command = String(args.command || "");
     if (!command) throw new Error("bash 需要 command");
-    const result = await execAsync(command, { cwd: workspace, timeout: Number(args.timeout) || 120_000, maxBuffer: 10 * 1024 * 1024 });
-    return { cwd: workspace, stdout: result.stdout, stderr: result.stderr };
+    /* R59：中文 Windows 的 cmd 输出是 GBK（cp936），exec 默认按 UTF-8 解码
+       会出乱码（"系统找不到指定的路径" → "ϵͳ..."）。改 buffer 原始字节回传，
+       先严格 UTF-8（跨平台 UTF-8 输出不受影响），失败再按 GBK 解。 */
+    const result = await execAsync(command, { cwd: workspace, timeout: Number(args.timeout) || 120_000, maxBuffer: 10 * 1024 * 1024, encoding: "buffer" });
+    return { cwd: workspace, stdout: decodeShellBytes(result.stdout), stderr: decodeShellBytes(result.stderr) };
   }
   throw new Error(`未知 Pi 工具：${key}`);
+}
+
+/** shell 输出解码：UTF-8 严格优先，GBK 兜底（Node/Electron 全 ICU 支持）。 */
+function decodeShellBytes(bytes: unknown): string {
+  if (typeof bytes === "string") return bytes;
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes ?? ""));
+  if (buffer.length === 0) return "";
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+  } catch {
+    try {
+      return new TextDecoder("gbk").decode(buffer);
+    } catch {
+      return buffer.toString("utf8");
+    }
+  }
 }

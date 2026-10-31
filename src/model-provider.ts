@@ -2,6 +2,7 @@ import type { PluginPromptContribution } from "./plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort, SecAgentConfig } from "./types.js";
 import { toolResultParts, toolResultText } from "./tool-content.js";
 import { budgetStopMessage, normalizeModelBudgetSettings, pruneImageHistory, WRAP_UP_NOTICE, type ModelBudgetSettings } from "./model-budget.js";
+import { estimateConversationTokens, estimateTokens, resolvePromptBudget, trimConversationToBudget } from "./context-budget.js";
 import { anthropicThinkingConfig, googleThinkingConfig, reasoningFieldsForChat, reasoningFieldsForResponses } from "./reasoning.js";
 
 const WORKSPACE_FILE_OUTPUT_PROMPT = `
@@ -186,22 +187,44 @@ export class ModelToolAgent {
     this.trace?.("model.budget.wrap_up", { turn: turn + 1, maxToolTurns: this.budget.maxToolTurns });
     return true;
   }
+
+  /**
+   * Opt-in sliding window: when `budget.contextTokens` is set, keep only the
+   * newest whole messages that fit alongside the system prompt and the reply
+   * reservation. 0 (default) returns the conversation untouched.
+   */
+  private contextWindow(conversation: ConversationMessage[] | undefined, systemPrompt: string): ConversationMessage[] | undefined {
+    if (!conversation?.length) return conversation;
+    const promptBudget = resolvePromptBudget(this.budget.contextTokens, this.agent.maxTokens);
+    if (!promptBudget) return conversation;
+    const systemTokens = estimateTokens(systemPrompt);
+    const before = estimateConversationTokens(conversation) + systemTokens;
+    if (before <= this.budget.contextTokens) return conversation;
+    const { messages, dropped, originalCount } = trimConversationToBudget(conversation, promptBudget.promptTokens, systemTokens);
+    if (!dropped) return conversation;
+    this.trace?.("model.context.trimmed", { dropped, original: originalCount, estimatedBefore: before, promptBudget: promptBudget.promptTokens, contextTokens: this.budget.contextTokens });
+    return messages;
+  }
+
   async run(instruction: string, tools: AgentTool[], execute: ExecuteTool, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal): Promise<string> {
     if (!tools.length && !this.allowEmptyTools) throw new Error("没有已启用且可发现的 MCP 工具");
     const key = process.env[this.agent.apiKeyEnv];
     if (!key) throw new Error(`未配置模型密钥环境变量 ${this.agent.apiKeyEnv}。请设置后重试；密钥不要写入 secagent.yaml。`);
     const systemPrompt = await this.resolveSystemPrompt();
-    if (this.agent.provider === "anthropic") return this.runAnthropic(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
-    if (this.agent.provider === "google") return this.runGoogle(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
-    if (this.agent.provider === "openai-responses") return this.runOpenAIResponses(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
-    return this.runOpenAICompatible(instruction, tools, key, execute, reasoningEffort, systemPrompt, conversation, signal);
+    const history = this.contextWindow(conversation, systemPrompt);
+    if (this.agent.provider === "anthropic") return this.runAnthropic(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
+    if (this.agent.provider === "google") return this.runGoogle(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
+    if (this.agent.provider === "openai-responses") return this.runOpenAIResponses(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
+    return this.runOpenAICompatible(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
   }
-  /** 每次请求前从插件收集提示词并拼接到系统提示词最后；无插件提示词时原样返回。 */
+  /** 每次请求前从插件收集提示词并拼接到系统提示词最后；无插件提示词时原样返回。
+   * 另注入当前日期（模型无实时时钟，"今天/明天/本周"类表述以此为准）。 */
   private async resolveSystemPrompt(): Promise<string> {
+    const dateLine = `\n\n当前日期：${new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "long", day: "numeric", weekday: "long" })}。`;
     const contributions = await this.getExtraPrompts?.() || [];
-    if (!contributions.length) return this.agent.systemPrompt;
+    if (!contributions.length) return `${this.agent.systemPrompt}${dateLine}`;
     const catalog = contributions.map(({ pluginId, name, text }) => `[${pluginId}/${name}]\n${text}`).join("\n\n");
-    return `${this.agent.systemPrompt}\n\n## 插件注入的提示词\n${catalog}`;
+    return `${this.agent.systemPrompt}${dateLine}\n\n## 插件注入的提示词\n${catalog}`;
   }
   private async request(url: string, headers: Record<string, string>, body: unknown, signal?: AbortSignal): Promise<unknown> {
     this.trace?.("model.request", { url, body });
