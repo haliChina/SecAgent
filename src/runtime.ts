@@ -16,6 +16,7 @@ import { useConfiguredModel, resolveVisionAgentConfig } from "./config.js";
 import { VISION_SYSTEM_PROMPT } from "./system-prompt.js";
 import { DEFAULT_RESILIENCE, ModelHealthStore, classifyFailure, isFallbackable, planModelChain, type ResilienceSettings } from "./resilience.js";
 import { checkToolCall, normalizeToolGuardSettings, type GuardCheckRequest, type ToolGuardSettings } from "./tool-guard.js";
+import { resolvePostDecision, resolvePreDecision, type PostToolHook, type PreToolHook, type ToolCallContext } from "./tool-pipeline.js";
 import { detectHallucination, type HallucinationReport } from "./hallucination.js";
 
 export type RunResult =
@@ -33,6 +34,11 @@ export interface RuntimeOptions {
   confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
   /** Persisted model health store; defaults to one in the workspace. */
   health?: ModelHealthStore;
+  /**
+   * Extra decision hooks composed after the built-in guard. They can only
+   * tighten the outcome (deny/confirm/block win), never loosen it.
+   */
+  toolHooks?: { pre?: PreToolHook[]; post?: PostToolHook[] };
 }
 
 export type TraceEvent = { sequence: number; at: string; stage: string; data: unknown };
@@ -68,6 +74,8 @@ export class SecAgentRuntime {
   private resilience: ResilienceSettings;
   private guard: ToolGuardSettings;
   private confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
+  /** Pre-execution and post-execution decision hooks; the guard is first pre hook. */
+  private toolHooks: { pre: PreToolHook[]; post: PostToolHook[] };
   /** Per-run tool outcomes feeding hallucination detection. */
   private toolEvidence: Array<{ name: string; ok: boolean }> = [];
   /** Dedicated image-recognition sub-agent (see resolveVisionAgentConfig). */
@@ -92,6 +100,14 @@ export class SecAgentRuntime {
     this.resilience = config.resilience ?? DEFAULT_RESILIENCE;
     this.guard = normalizeToolGuardSettings(config.guard);
     this.confirmToolCall = options.confirmToolCall;
+    const guardHook: PreToolHook = (context) => {
+      const decision = checkToolCall({ tool: context.tool, arguments: context.arguments }, this.guard);
+      return decision.action === "confirm" ? { action: "confirm", reason: decision.reason } : { action: "allow" };
+    };
+    this.toolHooks = {
+      pre: [guardHook, ...(options.toolHooks?.pre ?? [])],
+      post: options.toolHooks?.post ?? []
+    };
   }
   async run(input: string, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule; sessionId?: string } = {}): Promise<RunResult> {
     signal?.throwIfAborted();
@@ -277,31 +293,45 @@ export class SecAgentRuntime {
   /**
    * Guarded tool-call entry point: sensitive operations pause for user
    * confirmation (Codex-style) and every outcome feeds hallucination evidence.
+   * All decisions go through the pre/post pipeline so extra hooks can tighten,
+   * but never loosen, the built-in guard.
    */
   private async callTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>, sessionId = ""): Promise<unknown> {
-    const decision = checkToolCall({ tool: key, arguments: args }, this.guard);
+    const context: ToolCallContext = { tool: key, arguments: args, request, sessionId };
+    const decision = await resolvePreDecision(context, this.toolHooks.pre);
+    if (decision.action === "deny") this.rejectTool(key, decision.reason);
     if (decision.action === "confirm") {
       this.activity("approval_requested", sessionId, key);
       const approved = this.confirmToolCall ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason }) : false;
       this.activity("approval_resolved", sessionId, key);
-      if (!approved) {
-        this.toolEvidence.push({ name: key, ok: false });
-        this.emit("secagent.tools/rejected", { name: key, reason: decision.reason });
-        throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${decision.reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
-      }
+      if (!approved) this.rejectTool(key, decision.reason);
     }
     this.activity("tool_started", sessionId, key);
+    let result: unknown;
     try {
-      const result = await this.executeGuardedTool(request, key, args, hiddenTools);
-      this.toolEvidence.push({ name: key, ok: true });
-      this.activity("tool_finished", sessionId, key);
-      return result;
+      result = await this.executeGuardedTool(request, key, args, hiddenTools);
     } catch (error) {
       this.toolEvidence.push({ name: key, ok: false });
       // 工具失败也要收尾，否则伴生 UI 会永远停在 running。
       this.activity("tool_finished", sessionId, key);
       throw error;
     }
+    const post = await resolvePostDecision(context, result, this.toolHooks.post);
+    this.activity("tool_finished", sessionId, key);
+    if (post.action === "block") {
+      this.toolEvidence.push({ name: key, ok: false });
+      this.emit("secagent.tools/rejected", { name: key, reason: post.reason });
+      throw new Error(`工具结果被安全策略拦截：${key}。原因：${post.reason}。请换用无害方式完成任务，或请用户手动处理。`);
+    }
+    this.toolEvidence.push({ name: key, ok: true });
+    return result;
+  }
+
+  /** Record and report a pre-execution rejection, then abort the call. */
+  private rejectTool(key: string, reason: string): never {
+    this.toolEvidence.push({ name: key, ok: false });
+    this.emit("secagent.tools/rejected", { name: key, reason });
+    throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
   }
 
   /**
