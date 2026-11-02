@@ -658,7 +658,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .select-combobox-option { width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; transition: background .12s ease, color .12s ease; }
 .select-combobox-option:hover, .select-combobox-option.active { background: var(--accent-soft); color: var(--accent-text); }
 .select-combobox-option.selected { color: var(--accent-text); font-weight: 650; }
-.select-combobox-empty { padding: 9px; color: var(--text-3); font-size: 12px; }.preset-combobox { position: relative; display: flex; }
+.select-combobox-empty { padding: 9px; color: var(--text-3); font-size: 12px; }.preset-combobox { position: relative; display: block; width: 100%; }
 .preset-combobox > input { width: 100%; min-width: 0; min-height: 36px; padding: 8px 34px 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; }
 .preset-combobox > input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .preset-combobox-toggle { position: absolute; top: 1px; right: 1px; bottom: 1px; width: 30px; padding: 0; border: 0; border-radius: 0 6px 6px 0; background: transparent; color: var(--text-3); cursor: pointer; }
@@ -680,11 +680,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .select-combobox-native:hover .select-combobox-chevron { color: var(--text-2); }
 .select-combobox-native:has(.select-combobox-select:focus-visible) .select-combobox-chevron { color: var(--accent-text); }
 
-/* Provider-preset picker v2 — datalist search + native select dropdown. */
-.preset-combobox-native { position: relative; display: flex; width: 100%; gap: 6px; }
-.preset-combobox-input { flex: 1 1 auto; min-width: 0; min-height: 36px; padding: 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; font-family: inherit; }
-.preset-combobox-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
-.preset-combobox-select { flex: 0 0 auto; max-width: 45%; min-height: 36px; padding: 8px 24px 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; font-family: inherit; cursor: pointer; }
+/* Provider-preset picker — single native select. */
+.preset-combobox-select { width: 100%; max-width: none; min-height: 36px; padding: 8px 24px 8px 9px; border: 1px solid var(--line); border-radius: 7px; outline: none; background: var(--bg-2); color: var(--text-1); font-size: 13px; font-family: inherit; cursor: pointer; }
 .preset-combobox-select:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 
 /* ASR 自定义回退链 / 嘈杂环境 / 设备 / TTS 链编辑器 */
@@ -1105,6 +1102,11 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-section-active > .section-title { margin: 0; padding: 0 2px; align-items: flex-start; }
 .settings-shell:not(.oobe-shell) .settings-section-active > .section-title h2 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.03em; }
 .settings-shell:not(.oobe-shell) .settings-section-active > .section-title p { margin: 8px 0 0; max-width: 720px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+
+/* 卡片标题：长标题不换行挤压右侧说明，说明靠右且最多两行。 */
+.settings-shell:not(.oobe-shell) .settings-card > .card-heading { align-items: flex-start; }
+.settings-shell:not(.oobe-shell) .settings-card > .card-heading > strong { flex: none; font-size: 14px; line-height: 1.5; }
+.settings-shell:not(.oobe-shell) .settings-card > .card-heading > span { max-width: 62%; text-align: right; line-height: 1.5; }
 
 /* 卡片 = 分组容器。plugin-service-status / empty-card 保持独立布局。 */
 .settings-shell:not(.oobe-shell) .settings-card:not(.plugin-service-status):not(.settings-empty-card),
