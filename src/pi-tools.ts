@@ -6,6 +6,7 @@ import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
 import { runWebFetch, runWebSearch } from "./web-search.js";
 import { evaluateExpression } from "./calc.js";
+import { fetchWeather, weatherTool } from "./weather.js";
 
 const execAsync = promisify(exec);
 
@@ -48,6 +49,7 @@ export const piTools: AgentTool[] = [
   { key: "web_search", description: "联网搜索最新信息（新闻、政策、价格、日期等时效性内容）。返回标题、链接与摘要列表；回答中引用来源并把链接给用户。", inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "搜索词，1～128 个字符" }, count: { type: "integer", minimum: 1, maximum: 10, description: "返回条数，默认 6" } } } },
   { key: "web_fetch", description: "抓取网页正文（Markdown/纯文本）。当 web_search 摘要不够、需要读页面全文时调用。", inputSchema: { type: "object", additionalProperties: false, required: ["url"], properties: { url: { type: "string", description: "http(s) 网页链接，≤8192 字符" } } } },
   { key: "calculator", description: "精确计算数学表达式（四则运算、幂、取模、sqrt/sin/cos/ln/log/min/max 等）。算钱、分数、百分比、单位换算等任何数值计算都用这个工具，不要心算。", inputSchema: { type: "object", additionalProperties: false, required: ["expression"], properties: { expression: { type: "string", description: "数学表达式，如 (1+2)*3.5、sqrt(2)、2^10、120*0.85" } } } },
+  weatherTool,
 ];
 
 function resolvePath(workspace: string, filePath: string): string { return path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath); }
@@ -107,6 +109,10 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     if (!expression.trim()) throw new Error("calculator 需要 expression");
     const { value, pretty } = evaluateExpression(expression);
     return { expression, value, formatted: pretty };
+  }
+  if (key === "weather") {
+    /* 与 ClassIsland 同源的小米天气接口，见 src/weather.ts。 */
+    return await fetchWeather(args);
   }
   if (key === "bash") {
     const command = String(args.command || "");
