@@ -395,7 +395,9 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
         // 否则插件配置页（含 SecScore）只能靠手输 hash 到达。settingsPages?. 兜底：
         // 类型层必填，但 IPC 运行时数据（旧安装/旧清单）可能缺字段——裸 .map 一旦
         // undefined 整棵设置窗 React 树崩溃（真机白屏只剩标题，tsc/build 捕获不到，见 R6）。
-        ...plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => ({
+        /* R82：禁用插件的设置页入口不再并入导航（点了必报「插件设置页不可用」，
+         * 且 callSettings 现在会按状态给出启用指引——入口与报错双保险）。 */
+        ...plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => ({
           id: `plugin-${plugin.id}-${page.id}`,
           label: page.title
         } satisfies HookSidebarItem)))
@@ -536,7 +538,7 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     <section id="settings-plugins" className={`settings-section ${isOobe || activePage === "settings-plugins" ? "settings-section-active" : ""}`}>
       <PluginSettingsPanel plugins={plugins} setPlugins={setPlugins} marketPlugins={marketPlugins} setMarketPlugins={setMarketPlugins} marketError={marketError} setMarketError={setMarketError} />
     </section>
-    {!isOobe && plugins.flatMap((plugin) => (plugin.settingsPages ?? []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
+    {!isOobe && plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
       <div className="section-title"><h2>{page.title}</h2></div>
       {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : plugin.id === "computer-use" ? <article className={`settings-card plugin-service-status ${plugin.state}`}>
         {/* CU 走自带控制台（settings 工具打开），不渲染表单 */}

@@ -525,9 +525,20 @@ export class PluginManager {
   }
 
   async callSettings(id: string, pageId: string, action: string, args: Record<string, unknown> = {}): Promise<unknown> {
+    /* R82：用户实测「插件设置页不可用：classisland-connector/connection」——
+     * 插件代码与宿主 API 面均验证无恙，真实触发是插件处于非 ready 状态：
+     * disabled（active 无此插件）或 error（activate 抛错、handler 未注册）。
+     * 旧报错对两种状态都只说「不可用」，用户无从下手。此处按状态给出可行动信息。 */
+    const installed = this.state.plugins.find((item) => item.id === id);
+    if (!installed) throw new Error(`未安装插件：${id}`);
     const plugin = this.active.get(id);
     const handler = plugin?.settingsHandlers?.get(pageId);
-    if (!handler) throw new Error(`插件设置页不可用：${id}/${pageId}`);
+    if (!handler) {
+      if (!installed.enabled) throw new Error(`插件「${id}」已禁用：请先在 设置 → 插件 中启用它，设置页才会生效。`);
+      if (plugin?.state === "error") throw new Error(`插件「${id}」启动失败（${plugin.message || "未知错误"}），设置页暂不可用。可在 设置 → 插件 中重载或查看错误信息。`);
+      if (plugin?.state === "starting") throw new Error(`插件「${id}」正在启动中，请稍候重试。`);
+      throw new Error(`插件「${id}」未注册设置页 ${pageId}（插件可能需要升级，或该页面 ID 已变更）。`);
+    }
     return handler(action, args);
   }
 
