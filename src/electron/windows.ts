@@ -16,10 +16,17 @@ import { logMain } from "./main-log.js";
 import { recordTelemetryFailure } from "./main-telemetry.js";
 import { normalizeMessage } from "../telemetry.js";
 import { DEFAULT_WAKE_HOTKEY } from "../wake-hotkey.js";
+import { computeTrayPanelPosition } from "./tray-position.js";
 
 let windowRef: BrowserWindow | undefined;
 let settingsWindow: BrowserWindow | undefined;
 let tray: Tray | undefined;
+let trayPanel: BrowserWindow | undefined;
+let trayPanelBroken = false;
+let trayPanelHiddenAt = 0;
+let trayPanelTheme: "light" | "dark" | "" = "";
+let trayIpcInstalled = false;
+const TRAY_PANEL_SIZE = { width: 256, height: 226 };
 let isQuitting = false;
 let onboardingCompletionRequested = false;
 
@@ -688,22 +695,165 @@ export function restartApplication(): void {
   app.exit(0);
 }
 
-export function createTray(): void {
-  if (tray && !tray.isDestroyed()) return;
-  tray = new Tray(appIconPath());
-  tray.setToolTip("SecAgent");
-  const trayMenu = Menu.buildFromTemplate([
+/** 原生菜单仅作回退：托盘气泡页加载失败时仍能操作应用。 */
+function buildNativeTrayMenu(): Electron.Menu {
+  return Menu.buildFromTemplate([
     { label: "打开主窗口", click: showMainWindow },
     { label: "打开设置", click: () => openSettings() },
     { type: "separator" },
     { label: "重启应用", click: restartApplication },
     { label: "退出应用", click: () => { isQuitting = true; app.quit(); } }
   ]);
-  const showTrayMenu = () => tray?.popUpContextMenu(trayMenu);
+}
+
+function resolvedTrayTheme(): "light" | "dark" {
+  try {
+    const theme = readSettings(DEFAULT_WORKSPACE).theme;
+    if (theme === "dark") return "dark";
+    if (theme === "system") return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+    return "light";
+  } catch {
+    return nativeTheme.shouldUseDarkColors ? "dark" : "light";
+  }
+}
+
+function positionTrayPanel(): void {
+  if (!trayPanel || trayPanel.isDestroyed() || !tray) return;
+  const icon = tray.getBounds();
+  const hasIcon = icon.width > 0 && icon.height > 0;
+  const display = hasIcon
+    ? screen.getDisplayNearestPoint({ x: icon.x + Math.round(icon.width / 2), y: icon.y + Math.round(icon.height / 2) })
+    : screen.getPrimaryDisplay();
+  const workArea = display.workArea;
+  const position = hasIcon
+    ? computeTrayPanelPosition(icon, TRAY_PANEL_SIZE, workArea)
+    : { x: workArea.x + workArea.width - TRAY_PANEL_SIZE.width - 8, y: workArea.y + workArea.height - TRAY_PANEL_SIZE.height - 8 };
+  trayPanel.setPosition(position.x, position.y, false);
+}
+
+/** 主题可能在面板隐藏期间被改掉；复用时只换 data-theme，不重新加载页面。 */
+function applyTrayPanelTheme(panel: BrowserWindow): void {
+  const theme = resolvedTrayTheme();
+  if (theme === trayPanelTheme) return;
+  trayPanelTheme = theme;
+  if (panel.webContents.isLoading()) return;
+  void panel.webContents.executeJavaScript(`document.documentElement.dataset.theme = ${JSON.stringify(theme)};`).catch(() => undefined);
+}
+
+function hideTrayPanel(): void {
+  if (!trayPanel || trayPanel.isDestroyed()) return;
+  trayPanelHiddenAt = Date.now();
+  trayPanel.hide();
+}
+
+function ensureTrayPanel(): BrowserWindow {
+  if (trayPanel && !trayPanel.isDestroyed()) return trayPanel;
+  const theme = resolvedTrayTheme();
+  trayPanelTheme = theme;
+  const panel = new BrowserWindow({
+    width: TRAY_PANEL_SIZE.width,
+    height: TRAY_PANEL_SIZE.height,
+    show: false,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    hasShadow: true,
+    webPreferences: {
+      preload: path.join(__dirname, "../preload/tray-preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+  panel.setAlwaysOnTop(true, "pop-up-menu");
+  panel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  panel.on("blur", () => { if (panel.isVisible()) hideTrayPanel(); });
+  panel.on("closed", () => { trayPanel = undefined; });
+  panel.webContents.on("did-fail-load", (_event, _code, _description, _url, isMainFrame) => {
+    if (!isMainFrame) return;
+    logMain("tray.panel.load-failed");
+    trayPanelBroken = true;
+    panel.destroy();
+    trayPanel = undefined;
+    if (tray && !tray.isDestroyed()) tray.setContextMenu(buildNativeTrayMenu());
+  });
+  const query = { theme, version: app.getVersion(), platform: process.platform };
+  if (process.env.ELECTRON_RENDERER_URL) {
+    void panel.loadURL(`${process.env.ELECTRON_RENDERER_URL}tray.html?${new URLSearchParams(query).toString()}`);
+  } else {
+    void panel.loadFile(path.join(__dirname, "../renderer/tray.html"), { query });
+  }
+  trayPanel = panel;
+  return panel;
+}
+
+function installTrayIpc(): void {
+  if (trayIpcInstalled) return;
+  trayIpcInstalled = true;
+  ipcMain.handle("tray:state", () => ({ mainVisible: Boolean(windowRef && !windowRef.isDestroyed() && windowRef.isVisible()) }));
+  ipcMain.handle("tray:run", (_event, action: unknown) => {
+    if (typeof action !== "string") return { ok: false };
+    hideTrayPanel();
+    if (action === "show-main") showMainWindow();
+    else if (action === "hide-main") windowRef?.hide();
+    else if (action === "open-settings") openSettings();
+    else if (action === "restart") restartApplication();
+    else if (action === "quit") { isQuitting = true; app.quit(); }
+    else return { ok: false };
+    return { ok: true };
+  });
+  ipcMain.on("tray:close", () => hideTrayPanel());
+}
+
+function toggleTrayPanel(): void {
+  if (!tray || tray.isDestroyed() || trayPanelBroken) return;
+  if (trayPanel && !trayPanel.isDestroyed() && trayPanel.isVisible()) {
+    hideTrayPanel();
+    return;
+  }
+  // 点托盘图标会先让面板失焦（blur → hide），紧接着的 click 会重新打开。
+  // 250ms 内忽略这次点击，否则面板在 Windows 上看起来关不掉。
+  if (Date.now() - trayPanelHiddenAt < 250) return;
+  let panel: BrowserWindow;
+  try {
+    panel = ensureTrayPanel();
+  } catch (error) {
+    logMain("tray.panel.create-failed", { error: error instanceof Error ? error.message : String(error) });
+    trayPanelBroken = true;
+    tray.setContextMenu(buildNativeTrayMenu());
+    return;
+  }
+  const reveal = () => {
+    if (panel.isDestroyed()) return;
+    applyTrayPanelTheme(panel);
+    positionTrayPanel();
+    panel.show();
+    panel.focus();
+  };
+  if (panel.webContents.isLoading()) {
+    // ready-to-show 在个别透明窗口/Renderer 组合下可能不触发，
+    // 再挂一次 did-finish-load 兜底；重复 reveal 只是幂等的 show。
+    panel.once("ready-to-show", reveal);
+    panel.webContents.once("did-finish-load", reveal);
+  } else reveal();
+}
+
+export function createTray(): void {
+  if (tray && !tray.isDestroyed()) return;
+  tray = new Tray(appIconPath());
+  tray.setToolTip("SecAgent");
+  installTrayIpc();
   // Explicitly handle both buttons. On Windows this also covers the usual
   // touch interaction, which is delivered as a tray click event.
-  tray.on("click", showTrayMenu);
-  tray.on("right-click", showTrayMenu);
+  tray.on("click", toggleTrayPanel);
+  tray.on("right-click", toggleTrayPanel);
 }
 
 export function createApplicationMenu(): void {

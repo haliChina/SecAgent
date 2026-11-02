@@ -150,4 +150,11 @@ interface Window {
     respondToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }): Promise<{ ok: boolean; error?: string }>;
     onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string; impact?: string }) => void): () => void;
   };
+  /** 托盘气泡专用桥（tray-preload 只暴露这三项）。 */
+  secagentTray: {
+    platform: string;
+    state(): Promise<{ mainVisible: boolean }>;
+    run(action: "show-main" | "hide-main" | "open-settings" | "restart" | "quit"): Promise<{ ok: boolean }>;
+    close(): void;
+  };
 }
