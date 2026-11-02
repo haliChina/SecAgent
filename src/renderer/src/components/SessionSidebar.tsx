@@ -94,6 +94,7 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
       <button className="sidebar-collapse" type="button" onClick={() => setCollapsed(true)} aria-label="收窄会话侧栏" title="收窄成图标侧栏"><PanelLeftClose size={16} aria-hidden /></button>
     </div>
     <div className="sidebar-list" role="list">
+      <span className="sidebar-section-label">会话</span>
       {live.length === 0 && <p className="sidebar-empty">还没有会话</p>}
       {live.map((item) => {
         const renaming = renameState?.id === item.id;
