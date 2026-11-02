@@ -13,6 +13,7 @@ interface ToolConfirmationRequest {
   tool: string;
   arguments: Record<string, unknown>;
   reason: string;
+  impact?: string;
 }
 
 export function ToolConfirmationDialog({ confirmation, onResolve }: {
@@ -46,6 +47,7 @@ export function ToolConfirmationDialog({ confirmation, onResolve }: {
     <div className="tool-confirmation-card" ref={cardRef} tabIndex={-1}>
       <h3>模型请求执行敏感操作</h3>
       <p className="tool-confirmation-reason">{confirmation.reason}</p>
+      {confirmation.impact ? <p className="tool-confirmation-impact">{confirmation.impact}</p> : null}
       <div className="tool-confirmation-detail"><strong>{confirmation.tool}</strong><pre>{JSON.stringify(confirmation.arguments, null, 2).slice(0, 2000)}</pre></div>
       <p className="settings-help">允许后该操作将在本机执行。如不信任此请求请拒绝；拒绝后模型会收到拦截说明并尝试其他方式。</p>
       <p className="tool-confirmation-keys">Enter 允许一次 · Shift+Enter 总是允许此类 · Esc 拒绝</p>

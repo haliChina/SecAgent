@@ -19,7 +19,7 @@ export interface ToolCallContext {
 
 export type PreToolDecision =
   | { action: "allow" }
-  | { action: "confirm"; reason: string }
+  | { action: "confirm"; reason: string; impact?: string }
   | { action: "deny"; reason: string };
 
 export type PostToolDecision =

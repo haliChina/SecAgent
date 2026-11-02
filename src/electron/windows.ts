@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, Menu, nativeTheme, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
+import { readSettings } from "../config.js";
 import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle, FlashMarkerKind, FlashHandler, AgentActivityHandler } from "../plugin-manager.js";
 import { logMain } from "./main-log.js";
 import { recordTelemetryFailure } from "./main-telemetry.js";
@@ -118,6 +119,15 @@ export function installWindowDiagnostics(target: BrowserWindow, kind: string): v
 }
 
 
+/** Windows 关闭主窗行为：默认收进托盘，用户在设置里可改为直接退出。 */
+function closeWindowAction(): "tray" | "quit" {
+  try {
+    return readSettings(DEFAULT_WORKSPACE).closeWindowAction === "quit" ? "quit" : "tray";
+  } catch {
+    return "tray";
+  }
+}
+
 export function createWindow(visible = true): void {
   windowRef = new BrowserWindow({
     width: 1120,
@@ -138,6 +148,11 @@ export function createWindow(visible = true): void {
   installExternalLinkGuard(windowRef);
   windowRef.on("close", (event) => {
     if (isQuitting) return;
+    if (closeWindowAction() === "quit") {
+      isQuitting = true;
+      app.quit();
+      return;
+    }
     event.preventDefault();
     windowRef?.hide();
     notifyHiddenMainWindow();

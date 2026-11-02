@@ -9,18 +9,36 @@ import { reasoningEffortLabels, ttsRates, ttsVoices } from "../constants.js";
 import { ASR_BAILIAN_PRESETS, ASR_OPENAI_PRESETS, BAILIAN_DEFAULTS, MIMO_ASR_DEFAULTS, type AsrProviderKind, type BailianAsrSettings, type MimoAsrSettings } from "../../../asr/settings.js";
 import { emptyMcp, emptyProvider, isOfficialVisionModel, reasoningEffortsForModel } from "../utils.js";
 import { formatOfficialBalanceExpiry, formatOfficialPoints } from "../official-balance.js";
-import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js";
+import { Activity, Archive, Clock, Cpu, Globe, Mic, Puzzle, RefreshCw, Server, Settings2, Shield, Terminal, UserRound, Volume2 } from "lucide-react";
+import { AnimatedCounter } from "./ui/Bits.js";
 import { SettingsAccountPage } from "./settings/SettingsAccountPage.js";
 import { applyTheme, cacheTheme } from "../theme.js";
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
   { label: "通用", items: [{ id: "settings-account", label: "账户与通用" }] },
-  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
+  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-rules", label: "规则与记忆" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
   { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
-  { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }] }
+  { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }, { id: "settings-commands", label: "命令" }] }
 ];
 import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
+
+const settingsNavIcons: Record<string, typeof UserRound> = {
+  "settings-account": UserRound,
+  "settings-wake": Clock,
+  "settings-rules": Shield,
+  "settings-sessions": Archive,
+  "settings-system": Settings2,
+  "settings-updates": RefreshCw,
+  "settings-telemetry": Activity,
+  "settings-tts": Volume2,
+  "settings-asr": Mic,
+  "settings-models": Cpu,
+  "settings-websearch": Globe,
+  "settings-mcp": Server,
+  "settings-plugins": Puzzle,
+  "settings-commands": Terminal
+};
 
 export function SettingsApp() {
   const bridge = window.secagent;
@@ -38,6 +56,29 @@ export function SettingsApp() {
   const [asrTests, setAsrTests] = useState<Array<{ id: string; label: string; ok: boolean; message: string }> | null>(null);
   const [asrTesting, setAsrTesting] = useState(false);
   const [plugins, setPlugins] = useState<PluginStatus[]>([]);
+  /* 技能开关：默认关闭的技能来自 settings.skills.disabled；列表本身每次进入
+     「系统」页时重新扫描，工作区新增 SKILL.md 后无需重启设置窗。 */
+  const [skills, setSkills] = useState<SkillSummary[]>([]);
+  const refreshSkills = async (): Promise<void> => {
+    try { setSkills(await bridge.listSkills()); } catch { /* 技能扫描失败不阻塞其他设置 */ }
+  };
+  const toggleSkill = (name: string, enabled: boolean): void => {
+    setSettings((current) => {
+      if (!current) return current;
+      const disabled = (current.skills?.disabled || []).filter((item) => item !== name);
+      return { ...current, skills: { disabled: enabled ? disabled : [...disabled, name] } };
+    });
+  };
+  /* 自定义命令：编辑期间允许空提示词，保存时由主进程归一化（空条目不会落盘）。 */
+  const addCustomCommand = (): void => {
+    setSettings((current) => current && { ...current, commands: [...(current.commands || []), { name: "", description: "", prompt: "" }] });
+  };
+  const updateCustomCommand = (index: number, patch: Partial<CustomCommand>): void => {
+    setSettings((current) => current && { ...current, commands: (current.commands || []).map((item, itemIndex) => itemIndex === index ? { ...item, ...patch } : item) });
+  };
+  const removeCustomCommand = (index: number): void => {
+    setSettings((current) => current && { ...current, commands: (current.commands || []).filter((_, itemIndex) => itemIndex !== index) });
+  };
   const [marketPlugins, setMarketPlugins] = useState<MarketplacePlugin[]>([]);
   const [marketError, setMarketError] = useState("");
   const [error, setError] = useState("");
@@ -70,11 +111,12 @@ export function SettingsApp() {
   const skipAutosave = useRef(true);
   const [activePage, setActivePage] = useState(() => {
     const hash = window.location.hash.replace(/^#/, "");
-    const builtInPage = ["settings-account", "settings-wake", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
+    const builtInPage = ["settings-account", "settings-wake", "settings-rules", "settings-sessions", "settings-tts", "settings-asr", "settings-models", "settings-websearch", "settings-mcp", "settings-plugins", "settings-commands", "settings-system", "settings-updates", "settings-telemetry"].includes(hash);
     return isOobe ? "settings-models" : ((builtInPage || hash.startsWith("plugin-")) ? hash : "settings-account");
   });
   // R73：已归档会话分区——进入分区时拉取；设置窗已开时经 settings:navigate 跳页。
   useEffect(() => { if (activePage === "settings-sessions") void refreshArchivedSessions(); }, [activePage]);
+  useEffect(() => { if (!isOobe && activePage === "settings-system") void refreshSkills(); }, [activePage, isOobe]);
   useEffect(() => bridge.onSettingsNavigate((page) => { setActivePage(page); if (page === "settings-sessions") void refreshArchivedSessions(); }), []);
 
   // 音频设备枚举（麦克风/扬声器）；浏览器要求先授权麦克风才能看到 label。
@@ -380,29 +422,30 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     { value: "mimo", label: "小米 MiMo TTS（云端，需 API Key）" },
     { value: "bailian", label: "阿里云百炼 CosyVoice（云端，需 API Key）" }
   ];
+  const pluginNavPages = plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => ({ id: `plugin-${plugin.id}-${page.id}`, label: page.title })));
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
     {/* R61：设置窗顶栏——与主窗 .topbar 同语言（实底 bg-1/下边线/品牌位/拖拽区）。
         原 57px 透明浮字无栏感，Windows 上系统窗控直接压在设置内容上。 */}
     <div className="settings-window-title"><span className="settings-brand">SecAgent</span><span className="settings-window-title-sub">设置</span></div>
-    {!isOobe && <HookSidebar
-      activeId={activePage}
-      onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }}
-      items={[
-        // 钩轨是扁平列表（竖直点线穿过所有项末端带钩指向选中项）——分组标签/分隔线
-        // 会被点线穿过显得断裂杂乱，故摊平所有组为单一列表，不再注入 group/divider。
-        ...settingsNavGroups.flatMap((group) => group.items.map((item) => ({ id: item.id, label: item.label }))),
-        // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航，
-        // 否则插件配置页（含 SecScore）只能靠手输 hash 到达。settingsPages?. 兜底：
-        // 类型层必填，但 IPC 运行时数据（旧安装/旧清单）可能缺字段——裸 .map 一旦
-        // undefined 整棵设置窗 React 树崩溃（真机白屏只剩标题，tsc/build 捕获不到，见 R6）。
-        /* R82：禁用插件的设置页入口不再并入导航（点了必报「插件设置页不可用」，
-         * 且 callSettings 现在会按状态给出启用指引——入口与报错双保险）。 */
-        ...plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => ({
-          id: `plugin-${plugin.id}-${page.id}`,
-          label: page.title
-        } satisfies HookSidebarItem)))
-      ]}
-    />}
+    {!isOobe && <nav className="settings-nav" aria-label="设置导航">
+      {settingsNavGroups.map((group) => <div className="settings-nav-group" key={group.label}>
+        <span className="settings-nav-label">{group.label}</span>
+        {group.items.map((item) => {
+          const Icon = settingsNavIcons[item.id] || Settings2;
+          return <button key={item.id} type="button" className={`settings-nav-item${activePage === item.id ? " active" : ""}`} aria-current={activePage === item.id ? "page" : undefined} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>
+            <Icon className="settings-nav-icon" aria-hidden="true" />
+            <span>{item.label}</span>
+          </button>;
+        })}
+      </div>)}
+      {pluginNavPages.length > 0 && <div className="settings-nav-group">
+        <span className="settings-nav-label">插件设置</span>
+        {pluginNavPages.map((item) => <button key={item.id} type="button" className={`settings-nav-item${activePage === item.id ? " active" : ""}`} aria-current={activePage === item.id ? "page" : undefined} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>
+          <Puzzle className="settings-nav-icon" aria-hidden="true" />
+          <span>{item.label}</span>
+        </button>)}
+      </div>}
+    </nav>}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
     {!isOobe && <section id="settings-account" className={`settings-section ${activePage === "settings-account" ? "settings-section-active" : ""}`}>
@@ -427,7 +470,20 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     </section>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2></div></div>
       <article className="settings-card"><WakeHotkeyField value={settings.wake.hotkey} platform={bridge.platform} onChange={(hotkey) => setSettings((current) => current && { ...current, wake: { ...current.wake, hotkey } })} /><div className="form-grid wake-model-setting"><label>随时唤起使用的模型<SelectCombobox ariaLabel="随时唤起使用的模型" value={settings.wake.modelId || settings.defaultModelId || mainModelOptions[0]?.id || ""} options={mainModelOptions.map((model) => ({ value: model.id, label: model.name, group: model.providerLabel }))} onChange={(modelId) => setSettings((current) => current && { ...current, wake: { ...current.wake, modelId } })} /></label></div><label className="toggle-row"><span className="toggle-copy"><strong>语音唤醒</strong><small>开启后持续使用麦克风，识别到唤醒词后等同于按下上面的快捷键。</small></span><input type="checkbox" checked={settings.wake.voiceEnabled === true} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voiceEnabled: event.target.checked } })} /></label><label className="wake-phrase-field">唤醒词<input value={settings.wake.voicePhrase || "小泽同学"} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voicePhrase: event.target.value } })} placeholder="小泽同学" /></label><p className="settings-help">Windows/Linux 默认 Ctrl Alt A；macOS 默认 Ctrl Option A。语音唤醒始终使用随安装包提供的本地模型，无需网络。</p></article>    </section>
+    <section id="settings-rules" className={`settings-section ${isOobe || activePage === "settings-rules" ? "settings-section-active" : ""}`}>
+      <div className="section-title"><div><h2>规则与记忆</h2><p>把长期要求写在这里，每次对话都会附加到系统提示词。</p></div></div>
+      <article className="settings-card">
+        <label className="toggle-row"><span className="toggle-copy"><strong>启用自定义规则</strong><small>开启后规则内容会拼进系统提示词；关闭后保留文本但不生效。</small></span><input type="checkbox" checked={settings.rules?.enabled !== false} onChange={(event) => setSettings((current) => current && { ...current, rules: { enabled: event.target.checked, text: current.rules?.text || "" } })} /></label>
+        {settings.rules?.enabled !== false && <div className="form-grid"><label className="wide-field">规则内容<textarea rows={8} value={settings.rules?.text || ""} placeholder="例如：始终用简体中文回答；修改代码后必须运行 npm test；不要删除未备份的文件；解释时先给结论再展开。" onChange={(event) => setSettings((current) => current && { ...current, rules: { enabled: current.rules?.enabled !== false, text: event.target.value } })} /></label></div>}
+        <p className="settings-help">规则只保存在本机 config.yaml，不会上传；留空时使用默认系统提示词。适合放长期偏好、项目约定和输出格式要求。</p>
+      </article>
+    </section>
     <section id="settings-sessions" className={`settings-section ${activePage === "settings-sessions" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>已归档会话</h2></div></div>
+      <article className="settings-card"><div className="card-heading"><strong>自动归档</strong></div>
+        <label className="toggle-row"><span className="toggle-copy"><strong>自动归档旧会话</strong><small>启动应用时扫描一次；超过保留期且未归档的会话会自动收进本页，随时可恢复。</small></span><input type="checkbox" checked={settings.archive?.auto === true} onChange={(event) => setSettings((current) => current && { ...current, archive: { auto: event.target.checked, retentionDays: current.archive?.retentionDays || 7 } })} /></label>
+        {settings.archive?.auto === true && <div className="form-grid"><label>保留时长<SelectCombobox ariaLabel="自动归档保留时长" value={String(settings.archive?.retentionDays || 7)} options={[{ value: "3", label: "3 天后归档" }, { value: "7", label: "7 天后归档" }, { value: "14", label: "14 天后归档" }, { value: "30", label: "30 天后归档" }]} onChange={(days) => setSettings((current) => current && { ...current, archive: { auto: current.archive?.auto === true, retentionDays: Number(days) } })} /></label></div>}
+        <p className="settings-help">只按最后更新时间判断，正在运行或最近更新过的会话不会被归档。</p>
+      </article>
       <div className="settings-card">
         {archiveError && <p className="archived-session-error">{archiveError}</p>}
         {archivedSessions.length === 0 ? <p className="settings-hint">还没有已归档的会话。在主侧栏会话行的 ⋯ 菜单里选「归档会话」，会话会收进这里。</p> : <div className="archived-session-list">
@@ -538,8 +594,21 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     <section id="settings-plugins" className={`settings-section ${isOobe || activePage === "settings-plugins" ? "settings-section-active" : ""}`}>
       <PluginSettingsPanel plugins={plugins} setPlugins={setPlugins} marketPlugins={marketPlugins} setMarketPlugins={setMarketPlugins} marketError={marketError} setMarketError={setMarketError} />
     </section>
+    <section id="settings-commands" className={`settings-section ${isOobe || activePage === "settings-commands" ? "settings-section-active" : ""}`}>
+      <div className="section-title"><div><h2>命令</h2><p>把常用提示词保存成命令，在输入框输入 / 即可从面板选择并填入。</p></div><button className="secondary-button" type="button" onClick={addCustomCommand}>+ 新建命令</button></div>
+      {(settings.commands || []).length === 0 ? <article className="settings-card settings-empty-card">暂无自定义命令。新建后会在输入框的 / 面板「自定义」分组中出现。</article> : null}
+      <div className="settings-cards">{(settings.commands || []).map((command, index) => <article className="settings-card" key={index}>
+        <div className="card-heading"><strong>/{command.name || "未命名命令"}</strong><button type="button" className="text-button danger" onClick={() => removeCustomCommand(index)}>删除</button></div>
+        <div className="form-grid">
+          <label>命令名<input value={command.name} placeholder="例如 review（不要带 /）" onChange={(event) => updateCustomCommand(index, { name: event.target.value })} /></label>
+          <label>说明<input value={command.description || ""} placeholder="可选，显示在命令面板里" onChange={(event) => updateCustomCommand(index, { description: event.target.value })} /></label>
+          <label className="wide-field">提示词<textarea rows={4} value={command.prompt} placeholder="选择该命令后填入输入框的内容，可继续补充参数" onChange={(event) => updateCustomCommand(index, { prompt: event.target.value })} /></label>
+        </div>
+      </article>)}</div>
+      <p className="settings-help">命令名与提示词都填写后才会保存；名称不能带 / 或空格，重名只保留第一条。最多保存 50 条。</p>
+    </section>
     {!isOobe && plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
-      <div className="section-title"><h2>{page.title}</h2></div>
+      <div className="section-title"><div><h2>{page.title}</h2>{page.description ? <p>{page.description}</p> : null}</div></div>
       {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : plugin.id === "computer-use" ? <article className={`settings-card plugin-service-status ${plugin.state}`}>
         {/* CU 走自带控制台（settings 工具打开），不渲染表单 */}
         <span>服务状态</span>
@@ -550,7 +619,15 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     <section id="settings-system" className={"settings-section " + (activePage === "settings-system" ? "settings-section-active" : "")}><div className="section-title"><div><h2>系统</h2></div></div>
       {/* R59：UX 重写——每张卡一句话说明"这是干嘛的"，开关文案去掉嵌套术语。 */}
       <article className="settings-card"><div className="card-heading"><strong>开机自启动</strong></div><label className="toggle-row"><span className="toggle-copy"><strong>开机自动启动</strong><small>开机登录后在后台运行；从屏幕右下角托盘图标可随时打开主窗口。</small></span><input type="checkbox" checked={settings.autostart === true} onChange={(event) => setSettings((current) => current && { ...current, autostart: event.target.checked })} /></label><label className="toggle-row nested-toggle-row"><span className="toggle-copy"><strong>启动后只在后台（不弹窗）</strong><small>勾选：开机安静待命，语音唤醒与快捷键照常可用。不勾选：开机直接弹出主窗口。</small></span><input type="checkbox" checked={settings.autostartHidden !== false} onChange={(event) => setSettings((current) => current && { ...current, autostartHidden: event.target.checked })} /></label></article>
+      {/* R76：与 Trae 3.4.7 同步的关闭行为选择，默认保持原有的「收进托盘」。 */}
+      {bridge.platform === "win32" && <article className="settings-card"><div className="card-heading"><strong>关闭主窗口时</strong><span>点右上角关闭按钮后的行为；从托盘图标可随时重新打开主窗口。</span></div><div className="form-grid"><label>行为<SelectCombobox ariaLabel="关闭主窗口行为" value={settings.closeWindowAction || "tray"} options={[{ value: "tray", label: "收进系统托盘，继续后台运行（推荐）" }, { value: "quit", label: "直接退出应用" }]} onChange={(action) => setSettings((current) => current && { ...current, closeWindowAction: action as SettingsPayload["closeWindowAction"] })} /></label></div><p className="settings-help">收进托盘时，正在运行的 Agent 任务会继续；选择直接退出会结束所有会话与后台任务。</p></article>}
       <article className="settings-card"><div className="card-heading"><strong>外观</strong></div><div className="form-grid"><label>界面主题<SelectCombobox ariaLabel="界面主题" value={settings.theme || "light"} options={[{ value: "light", label: "浅色" }, { value: "dark", label: "深色" }, { value: "system", label: "跟随系统" }]} onChange={(theme) => setSettings((current) => current && { ...current, theme: theme as SettingsPayload["theme"] })} /></label></div></article>
+      <article className="settings-card"><div className="card-heading"><strong>聊天输入</strong></div><div className="form-grid"><label>发送快捷键<SelectCombobox ariaLabel="发送快捷键" value={settings.sendShortcut || "enter"} options={[{ value: "enter", label: "Enter 发送，Shift+Enter 换行" }, { value: "modEnter", label: `${bridge.platform === "darwin" ? "⌘" : "Ctrl"}+Enter 发送，Enter 换行` }]} onChange={(shortcut) => setSettings((current) => current && { ...current, sendShortcut: shortcut as SettingsPayload["sendShortcut"] })} /></label></div><p className="settings-help">选「{bridge.platform === "darwin" ? "⌘" : "Ctrl"}+Enter 发送」后，单独按 Enter 只换行，适合写多行内容。</p><label className="toggle-row nested-toggle-row"><span className="toggle-copy"><strong>回复过程中展示使用技巧</strong><small>AI 生成回复时轮流提示语音输入、快捷命令、附件等用法；关闭后只保留进度状态。</small></span><input type="checkbox" checked={settings.responseTips !== false} onChange={(event) => setSettings((current) => current && { ...current, responseTips: event.target.checked })} /></label></article>
+      {/* R76：与 Trae 3.4.7 同步的技能开关——关闭的技能不会再被加载进 Agent 运行。 */}
+      <article className="settings-card"><div className="card-heading"><strong>技能</strong><span>关闭的技能不会加载进 Agent；工作区 skills 目录里新增的 SKILL.md 会出现在这里。</span></div>
+        {skills.length === 0 ? <p className="settings-help">暂未发现技能。把含 SKILL.md 的文件夹放进工作区 skills 目录即可被识别。</p> : <div className="skill-toggle-list">{skills.map((skill) => <label className="toggle-row" key={skill.path}><span className="toggle-copy"><strong>{skill.name}</strong><small>{skill.description}</small></span><input type="checkbox" checked={!(settings.skills?.disabled || []).includes(skill.name)} onChange={(event) => toggleSkill(skill.name, event.target.checked)} /></label>)}</div>}
+        <div className="item-actions"><button type="button" className="secondary-button" onClick={() => void bridge.openSkillsDirectory()}>打开技能目录</button><button type="button" className="text-button" onClick={() => void refreshSkills()}>重新扫描</button></div>
+      </article>
       <article className="settings-card"><div className="card-heading"><strong>模型稳定性（重试与备用切换）</strong><span>适用于阿里云百炼等赠送资源包的模型：配额用尽时自动切换到下一个可用模型。</span></div>
         <label className="toggle-row"><span className="toggle-copy"><strong>请求失败自动重试</strong><small>同一模型对网络波动、超时类错误重试一次后再考虑切换。</small></span><input type="checkbox" checked={settings.resilience?.autoRetry !== false} onChange={(event) => setSettings((current) => current && { ...current, resilience: { ...(current.resilience || { autoRetry: true, fallbackEnabled: true, rememberFailures: true, cooldownBaseMinutes: 5, quotaCooldownMinutes: 60 }), autoRetry: event.target.checked } })} /></label>
         <label className="toggle-row nested-toggle-row"><span className="toggle-copy"><strong>失败时切换备用模型</strong><small>当前模型不可用时，按顺序尝试其他已配置模型；全部不可用才报错。</small></span><input type="checkbox" checked={settings.resilience?.fallbackEnabled !== false} onChange={(event) => setSettings((current) => current && { ...current, resilience: { ...(current.resilience || { autoRetry: true, fallbackEnabled: true, rememberFailures: true, cooldownBaseMinutes: 5, quotaCooldownMinutes: 60 }), fallbackEnabled: event.target.checked } })} /></label>

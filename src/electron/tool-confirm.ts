@@ -28,7 +28,7 @@ export interface ToolConfirmWindowHooks {
 /** Pause the agent until the user approves a sensitive tool call (Codex-style). */
 export function confirmSensitiveToolCall(
   sessionId: string,
-  confirmation: { tool: string; arguments: Record<string, unknown>; reason: string },
+  confirmation: { tool: string; arguments: Record<string, unknown>; reason: string; impact?: string },
   sendToAppWindows: (channel: string, payload: unknown) => void,
   windowHooks: ToolConfirmWindowHooks = {}
 ): Promise<boolean> {

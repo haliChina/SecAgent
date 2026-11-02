@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, EyeOff, FolderOpen, RotateCcw } from "lucide-react";
 import { SelectCombobox } from "./SelectCombobox.js";
-import { SettingsConfirmDialog, SettingsGroup, SettingsSwitchRow } from "./settings/SettingPrimitives.js";
+import { SettingsConfirmDialog, SettingsGroup } from "./settings/SettingPrimitives.js";
 import {
   normalizePluginSettings,
   pluginFieldDefault,
@@ -24,7 +24,7 @@ import {
  *
  * R80（对照 ClassIsland联动 / 桌宠 / Computer Use 三个仓库补齐）：
  *   - hidden 字段不再误渲染；
- *   - effect=immediate/guidance 显示「立即生效 / 提示词引导」徽标；
+ *   - effect=guidance 显示「提示词引导」徽标（immediate 是默认行为，不重复标注）；
  *   - actions 渲染按钮（ClassIsland 的「测试连接」、桌宠的「皮肤列表」），
  *     支持确认弹窗与结果展示；
  *   - path 字段带原生文件/目录选择器，免手输 Windows 路径；
@@ -224,33 +224,37 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     />;
   };
 
-  /* R80：与设置页其它分区一致的行式布局；布尔复用 .set-switch。 */
+  /* R81：字段改为「标题在上、控件在下」的网格单元；布尔项整行开关，
+     路径/多行文本独占整行。 */
   const renderField = (field: PluginSettingField) => {
     const kind = pluginFieldKind(field);
     const label = field.label || field.key;
     const hint = pluginFieldHint(field);
-    const effect = field.effect === "immediate" || field.effect === "guidance" ? field.effect : undefined;
+    /* 「立即生效」是默认行为，不再逐字段贴徽标；只标注需要解释的「提示词引导」。 */
+    const badge = field.effect === "guidance" ? <span
+      className="plugin-effect-badge"
+      title="通过提示词引导模型行为，引擎不强制"
+    >提示词引导</span> : null;
     if (kind === "boolean") {
-      return <SettingsSwitchRow
-        key={field.key}
-        title={label}
-        desc={hint}
-        checked={values[field.key] === true}
-        onChange={(next) => setField(field.key, next)}
-      />;
+      return <div className="plugin-field plugin-field-wide plugin-field-boolean" key={field.key}>
+        <label className="plugin-field-head">
+          <span className="plugin-field-label">{label}{badge}</span>
+          <input
+            type="checkbox"
+            className="set-switch"
+            checked={values[field.key] === true}
+            onChange={(event) => setField(field.key, event.target.checked)}
+          />
+        </label>
+        {hint ? <p className="plugin-field-hint">{hint}</p> : null}
+      </div>;
     }
     const fallback = pluginFieldDefault(field);
     const canReset = fallback !== undefined && !pluginValueMatchesDefault(field, values[field.key]);
-    return <div className="set-row set-row-static" key={field.key}>
-      <span className="set-row-main">
-        <span className="set-row-title">{label}{effect ? <span
-          className={effect === "immediate" ? "plugin-effect-badge" : "plugin-effect-badge guidance"}
-          title={effect === "immediate" ? "保存后立即生效" : "通过提示词引导模型行为，引擎不强制"}
-        >{effect === "immediate" ? "立即生效" : "提示词引导"}</span> : null}</span>
-        {hint ? <span className="set-row-desc">{hint}</span> : null}
-      </span>
-      <span className="set-row-right plugin-set-control">
-        {renderControl(field)}
+    const wide = kind === "textarea" || kind === "path";
+    return <div className={wide ? "plugin-field plugin-field-wide" : "plugin-field"} key={field.key}>
+      <div className="plugin-field-head">
+        <span className="plugin-field-label">{label}{badge}</span>
         {canReset ? <button
           type="button"
           className="plugin-set-reset"
@@ -258,7 +262,9 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
           aria-label={`恢复 ${label} 的默认值`}
           onClick={() => setField(field.key, fallback)}
         ><RotateCcw size={13} aria-hidden /></button> : null}
-      </span>
+      </div>
+      <div className="plugin-field-control">{renderControl(field)}</div>
+      {hint ? <p className="plugin-field-hint">{hint}</p> : null}
     </div>;
   };
 
@@ -266,7 +272,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     {error && <div className="settings-error">{error}</div>}
     {note && <div className="settings-success">{note}</div>}
     {sections.map((section, index) => <SettingsGroup key={`${section.title}-${index}`} label={section.title} desc={section.description}>
-      {section.fields.map(renderField)}
+      <div className="plugin-fields">{section.fields.map(renderField)}</div>
     </SettingsGroup>)}
     {actions.length > 0 && <SettingsGroup label="插件操作" desc="由插件提供的即时操作，结果会在下方显示。">
       <div className="plugin-actions-row">

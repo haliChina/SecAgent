@@ -8,7 +8,7 @@
 import { AnimatedDetails } from "./AnimatedDetails.js";
 import { collectFileChanges, splitPath } from "../deliverable.js";
 
-export function DeliverableCard({ toolCalls }: { toolCalls?: Array<{ name: string; arguments?: unknown; result?: unknown }> }) {
+export function DeliverableCard({ toolCalls, onQuote }: { toolCalls?: Array<{ name: string; arguments?: unknown; result?: unknown }>; onQuote?: (path: string) => void }) {
   const changes = collectFileChanges(toolCalls);
   if (!changes.length) return null;
   const totals = changes.reduce((sum, change) => ({ additions: sum.additions + change.additions, deletions: sum.deletions + change.deletions }), { additions: 0, deletions: 0 });
@@ -19,6 +19,7 @@ export function DeliverableCard({ toolCalls }: { toolCalls?: Array<{ name: strin
         return <li key={change.path} className="deliverable-item" title={change.path}>
           <span className="deliverable-path"><strong>{name}</strong>{dir ? <em>{dir}</em> : null}</span>
           <span className="deliverable-badge">{change.writes > 0 && `${change.writes} 写入`}{change.writes > 0 && change.edits > 0 ? " · " : ""}{change.edits > 0 && `${change.edits} 编辑`}</span>
+          {onQuote && <button type="button" className="deliverable-quote" title="把这个文件引用到输入框" onClick={() => onQuote(change.path)}>引用</button>}
           <span className="deliverable-stat"><span className="deliverable-add">+{change.additions}</span>{change.deletions > 0 && <span className="deliverable-del">-{change.deletions}</span>}</span>
         </li>;})}
     </ul>

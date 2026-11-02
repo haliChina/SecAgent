@@ -91,6 +91,9 @@ export interface PromptBarProps {
   /* P3-3 命令面板：选中命令后回调动作 key（不传时保持真源行为——
      只把命令名插入草稿）。 */
   onCommandPick?: (key: string) => void;
+  /* 发送快捷键：enter = Enter 发送（默认）；modEnter = Cmd/Ctrl+Enter 发送，
+     Enter 仅换行。 */
+  sendShortcut?: "enter" | "modEnter";
   /* 上下文用量 chip（如 "~3.2k tokens"）。由 App 侧估算后传入，组件不计算；
      不传则不渲染，保持真源布局。 */
   contextLabel?: string;
@@ -274,6 +277,7 @@ export const PromptBar = ({
   onAttachRemove,
   onDictateCancel,
   onCommandPick,
+  sendShortcut = 'enter',
   contextLabel,
   background = '#27272a',
   color = '#f5f5f5',
@@ -757,7 +761,9 @@ export const PromptBar = ({
       }
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    const modSend = e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !e.nativeEvent.isComposing;
+    const plainSend = e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing;
+    if (sendShortcut === 'modEnter' ? modSend : plainSend) {
       e.preventDefault();
       send();
     }

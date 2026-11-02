@@ -134,6 +134,20 @@ export class SessionStore {
   setArchived(id: string, archived: boolean): void {
     updateSessionArchived(this.db, id, archived);
   }
+  /** 自动归档：超过保留期且尚未归档的会话移入归档，返回本次归档数量。 */
+  autoArchive(retentionDays: number, now: number = Date.now()): number {
+    if (!Number.isFinite(retentionDays) || retentionDays <= 0) return 0;
+    const cutoff = now - retentionDays * 24 * 60 * 60 * 1000;
+    let archived = 0;
+    for (const meta of this.list()) {
+      if (meta.archived) continue;
+      const updatedAt = new Date(meta.updatedAt).getTime();
+      if (!Number.isFinite(updatedAt) || updatedAt >= cutoff) continue;
+      this.setArchived(meta.id, true);
+      archived += 1;
+    }
+    return archived;
+  }
 
   delete(id: string): void {
     if (!readSessionRow(this.db, id)) throw new Error(`会话不存在：${id}`);

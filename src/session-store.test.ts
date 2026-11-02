@@ -25,6 +25,27 @@ test("restores only the latest session run from the runtime log", () => {
   }
 });
 
+test("auto archives sessions older than the retention window", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-archive-"));
+  try {
+    const store = new SessionStore(workspace);
+    store.create("旧会话");
+    store.create("新会话");
+
+    // Sessions updated just now stay active regardless of the retention window.
+    assert.equal(store.autoArchive(3), 0);
+
+    const future = Date.now() + 5 * 24 * 60 * 60 * 1000;
+    assert.equal(store.autoArchive(3, future), 2);
+    assert.equal(store.list().filter((meta) => meta.archived).length, 2);
+    // Already archived sessions are not counted again.
+    assert.equal(store.autoArchive(3, future), 0);
+  } finally {
+    closeSessionDb(workspace);
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
 test("persists a generated session title in the session index", () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "secagent-session-title-"));
   try {

@@ -29,10 +29,11 @@ interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
 interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number; contextTokens: number }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system";
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system";
     /** R64：联网搜索工具密钥（载流字段：保存时写工作区 .env，不落 config.yaml）。 */
     webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean } }
-interface SkillSummary { name: string; description: string; path: string }
+interface SkillSummary { name: string; description: string; path: string; enabled?: boolean }
+interface CustomCommand { name: string; description?: string; prompt: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }
 interface MarketplacePlugin { id: string; format?: "secagent" | "agent"; name: string; description: string; repository: string; icon?: string; readme?: string; latest?: MarketplaceVersion; releaseError?: string }
@@ -147,6 +148,6 @@ interface Window {
     onUpdateState(listener: (state: UpdateState) => void): () => void;
     onPluginsChanged(listener: (plugins: PluginStatus[]) => void): () => void;
     respondToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }): Promise<{ ok: boolean; error?: string }>;
-    onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string }) => void): () => void;
+    onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string; impact?: string }) => void): () => void;
   };
 }

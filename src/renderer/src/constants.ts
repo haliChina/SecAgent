@@ -23,6 +23,17 @@ export const traceLabel: Record<string, string> = {
 
 export const reasoningEffortLabels: Record<ReasoningEffort, string> = { none: "不思考", minimal: "极低", low: "低", medium: "中", high: "高", xhigh: "极高", max: "最高" };
 
+/** 回复过程中的轮播使用技巧（设置里可关闭）。只写应用里真实存在的能力。 */
+export const responseTips = [
+  "输入 /new 新建会话，/stop 停止当前回复，/settings 打开设置",
+  "长按输入框可以直接说话，松开即发送",
+  "把图片拖进输入框，或点输入框的图片按钮添加附件",
+  "在消息上点右键，可以复制或用引用继续追问",
+  "/read 朗读最后一条回复，/stop-read 停止朗读",
+  "设置「系统」页可以单独关闭不想用的技能",
+  "设置里能切换浅色 / 深色主题，或跟随系统"
+] as const;
+
 /** 官方服务的虚拟档位：主界面在“自定义模型模式”开启时只暴露这三档（低延迟档位暂缓）。 */
 export const officialTiers = [
   { id: "virtual-fast", name: "快速", description: "优先使用最快的上游模型" },

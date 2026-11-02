@@ -27,6 +27,8 @@ export interface ToolConfirmation {
   tool: string;
   arguments: Record<string, unknown>;
   reason: string;
+  /** 为什么危险 / 批准后可能发生什么；由 guard 的风险规则提供。 */
+  impact?: string;
 }
 
 export interface RuntimeOptions {
@@ -102,7 +104,8 @@ export class SecAgentRuntime {
     this.confirmToolCall = options.confirmToolCall;
     const guardHook: PreToolHook = (context) => {
       const decision = checkToolCall({ tool: context.tool, arguments: context.arguments }, this.guard);
-      return decision.action === "confirm" ? { action: "confirm", reason: decision.reason } : { action: "allow" };
+      if (decision.action !== "confirm") return { action: "allow" };
+      return { action: "confirm", reason: decision.reason, ...(decision.impact ? { impact: decision.impact } : {}) };
     };
     this.toolHooks = {
       pre: [guardHook, ...(options.toolHooks?.pre ?? [])],
@@ -302,7 +305,9 @@ export class SecAgentRuntime {
     if (decision.action === "deny") this.rejectTool(key, decision.reason);
     if (decision.action === "confirm") {
       this.activity("approval_requested", sessionId, key);
-      const approved = this.confirmToolCall ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason }) : false;
+      const approved = this.confirmToolCall
+        ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason, ...(decision.impact ? { impact: decision.impact } : {}) })
+        : false;
       this.activity("approval_resolved", sessionId, key);
       if (!approved) this.rejectTool(key, decision.reason);
     }

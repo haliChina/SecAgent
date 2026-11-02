@@ -1,6 +1,6 @@
 import type { PluginPromptContribution } from "./plugin-manager.js";
 import type { ChatAttachment, ReasoningEffort, SecAgentConfig } from "./types.js";
-import { toolResultParts, toolResultText } from "./tool-content.js";
+import { TOOL_RESULT_TRUNCATED_PREFIX, toolResultParts, toolResultText } from "./tool-content.js";
 import { budgetStopMessage, normalizeModelBudgetSettings, pruneImageHistory, WRAP_UP_NOTICE, type ModelBudgetSettings } from "./model-budget.js";
 import { estimateConversationTokens, estimateTokens, resolvePromptBudget, trimConversationToBudget } from "./context-budget.js";
 import { anthropicThinkingConfig, googleThinkingConfig, reasoningFieldsForChat, reasoningFieldsForResponses } from "./reasoning.js";
@@ -608,7 +608,11 @@ export class ModelToolAgent {
           const refs = parts.images.map((image, index) => ({ $ref: `${call.name}-${turn}-${index}` }));
           contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: { result: parts.text || "已返回图片。", images: refs }, parts: parts.images.map((image, index) => ({ inlineData: { mimeType: image.mimeType, data: image.data, displayName: `${call.name}-${turn}-${index}` } })) } }] });
         } else {
-          contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response: parts.images.length ? { result: toolResultText(parts) } : result } }] });
+          const bounded = toolResultText(parts);
+          // Gemini 只接受结构化 response；文本结果超预算时也包成 { result }，
+          // 否则原始大对象会绕过字节上限，模型仍会以为拿到了完整结果。
+          const response = parts.images.length || bounded.includes(TOOL_RESULT_TRUNCATED_PREFIX) ? { result: bounded } : result;
+          contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, ...(call.id ? { id: call.id } : {}), response } }] });
           imageFallback.push(...parts.images.map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.data } })));
         }
       }

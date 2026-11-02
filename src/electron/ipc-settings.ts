@@ -17,7 +17,7 @@ import { readSettings } from "../config.js";
 import { readAutostart } from "./autostart.js";
 import { diagnosticLogDirectory, exportDiagnosticLogs } from "./diagnostic-logs.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
-import { loadEnabledSkills } from "../skills.js";
+import { loadSkills } from "../skills.js";
 import { Models } from "@opencode-ai/models";
 import type { UpdateState } from "../types.js";
 import type { WindowsUpdateManager } from "./update-manager.js";
@@ -141,7 +141,9 @@ export function registerSettingsIpc(deps: {
   });
   ipcMain.handle("settings:skills", () => {
     const { config } = loadConfig(DEFAULT_WORKSPACE);
-    return loadEnabledSkills(config).map((skill) => ({ name: skill.name, description: skill.description, path: skill.path }));
+    /* 设置页需要看到被禁用的技能才能重新打开，因此返回全部技能 + enabled 标记。 */
+    const disabled = new Set(config.skills?.disabled || []);
+    return loadSkills(config).map((skill) => ({ name: skill.name, description: skill.description, path: skill.path, enabled: !disabled.has(skill.name) && !(skill.relativePath && disabled.has(skill.relativePath)) }));
   });
   ipcMain.handle("settings:open-skills", async () => {
     const directory = path.join(DEFAULT_WORKSPACE, "skills");

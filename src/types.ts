@@ -8,6 +8,13 @@ export interface McpServerConfig {
   enabled: boolean;
 }
 
+/** 用户保存的提示词命令：在输入框用 /名称 快速调用。 */
+export interface CustomCommand {
+  name: string;
+  description?: string;
+  prompt: string;
+}
+
 export interface ModelProfile {
   id: string;
   name?: string;
@@ -130,7 +137,15 @@ export interface SecAgentConfig {
   updates?: UpdatePreferences;
   telemetry?: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
-  defaults?: { modelId?: string; reasoningEffort?: ReasoningEffort; customModelMode?: boolean; autostart?: boolean; autostartHidden?: boolean; visionModelId?: string };
+  defaults?: { modelId?: string; reasoningEffort?: ReasoningEffort; customModelMode?: boolean; autostart?: boolean; autostartHidden?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; visionModelId?: string; responseTips?: boolean };
+  /** 技能开关：disabled 里的技能名/相对路径不会被加载进运行时。 */
+  skills?: { disabled?: string[] };
+  /** 自定义命令：items 由设置页维护，输入框用 /名称 调用。 */
+  commands?: { items?: CustomCommand[] };
+  /** 用户自定义规则：拼进系统提示词，跨会话生效。 */
+  rules?: { enabled?: boolean; text?: string };
+  /** 已归档会话的自动清理策略（启动时扫描一次）。 */
+  archive?: { auto?: boolean; retentionDays?: number };
   /** Model-failure resilience (retry/fallback/cooldown) — see resilience.ts. */
   resilience?: import("./resilience.js").ResilienceSettings;
   /** Sensitive tool-call confirmations — see tool-guard.ts. */

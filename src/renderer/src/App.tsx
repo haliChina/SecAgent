@@ -1,7 +1,7 @@
 import { ACCENT, ACCENT_SKY, ACCENT_DEEP } from "./components/ui/parts/theme.js";
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
-import { LoaderCircle, Volume2 } from "lucide-react";
+import { ArrowDown, LoaderCircle, Volume2 } from "lucide-react";
 import { SettingsApp } from "./components/SettingsApp.js";
 import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
 import { WakeOverlay } from "./components/WakeOverlay.js";
@@ -11,7 +11,7 @@ import { AttachmentStrip } from "./components/AttachmentStrip.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
 import { WorkspaceFileStrip } from "./components/WorkspaceFileStrip.js";
 import { stripWorkspaceFilesMarkup } from "../../workspace-file-contract.js";
-import { reasoningEffortLabels } from "./constants.js";
+import { reasoningEffortLabels, responseTips as responseTipsList } from "./constants.js";
 import type { TraceEvent } from "./constants.js";
 import { isOfficialModel, isOfficialTierModel, isOfficialVisionModel, reasoningEffortsForModel, toolTitle } from "./utils.js";
 import { officialTiers, tierDefaultId } from "./constants.js";
@@ -24,6 +24,9 @@ import { TracePanel } from "./components/TracePanel.js";
 import { DeliverableCard } from "./components/DeliverableCard.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
 import { AiStatus, AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, WebSearch, type WebSource, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
+
+/** 空会话的快捷提示：只填进输入框，不直接发送，用户可继续补充。 */
+const EMPTY_STATE_PROMPTS = ["查询张三的积分", "给张三加 2 分", "统计本周积分变化", "生成这节课的小结"];
 
 /** web_search 工具结果 → rare-ui WebSearch 组件的 WebSource 归一化
  * （兼容 BigModel search_result 与 DeepSeek results 两种载荷）。 */
@@ -82,6 +85,10 @@ export function App() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
+  const [sendShortcut, setSendShortcut] = useState<"enter" | "modEnter">("enter");
+  const [responseTipsEnabled, setResponseTipsEnabled] = useState(true);
+  const [tipIndex, setTipIndex] = useState(0);
+  const [customCommands, setCustomCommands] = useState<CustomCommand[]>([]);
   /* R59 多任务：运行态按会话记账（主进程 activeSessionRuns 本就按会话键控）。
      runningSessionIds/finishingSessionIds 驱动渲染；ref 镜像供异步闭包取新鲜值。
      旧的单一全局 sending/finishing 是"新会话出现老会话思考提示 + 停止按钮"
@@ -120,7 +127,7 @@ export function App() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [readingStatus, setReadingStatus] = useState<"loading" | "playing" | null>(null);
   // Codex-style sensitive tool-call confirmation, pending user decision.
-  const [toolConfirmation, setToolConfirmation] = useState<{ confirmationId: string; tool: string; arguments: Record<string, unknown>; reason: string } | null>(null);
+  const [toolConfirmation, setToolConfirmation] = useState<{ confirmationId: string; tool: string; arguments: Record<string, unknown>; reason: string; impact?: string } | null>(null);
   const [trace, setTrace] = useState<TraceEvent[]>([]);
   /* R65 模型回退链详细进度（用户点名）：主进程 model.request/failed +
      model.fallback/switch 事件早就有，但渲染层只显示最终 fallbackNotice——
@@ -161,6 +168,13 @@ export function App() {
   // R56 流式跟随滚动：follow=true 时容器钉在底部（思考/工具调用内容增长自动下滚）；
   // 用户手动上滚即置 false（暂停跟随、自由浏览），滚回底部附近自动恢复。
   const followOutputRef = useRef(true);
+  /* R56 跟随开关的渲染镜像：用户上滚后显示「回到最新」，滚回底部自动收起。
+     ref 仍驱动滚动效果，state 只用于这一个浮层按钮。 */
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+  const setFollowOutput = (value: boolean) => {
+    followOutputRef.current = value;
+    setShowJumpToLatest(!value);
+  };
   const answerStartScrollPending = useRef(false);
   /* R27 PromptBar 桥：onAttach 必须返回 Promise，但文件选择器是回调式——
      pendingAttachResolveRef 暂存 resolve，input change 后由 addImageFiles 兑现；
@@ -237,10 +251,17 @@ export function App() {
   const voiceEditZoneRef = useRef<HTMLDivElement>(null);
   const speechAudio = useRef<HTMLAudioElement | null>(null);
   const speechRun = useRef(0);
+  /** 一次性提示计时器：朗读/语音的失败与空结果不该静默，也不该永久占位。 */
+  const speechStatusTimer = useRef(0);
 
   const setRecordingState = (value: boolean) => {
     recordingRef.current = value;
     setRecording(value);
+  };
+  const flashSpeechStatus = (message: string, ttl = 3000) => {
+    window.clearTimeout(speechStatusTimer.current);
+    setSpeechStatus(message);
+    speechStatusTimer.current = window.setTimeout(() => setSpeechStatus(""), ttl);
   };
   const logSpeech = (stage: string, data: Record<string, unknown> = {}) => {
     const payload = { stage, ...data };
@@ -284,6 +305,9 @@ export function App() {
       ]);
       const customMode = Boolean(savedSettings.customModelMode);
       setCustomModelMode(customMode);
+      setSendShortcut(savedSettings.sendShortcut === "modEnter" ? "modEnter" : "enter");
+      setResponseTipsEnabled(savedSettings.responseTips !== false);
+      setCustomCommands(savedSettings.commands || []);
       const savedInput = (savedSettings as { speech?: { audio?: { input?: string } } }).speech?.audio?.input;
       audioInputRef.current = savedInput && savedInput !== "auto" && savedInput !== "default" ? savedInput : undefined;
       const defaultReasoning = (savedSettings.defaultReasoningEffort || "high") as ReasoningEffort;
@@ -291,6 +315,8 @@ export function App() {
       setReasoningEffort(defaultReasoning);
       setSessions(list);
       setSession(active);
+      // 长会话打开时直接停在最新消息，而不是从历史顶部开始。
+      scrollMessagesToBottom();
       requestAnimationFrame(() => textareaRef.current?.focus());
       const configured = await modelsPromise;
       const mainModels = configured.filter((model) => !isOfficialVisionModel(model));
@@ -313,6 +339,9 @@ export function App() {
         void bridge.getSettings().then((settings) => {
           const customMode = Boolean(settings.customModelMode);
           setCustomModelMode(customMode);
+          setSendShortcut(settings.sendShortcut === "modEnter" ? "modEnter" : "enter");
+          setResponseTipsEnabled(settings.responseTips !== false);
+          setCustomCommands(settings.commands || []);
           setDefaultEffort((settings.defaultReasoningEffort || "high") as ReasoningEffort);
           setSelectedModelId((current) => {
             /* R79：设置广播（主题切换、插件开关等）不应覆盖输入栏里用户
@@ -416,6 +445,13 @@ export function App() {
     return bridge.onToolConfirmation((payload) => setToolConfirmation(payload));
   }, [bridge]);
 
+  // 附件错误是一次性反馈：4 秒后自动收起，避免提示长期挂在输入栏下方。
+  useEffect(() => {
+    if (!attachmentError) return;
+    const timer = window.setTimeout(() => setAttachmentError(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [attachmentError]);
+
   const resolveToolConfirmation = (approved: boolean, always = false) => {
     if (!toolConfirmation) return;
     void bridge?.respondToolConfirmation({ confirmationId: toolConfirmation.confirmationId, approved, always, signature: always ? `${toolConfirmation.tool}|${String(toolConfirmation.arguments.command ?? "").trim().split(/\s+/)[0] || "*"}`.toLowerCase() : undefined });
@@ -447,7 +483,8 @@ export function App() {
     // 清洗与分句收敛到 tts-text：跳过结构化块/公式/裸链接，句子超长会二次切分。
     const plain = markdownToPlainText(content, { readCodeBlocks: settings?.tts?.readCodeBlocks === true });
     const chunks = splitForSpeech(plain);
-    if (!chunks.length) return;
+    // 纯代码块/公式消息没有可朗读文本：给出可见提示，而不是点了没反应。
+    if (!chunks.length) { flashSpeechStatus("这条消息没有可朗读的文字"); return; }
     setSpeakingMessageId(messageId);
     setReadingStatus("loading");
     try {
@@ -464,7 +501,10 @@ export function App() {
         if (following) nextBuffer = await following;
       }
     } catch (error) {
-      if (speechRun.current === run) console.warn("TTS failed", error);
+      if (speechRun.current === run) {
+        console.warn("TTS failed", error);
+        flashSpeechStatus("语音生成失败，请稍后再试");
+      }
     } finally {
       if (speechRun.current === run) { setSpeakingMessageId(null); setReadingStatus(null); }
     }
@@ -483,7 +523,7 @@ export function App() {
   const scrollCheckRafRef = useRef(0);
   useEffect(() => () => cancelAnimationFrame(scrollCheckRafRef.current), []);
   const handleMessagesWheel = (event: ReactWheelEvent) => {
-    if (event.deltaY < 0) followOutputRef.current = false;
+    if (event.deltaY < 0) setFollowOutput(false);
   };
   const handleMessagesScroll = () => {
     if (scrollCheckRafRef.current) return;
@@ -491,7 +531,7 @@ export function App() {
       scrollCheckRafRef.current = 0;
       const el = messagesRef.current;
       if (!el) return;
-      followOutputRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 64;
+      setFollowOutput(el.scrollHeight - el.scrollTop - el.clientHeight < 64);
     });
   };
   useEffect(() => {
@@ -560,6 +600,14 @@ export function App() {
     const timer = window.setInterval(() => setStatusTick(Date.now()), 1000);
     return () => window.clearInterval(timer);
   }, [sessionRunning]);
+  /* R76：与 Trae 3.4.5 同步的回复轮播提示——生成过程中每 12 秒换一条使用技巧，
+     设置里关闭后既不轮换也不渲染。 */
+  useEffect(() => {
+    if (!sessionRunning || sessionFinishing || !responseTipsEnabled) return;
+    const timer = window.setInterval(() => setTipIndex((index) => (index + 1) % responseTipsList.length), 12000);
+    return () => window.clearInterval(timer);
+  }, [sessionRunning, sessionFinishing, responseTipsEnabled]);
+  useEffect(() => { if (!sessionRunning) setTipIndex(0); }, [sessionRunning]);
   const lastDeltaAt = useMemo(() => {
     for (let i = activeTrace.length - 1; i >= 0; i -= 1) {
       if (activeTrace[i].stage === "model.output.delta") return new Date(activeTrace[i].at).getTime();
@@ -622,6 +670,8 @@ export function App() {
     stopReading();
     const [next, runtimeEvents] = await Promise.all([bridge.getSession(id), bridge.getRuntimeEvents(id)]);
     setSession(next);
+    // 会话切换后回到最新消息：沿用上一会话的滚动位置会让人以为消息丢了。
+    scrollMessagesToBottom();
     setTrace((current) => {
       const merged = new Map(current.map((item) => [`${item.sessionId}:${item.sequence}`, item]));
       for (const item of runtimeEvents) merged.set(`${item.sessionId}:${item.sequence}`, item);
@@ -647,8 +697,33 @@ export function App() {
     setSessions(await bridge.listSessions());
     setSession(next);
     setTrace([]);
+    scrollMessagesToBottom();
     requestAnimationFrame(() => textareaRef.current?.focus());
   };
+
+  /* 全局快捷键：Cmd/Ctrl+N 新建会话，Cmd/Ctrl+K 聚焦输入框。
+     用 ref 取最新的 createSession，避免 effect 因函数重建而反复解绑。 */
+  const createSessionRef = useRef(createSession);
+  createSessionRef.current = createSession;
+  useEffect(() => {
+    if (!bridge) return;
+    const onShortcut = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.altKey || event.isComposing) return;
+      const mod = bridge.platform === "darwin" ? event.metaKey : event.ctrlKey;
+      if (!mod) return;
+      const key = event.key.toLowerCase();
+      if (key === "n") {
+        event.preventDefault();
+        void createSessionRef.current();
+      } else if (key === "k") {
+        event.preventDefault();
+        textareaRef.current?.focus();
+        textareaRef.current?.select();
+      }
+    };
+    window.addEventListener("keydown", onShortcut);
+    return () => window.removeEventListener("keydown", onShortcut);
+  }, [bridge]);
   /* R65：归档/取消归档——只翻标记，本地即时更新（不用等 IPC 往返重拉全列表）。 */
   const archiveSession = async (id: string, archived: boolean) => {
     try {
@@ -661,12 +736,20 @@ export function App() {
 
   const deleteSession = async (id: string) => {
     if (!bridge) return;
+    /* R76：删除正在执行的会话会留下无人接管的运行；先确认，再中断该会话。 */
+    const running = runningSessionsRef.current.includes(id);
+    if (running && !window.confirm("该会话正在执行任务。删除会中断当前运行，并丢弃会话里的全部消息。确定删除吗？")) return;
+    if (running) {
+      try { await bridge.stopMessage(id); } catch { /* The run may already have finished. */ }
+      clearRun(id);
+    }
     const remaining = await bridge.deleteSession(id);
     if (id === session?.meta.id) {
       stopReading();
       const next = remaining[0] ? await bridge.getSession(remaining[0].id) : await bridge.createSession();
       setSession(next);
       setTrace([]);
+      scrollMessagesToBottom();
       setSessions(await bridge.listSessions());
     } else {
       setSessions(remaining);
@@ -722,7 +805,7 @@ export function App() {
   const scrollMessagesToBottom = () => {
     // R56：新消息发送重置跟随开关；"auto" 直达底部（无 smooth 中间位置，
     // 避免 onScroll 误判为用户上滚而暂停跟随）。
-    followOutputRef.current = true;
+    setFollowOutput(true);
     requestAnimationFrame(() => {
       const messages = messagesRef.current;
       if (!messages) return;
@@ -769,6 +852,8 @@ export function App() {
       setSession((current) => current && current.meta.id === session.meta.id
         ? { ...current, messages: [...current.messages, { id: `local-error-${Date.now()}`, role: "assistant", content: detail, createdAt: new Date().toISOString() }] }
         : current);
+      // 错误消息落在对话流末尾，滚到底部确保用户看得到，而不是停在旧位置。
+      scrollMessagesToBottom();
     } finally {
       if (completed) await new Promise((resolve) => setTimeout(resolve, 260));
       clearRun(session.meta.id);
@@ -1160,7 +1245,14 @@ export function App() {
       <section className="conversation" aria-label="当前会话">
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
         <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
-          {session?.messages.length === 0 && <div className="empty-state"><AuroraBackdrop /><MatrixOrb size={200} state={orbState} stream={micStream} /><h2>开始一个课堂操作</h2><p>例如：查询张三积分，或给张三加 2 分。</p></div>}
+          {session === null ? <div className="empty-state"><LoaderCircle className="reading-icon loading" size={22} aria-label="正在加载会话" /></div> : session.messages.length === 0 && <div className="empty-state">
+            <AuroraBackdrop />
+            <MatrixOrb size={132} state={orbState} stream={micStream} />
+            <p className="empty-state-eyebrow">SECAGENT · 课堂助手</p>
+            <h2>今天想做什么？</h2>
+            <p className="empty-state-lead">查积分、加减分、整理课堂表现，直接说就好。</p>
+            <div className="empty-state-prompts">{EMPTY_STATE_PROMPTS.map((prompt) => <button key={prompt} type="button" className="empty-state-chip" onClick={() => { setDraft(prompt); requestAnimationFrame(() => textareaRef.current?.focus()); }}>{prompt}</button>)}</div>
+          </div>}
           {session?.messages.map((message, index) => {
             const previous = index > 0 ? session.messages[index - 1] : undefined;
             const dayLabel = daySeparatorLabel(message.createdAt);
@@ -1172,16 +1264,18 @@ export function App() {
             const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
             // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
             const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
-            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions onCopy={() => void copyText(message.content)} />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
           {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
+            {responseTipsEnabled && <p className="response-tip">小提示：{responseTipsList[tipIndex % responseTipsList.length]}</p>}
             {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
               {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
               {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}
             </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : "正在调用模型与工具…"}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}</div></article>}
           <div />
         </div>
+        {showJumpToLatest && session && session.messages.length > 0 && <button className="jump-to-latest" type="button" aria-label="回到最新消息" title="回到最新消息" onClick={scrollMessagesToBottom}><ArrowDown size={16} aria-hidden /></button>}
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
         <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
@@ -1196,14 +1290,22 @@ export function App() {
               { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
               { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
               { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
-              { key: "settings", name: "/settings", description: "打开设置", group: "应用" }
+              { key: "settings", name: "/settings", description: "打开设置", group: "应用" },
+              ...customCommands.filter((command) => command.name.trim() && command.prompt.trim()).map((command) => ({ key: `custom:${command.name}`, name: `/${command.name}`, description: command.description || "自定义命令", group: "自定义" }))
             ]}
             onCommandPick={(key) => {
+              /* 自定义命令只把提示词填入输入框，用户可继续补充参数后再发送。 */
+              if (key.startsWith("custom:")) {
+                const command = customCommands.find((item) => `custom:${item.name}` === key);
+                if (command) setDraft(`${command.prompt.trim()} `);
+                return;
+              }
               if (key === "new-session") void createSession();
               else if (key === "stop") { if (sessionRunning) void stop(); }
               else if (key === "read") {
                 const target = session?.messages.filter((message) => message.role === "assistant" && message.content && !message.content.startsWith("执行失败：")).at(-1);
                 if (target) void readMessage(target.id, target.content);
+                else flashSpeechStatus("还没有可朗读的回复");
               }
               else if (key === "stop-read") stopReading();
               else if (key === "settings") void bridge?.openSettings();
@@ -1223,13 +1325,14 @@ export function App() {
             onDictateCancel={cancelPromptDictation}
             value={draft}
             onDraftChange={setDraft}
+            sendShortcut={sendShortcut}
             contextLabel={contextLabel}
             background="var(--glass-strong)"
             color="var(--text-1)"
             menuBackground="var(--glass-strong)"
             sparkColor={ACCENT}
-            width={2000}
-            radius={15}
+            width={880}
+            radius={18}
             maxRows={5}
           />}        </form>
       </section>

@@ -89,7 +89,12 @@ button:focus:not(:focus-visible) { outline: none; }
 .sidebar-settings { display: inline-flex; align-items: center; gap: 7px; margin-left: -8px; padding: 6px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font: inherit; font-size: 13px; font-weight: 550; cursor: pointer; }.sidebar-settings:hover { background: var(--bg-1); color: var(--text-1); }
 .sidebar-settings { width: 100%; display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; }.sidebar-settings:hover { background: var(--bg-3); color: var(--text-1); }
 .conversation { height: 100%; display: grid; grid-template-rows: 1fr auto; position: relative; }
-.messages { min-height: 0; overflow: auto; padding: 45px 45px 118px; display: flex; gap: 18px; flex-direction: column; }
+.messages { min-height: 0; overflow: auto; padding: 42px max(40px, calc((100% - 880px) / 2)) 128px; display: flex; gap: 22px; flex-direction: column; }
+/* 用户上滚浏览历史时出现，点一下回到最新（浮在输入栏上方）。 */
+.jump-to-latest { position: absolute; right: 26px; bottom: 118px; z-index: 3; display: grid; place-items: center; width: 34px; height: 34px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--glass-strong); color: var(--text-2); box-shadow: 0 8px 24px rgba(15, 23, 42, .12); cursor: pointer; transition: color .18s ease, border-color .18s ease, transform .18s ease; animation: jump-latest-in .18s ease both; }
+.jump-to-latest:hover { color: var(--accent); border-color: var(--accent); transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) { .jump-to-latest { animation: none; } }
+@keyframes jump-latest-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 /* R57：底部留白加高——滚动跟随到底时末条消息退出 ScrollProgress 浮标
    所在带（约 132px 折算），浮标不再压住内容/日期分隔条。 */
 .message-content > .fallback-notice, .message-content [data-slot="stopped-run"], .message-content [data-slot="guardrail-notice"] { margin-top: 8px; }
@@ -151,8 +156,16 @@ button:focus:not(:focus-visible) { outline: none; }
 .r3f-error { overflow: auto; margin: 12px 0; padding: 10px 12px; border: 1px solid rgba(248,113,113,.35); border-radius: 7px; background: rgba(248,113,113,.14); color: #F87171; white-space: pre-wrap; }
 .user .bubble { color: var(--text-1); background: var(--bg-2); border-color: var(--line-strong); border-radius: 14px 4px 14px 14px; box-shadow: 0 1px 3px rgba(15, 23, 42, .05); }
 .loading { color: var(--text-3); }
-.empty-state { position: relative; margin: auto; text-align: center; color: var(--text-3); }.empty-state h2 { position: relative; color: var(--text-1); margin-bottom: 6px; }.empty-state p { position: relative; }
-.composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 14px 15px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid var(--line-strong); border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 var(--glass-inset); }
+/* 空会话：参考对话产品首屏——品牌点、大标题、说明和可点击的快捷提示。 */
+.empty-state { position: relative; margin: auto; max-width: 760px; padding: 24px; display: grid; justify-items: center; text-align: center; color: var(--text-3); }
+.empty-state-eyebrow { position: relative; margin: 0 0 10px; color: var(--accent-text); font-size: 11px; font-weight: 700; letter-spacing: .16em; }
+.empty-state h2 { position: relative; margin: 0; color: var(--text-1); font-size: 34px; font-weight: 650; letter-spacing: -.03em; line-height: 1.2; }
+.empty-state p { position: relative; }
+.empty-state-lead { margin: 10px 0 26px; color: var(--text-2); font-size: 14px; line-height: 1.6; }
+.empty-state-prompts { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; max-width: 620px; }
+.empty-state-chip { padding: 9px 16px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-1); color: var(--text-2); font-size: 13px; line-height: 1.4; cursor: pointer; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
+.empty-state-chip:hover { border-color: var(--accent-border); background: var(--accent-soft); color: var(--accent-text); transform: translateY(-1px); }
+.composer { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; width: min(880px, calc(100% - 32px)); margin: 0 auto 18px; padding: 10px 14px; min-height: 59px; height: auto; border: 1px solid var(--line-strong); border-radius: 15px; background: var(--glass-bg); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(160%); box-shadow: 0 12px 34px rgba(15, 23, 42, .10), inset 0 1px 0 var(--glass-inset); }
 /* R27+ PromptBar 自带外框（--pb-bg/radius/阴影全套），:has 命中时 composer 退化为
    无形容器，避免「双层外框」之间的 padding 间隙；语音三分区/引用块等兄弟元素
    仍需要留白，统一补 0 14px 8px 内边距。语音模式下 PromptBar 不在，规则自动失效。 */
@@ -261,6 +274,9 @@ button:focus:not(:focus-visible) { outline: none; }
 
 /* 回退提示（单独一行，不混入对话内容）：细线 + 小字，克制 */
 .model-fallback-progress { display: flex; flex-direction: column; gap: 3px; margin: 6px 0; padding: 8px 10px; border: 1px solid color-mix(in srgb, #F59E0B 45%, transparent); border-radius: 8px; background: color-mix(in srgb, #F59E0B 10%, transparent); font-size: 12px; }
+/* R76：回复过程轮播提示——低调的左侧竖线，不抢正文与进度状态的视觉。 */
+.response-tip { margin: 6px 0 0; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); color: var(--text-2); font-size: 12px; line-height: 1.5; animation: response-tip-in 240ms ease; }
+@keyframes response-tip-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 .model-fallback-step.fail { color: #B45309; }
 .model-fallback-step.switch { color: #92400E; font-weight: 600; }
 .fallback-notice { margin: 4px 0 8px; padding: 2px 0 2px 10px; border-left: 2px solid var(--line-strong); color: var(--text-3); font-size: 11.5px; line-height: 1.5; }
@@ -280,6 +296,8 @@ button:focus:not(:focus-visible) { outline: none; }
 .deliverable-path strong { color: var(--text-1); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .deliverable-path em { color: var(--text-3); font-size: 10px; font-style: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 1; }
 .deliverable-badge { flex: 0 0 auto; color: var(--text-3); font-size: 10px; }
+.deliverable-quote { flex: 0 0 auto; padding: 1px 8px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--text-2); font-size: 10px; line-height: 1.6; cursor: pointer; }
+.deliverable-quote:hover { border-color: var(--accent); color: var(--accent); }
 .deliverable-item .deliverable-stat { margin-left: auto; flex: 0 0 auto; }
 
 .oobe-header { max-width: 720px; margin: 12vh auto 26px; }.oobe-header h1 { margin: 7px 0 9px; font-size: 32px; }.oobe-header > p:not(.eyebrow) { max-width: 560px; margin: 0 0 22px; color: var(--text-3); font-size: 15px; line-height: 1.6; }.oobe-intro { max-width: 720px; display: grid; gap: 5px; margin: 0 auto 28px; padding: 14px 16px; border: 1px solid var(--accent-border); border-radius: 10px; background: var(--accent-soft); color: var(--text-2); font-size: 13px; line-height: 1.5; }.oobe-intro strong { color: var(--accent-text); font-size: 13px; }.oobe-shell > .settings-section { max-width: 720px; }.oobe-shell > .settings-section:nth-of-type(2) { display: none; }.oobe-shell > .settings-section:first-of-type .section-title > .secondary-button { display: none; }.oobe-shell > .settings-section:first-of-type .settings-card { border-color: var(--accent-border); box-shadow: 0 8px 26px color-mix(in srgb, var(--accent) 8%, transparent); }.oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(2), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(6), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(8), .oobe-shell > .settings-section:first-of-type .form-grid label:nth-child(9) { display: none; }
@@ -369,58 +387,110 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-error,
 .settings-shell:not(.oobe-shell) .settings-success,
 .settings-shell:not(.oobe-shell) .settings-section { max-width: 1000px; }
-.settings-shell:not(.oobe-shell) .plugin-settings-section { display: block; }
+.settings-shell:not(.oobe-shell) .plugin-settings-section { display: grid; gap: 28px; align-content: start; }
 .plugin-service-status { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
 .plugin-service-status span { color: var(--text-2); font-size: 13px; }
-/* R77/R79：通用插件设置表单——行式（标题/说明在左、控件在右），
- * 布尔开关复用 .set-switch。 */
-.plugin-form-actions { display: flex; align-items: center; gap: 14px; margin: 14px 0 4px; }
-/* 控件列固定宽度，长标签不挤压输入；颜色/描边全部走主题 token。
- * 行本身复用 .set-row-static（已有 cursor/hover 规则），不再单独定义。 */
-.plugin-set-control { width: min(320px, 52%); display: flex; align-items: center; gap: 8px; }
-.plugin-set-control .select-combobox,
-.plugin-set-control .plugin-path-field,
-.plugin-set-control .plugin-secret-field { flex: 1; min-width: 0; }
-.plugin-set-control .select-combobox,
-.plugin-set-control input[type="text"],
-.plugin-set-control input[type="password"],
-.plugin-set-control input[type="number"],
-.plugin-set-control textarea { width: 100%; }
+/* R81：通用插件设置表单——两列字段网格（标题在上、控件在下），
+ * 路径/多行文本独占整行；布尔项保留整行开关。 */
+/* 保存条：长表单滚动时贴底，按钮始终可达（参考设置页的固定底部操作区）。 */
+.plugin-form-actions { position: sticky; bottom: 0; z-index: 2; display: flex; align-items: center; gap: 14px; margin: 0; padding: 12px 2px 14px; background: linear-gradient(to top, var(--bg-0) 72%, transparent); }
+
+/* 分组标题：左侧短色条 + 明确的标题层级，取代原先的灰色小字。 */
+.settings-shell:not(.oobe-shell) .plugin-settings-section .set-group-label {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 6px; padding-left: 2px;
+  color: var(--text-1); font-size: 14px; font-weight: 650; letter-spacing: -.01em;
+}
+.settings-shell:not(.oobe-shell) .plugin-settings-section .set-group-label::before {
+  content: ""; flex: none; width: 3px; height: 14px; border-radius: 2px;
+  background: var(--accent); opacity: .7;
+}
+.settings-shell:not(.oobe-shell) .plugin-settings-section .set-group-desc {
+  margin: 0 0 12px; padding-left: 13px;
+  color: var(--text-3); font-size: 12px; line-height: 1.55;
+}
+
+/* 卡片：沿用设置页统一的浅灰卡片，只收一层更克制的投影。 */
+.settings-shell:not(.oobe-shell) .plugin-settings-section .set-group {
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
+}
+.settings-shell:not(.oobe-shell) .plugin-settings-section .set-group > .plugin-fields {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 24px; padding: 18px 20px 20px; border-top: 0;
+}
+.plugin-field { min-width: 0; display: grid; gap: 7px; align-content: start; }
+.plugin-field-wide { grid-column: 1 / -1; }
+.plugin-field-head { display: flex; align-items: center; gap: 8px; min-height: 24px; min-width: 0; }
+.plugin-field-label { min-width: 0; color: var(--text-1); font-size: 13px; font-weight: 600; line-height: 1.4; }
+.plugin-field-hint { margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.55; }
+.plugin-field-control { min-width: 0; }
+.plugin-field-control input[type="text"],
+.plugin-field-control input[type="password"],
+.plugin-field-control input[type="number"],
+.plugin-field-control textarea,
+.plugin-field-control .select-combobox-select {
+  width: 100%; min-height: 36px; padding: 7px 10px;
+  border: 1px solid var(--line); border-radius: 9px; outline: none;
+  background: var(--bg-0); color: var(--text-1);
+  font-size: 13px; font-family: inherit;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.plugin-field-control .select-combobox-select { padding-right: 30px; cursor: pointer; }
+.plugin-field-control input[type="text"]:hover,
+.plugin-field-control input[type="password"]:hover,
+.plugin-field-control input[type="number"]:hover,
+.plugin-field-control textarea:hover,
+.plugin-field-control .select-combobox-select:hover { border-color: var(--line-strong); }
+.plugin-field-control input[type="text"]:focus,
+.plugin-field-control input[type="password"]:focus,
+.plugin-field-control input[type="number"]:focus,
+.plugin-field-control textarea:focus,
+.plugin-field-control .select-combobox-select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.plugin-field-control textarea { min-height: 88px; resize: vertical; line-height: 1.55; }
+
+/* 布尔项：整行开关，标题与说明走同一套排版。 */
+.plugin-field-boolean { grid-column: 1 / -1; gap: 3px; }
+.plugin-field-boolean .plugin-field-head { cursor: pointer; min-height: 28px; }
+.plugin-field-boolean .plugin-field-label { font-size: 13.5px; }
+.plugin-field-boolean .set-switch { margin-left: auto; }
+
+/* 路径/密钥的输入 + 行内按钮。 */
 .plugin-path-field, .plugin-secret-field { display: flex; align-items: center; gap: 6px; }
 .plugin-path-field input, .plugin-secret-field input { flex: 1; min-width: 0; }
-.plugin-set-control input[type="text"],
-.plugin-set-control input[type="password"],
-.plugin-set-control input[type="number"],
-.plugin-set-control textarea {
-  min-height: 36px; padding: 8px 10px;
-  border: 1px solid var(--line); border-radius: 8px; outline: none;
-  background: var(--bg-2); color: var(--text-1); font-size: 13px;
-}
-.plugin-set-control textarea { min-height: 64px; resize: vertical; line-height: 1.5; }
-.plugin-set-control input[type="text"]:focus,
-.plugin-set-control input[type="password"]:focus,
-.plugin-set-control input[type="number"]:focus,
-.plugin-set-control textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .plugin-set-inline-button {
   flex: none; min-height: 36px; display: inline-flex; align-items: center; gap: 5px;
-  padding: 0 10px; border: 1px solid var(--line); border-radius: 8px;
-  background: var(--bg-2); color: var(--text-2); font-size: 12px; cursor: pointer;
+  padding: 0 11px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg-1); color: var(--text-2); font-size: 12px; cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
 }
-.plugin-set-inline-button:hover { border-color: var(--accent-border); color: var(--accent-text); }
+.plugin-set-inline-button:hover { border-color: var(--accent-border); background: var(--bg-0); color: var(--accent-text); }
+/* 恢复默认：平时收起，悬停/聚焦该字段时才出现，避免每行都挂一个图标。 */
 .plugin-set-reset {
-  flex: none; width: 30px; height: 30px; display: inline-grid; place-items: center;
+  flex: none; margin-left: auto; width: 24px; height: 24px; display: inline-grid; place-items: center;
   border: 1px solid transparent; border-radius: 7px; background: transparent;
-  color: var(--text-3); cursor: pointer;
+  color: var(--text-3); cursor: pointer; opacity: 0; pointer-events: none;
+  transition: opacity .15s ease, border-color .15s ease, background .15s ease, color .15s ease;
 }
+.plugin-field:hover .plugin-set-reset,
+.plugin-field:focus-within .plugin-set-reset { opacity: 1; pointer-events: auto; }
 .plugin-set-reset:hover { border-color: var(--line); background: var(--bg-2); color: var(--text-1); }
+.plugin-set-reset:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 1px; opacity: 1; }
+
+/* 「提示词引导」徽标：只在语义确实需要解释时出现，保持中性低调。 */
 .plugin-effect-badge {
-  display: inline-flex; margin-left: 8px; padding: 1px 7px;
-  border: 1px solid var(--accent-border); border-radius: 999px;
-  background: var(--accent-soft); color: var(--accent-text);
-  font-size: 11px; font-weight: 600; vertical-align: middle;
+  flex: none; display: inline-flex; align-items: center; margin-left: 6px;
+  padding: 0 6px; border: 1px solid var(--line); border-radius: 5px;
+  background: transparent; color: var(--text-3);
+  font-size: 10px; font-weight: 500; line-height: 1.7; white-space: nowrap;
 }
-.plugin-effect-badge.guidance { border-color: var(--line); background: var(--bg-2); color: var(--text-2); }
-.plugin-actions-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 14px; }
+.plugin-actions-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 16px 20px; }
+@media (max-width: 820px) {
+  .settings-shell:not(.oobe-shell) .plugin-settings-section .set-group > .plugin-fields { grid-template-columns: 1fr; }
+}
 .plugin-action-button { min-height: 34px; }
 .plugin-action-button.danger { border-color: rgba(248,113,113,.42); color: #F87171; }
 .plugin-action-result { margin: 0 14px 12px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
@@ -764,7 +834,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .matrix-orb-canvas { display: block; }
 .matrix-orb-label { font-size: 14px; color: var(--text-2); }
 .empty-state .matrix-orb + h2 { margin-top: 0; }
-.empty-state .matrix-orb { margin-bottom: 22px; }
+.empty-state .matrix-orb { margin-bottom: 18px; }
 /* ---- AuroraBackdrop (reactbits · lightMode 移植，画在 JS 内) ---- */
 .aurora-backdrop { position: absolute; inset: 0; overflow: hidden; border-radius: 28px; pointer-events: none; }
 .aurora-backdrop canvas { display: block; width: 100%; height: 100%; }
@@ -805,13 +875,17 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 /* P3 R33：react-bits VoicePill 真源 CSS（.rb-vp 前缀，R24 注入）整段删除——
    rb-vp/voice-pill__* 类在全部 TSX 零引用（从未接线，录音 UI 用 VoicePill 适配版）。 */
-/* ==== R52：设置侧栏钩式导航（HookSidebar 复活）——点线钩轨随 active/hover 游走 ====
-   钩轨是扁平列表：竖直点线在左侧 gutter 贯穿全部项，末端小钩指向选中项。
-   不放分组标签/分隔线——它们会被竖线穿过显得断裂（R52 真机截图问题）。 */
-.settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 196px; padding: 14px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; }
-.settings-shell [data-slot="hook-sidebar-item"] { width: 100%; font-size: 14px; font-weight: 550; }
-.settings-shell [data-slot="hook-sidebar-item"][data-active="true"] { font-weight: 650; }
-@media (max-width: 960px) { .settings-shell [data-slot="hook-sidebar"] { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
+/* ==== R83：设置侧栏参考 ZCode / Trae 的分组导航 ====
+   组标签 + 图标行 + 柔和选中 pill；替代原钩式点线导航，信息层级更接近参考 UI。 */
+.settings-shell .settings-nav { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 208px; padding: 14px 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+.settings-nav-group { display: grid; gap: 2px; }
+.settings-nav-label { padding: 0 10px 4px; color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
+.settings-nav-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
+.settings-nav-item:hover { background: var(--bg-2); color: var(--text-1); }
+.settings-nav-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-text); font-weight: 600; }
+.settings-nav-icon { width: 16px; height: 16px; flex: none; opacity: .85; }
+.settings-nav-item.active .settings-nav-icon { opacity: 1; }
+@media (max-width: 960px) { .settings-shell .settings-nav { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
 .composer-actions { align-items: center; }
 .composer-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; }
 /* R26：麦克风按钮在 DOM 里位于 textarea 之前，视觉上贴着窗口左缘；而
@@ -1002,6 +1076,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .tool-confirmation-card:focus { outline: none; }
 .tool-confirmation-card h3 { margin: 0; padding: 18px 20px 0; font-size: 15px; font-weight: 700; }
 .tool-confirmation-reason { margin: 6px 20px 0; color: var(--text-2); font-size: 13px; line-height: 1.55; }
+/* 「为什么危险」：红色弱底提示，和上面的「命中规则」形成两层信息。 */
+.tool-confirmation-impact { margin: 8px 20px 0; padding: 8px 11px; border-left: 3px solid #DC2626; border-radius: 0 8px 8px 0; background: color-mix(in srgb, #DC2626 6%, transparent); color: color-mix(in srgb, #DC2626 55%, var(--text-1)); font-size: 12.5px; line-height: 1.55; }
 .tool-confirmation-detail { margin: 14px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
 .tool-confirmation-detail strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent-text); }
 .tool-confirmation-detail pre { max-height: 200px; overflow: auto; margin: 8px 0 0; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
@@ -1016,27 +1092,27 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
    OOBE 向导保持原有密度。全部取既有 token（--bg-* / --text-* / --line / --accent），
    暗色由 :root[data-theme="dark"] 自动跟随。 */
 
-/* 组间距 24px（原 12px 过密，是「多项无间距叠加」最直接的观感来源）。 */
-.settings-shell:not(.oobe-shell) .settings-section-active { gap: 24px; }
+/* 组间距 28px，页头与正文节奏更接近参考设置页。 */
+.settings-shell:not(.oobe-shell) .settings-section-active { gap: 28px; }
 
-/* 页头：标题左、操作右。 */
+/* 页头：标题左、操作右；标题放大到 26px。 */
 .settings-shell:not(.oobe-shell) .settings-section-active > .section-title { margin: 0; padding: 0 2px; align-items: flex-start; }
-.settings-shell:not(.oobe-shell) .settings-section-active > .section-title h2 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: -.02em; }
-.settings-shell:not(.oobe-shell) .settings-section-active > .section-title p { margin: 6px 0 0; max-width: 720px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.settings-shell:not(.oobe-shell) .settings-section-active > .section-title h2 { margin: 0; font-size: 26px; font-weight: 700; letter-spacing: -.03em; }
+.settings-shell:not(.oobe-shell) .settings-section-active > .section-title p { margin: 8px 0 0; max-width: 720px; color: var(--text-2); font-size: 13px; line-height: 1.6; }
 
 /* 卡片 = 分组容器。plugin-service-status / empty-card 保持独立布局。 */
 .settings-shell:not(.oobe-shell) .settings-card:not(.plugin-service-status):not(.settings-empty-card),
 .settings-shell:not(.oobe-shell) .set-group {
   display: flex; flex-direction: column;
   padding: 0; overflow: hidden;
-  border: 1px solid var(--line); border-radius: 14px;
+  border: 1px solid var(--line); border-radius: 12px;
   background: var(--bg-1);
   box-shadow: 0 1px 3px rgba(15, 23, 42, .05);
 }
 
 /* 卡片直接子块：统一内边距 + 发丝分隔线（原本互不相关的块从此有节奏）。 */
 .settings-shell:not(.oobe-shell) .settings-card > *,
-.settings-shell:not(.oobe-shell) .set-group > * { min-width: 0; margin: 0; padding: 14px 18px; }
+.settings-shell:not(.oobe-shell) .set-group > * { min-width: 0; margin: 0; padding: 15px 20px; }
 .settings-shell:not(.oobe-shell) .settings-card > * + *,
 .settings-shell:not(.oobe-shell) .set-group > * + * { border-top: 1px solid var(--line); }
 /* 卡片脚注：贴着上文，不单独拉分隔线。 */
@@ -1047,7 +1123,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row,
 .settings-shell:not(.oobe-shell) .set-row {
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  width: 100%; min-height: 52px; margin: 0; padding: 12px 18px;
+  width: 100%; min-height: 56px; margin: 0; padding: 13px 20px;
   border-top: 1px solid var(--line);
   color: var(--text-1); text-align: left; cursor: pointer;
   transition: background .16s ease;
@@ -1062,28 +1138,34 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 子开关行缩进（原 margin-left 会在整行高亮里留出豁口）。 */
 .settings-shell:not(.oobe-shell) .toggle-row.nested-toggle-row { margin-left: 0; padding-left: 34px; }
 
-/* iOS 风格开关：原生 checkbox 重绘，状态逻辑零改动。 */
+/* 开关微调：42×24 更贴近参考 UI，关闭态加细边和浅内阴影，开启态用强调色。 */
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"],
 .settings-shell:not(.oobe-shell) .set-switch {
   appearance: none; -webkit-appearance: none;
   position: relative; flex: none;
-  width: 44px; height: 26px; margin: 0; padding: 0;
-  border: 0; border-radius: 999px;
-  background: var(--bg-3);
+  width: 42px; height: 24px; margin: 0; padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text-3) 24%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-3) 14%, var(--bg-2));
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, .08);
   cursor: pointer;
-  transition: background .18s ease;
+  transition: background .18s ease, border-color .18s ease;
 }
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]::after,
 .settings-shell:not(.oobe-shell) .set-switch::after {
-  content: ""; position: absolute; top: 3px; left: 3px;
-  width: 20px; height: 20px; border-radius: 50%;
-  background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .35);
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .28);
   transition: transform .18s cubic-bezier(.2, .8, .25, 1);
 }
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:hover:not(:disabled),
+.settings-shell:not(.oobe-shell) .set-switch:hover:not(:disabled) { border-color: color-mix(in srgb, var(--text-3) 42%, transparent); }
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:checked,
-.settings-shell:not(.oobe-shell) .set-switch:checked { background: var(--accent); }
+.settings-shell:not(.oobe-shell) .set-switch:checked { background: var(--accent); border-color: transparent; box-shadow: none; }
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:checked::after,
 .settings-shell:not(.oobe-shell) .set-switch:checked::after { transform: translateX(18px); }
+.settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:disabled,
+.settings-shell:not(.oobe-shell) .set-switch:disabled { opacity: .5; cursor: not-allowed; }
 .settings-shell:not(.oobe-shell) .settings-card > .toggle-row input[type="checkbox"]:focus-visible,
 .settings-shell:not(.oobe-shell) .set-switch:focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; }
 

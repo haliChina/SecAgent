@@ -194,6 +194,16 @@ app.whenReady().then(async () => {
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   initializeWorkspace(DEFAULT_WORKSPACE);
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
+  /* 自动归档：启动时扫描一次；读取或写库失败都不应阻塞应用启动。 */
+  const archivePolicy = initialSettings.archive;
+  if (archivePolicy?.auto) {
+    try {
+      const archived = new SessionStore(DEFAULT_WORKSPACE).autoArchive(archivePolicy.retentionDays);
+      if (archived > 0) logMain("sessions.archive.auto", { archived, retentionDays: archivePolicy.retentionDays });
+    } catch (error) {
+      logMain("sessions.archive.auto.failed", { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
   setSentryTelemetryEnabled(initialSettings.telemetry.enabled);
   setTelemetry(new TelemetryClient({
     baseUrl: process.env.SECTL_OFFICIAL_API_URL || "",

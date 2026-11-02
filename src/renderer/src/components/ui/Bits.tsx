@@ -18,4 +18,3 @@ export * from "./parts/aui-shared.js";
 export * from "./parts/tool-error.js";
 export * from "./parts/aui-feedback.js";
 export * from "./parts/prompt-bar.js";
-export * from "./parts/hook-sidebar.js";
