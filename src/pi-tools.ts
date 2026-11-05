@@ -1,14 +1,19 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
 import { runWebFetch, runWebSearch } from "./web-search.js";
 import { evaluateExpression } from "./calc.js";
-import { fetchWeather, weatherTool } from "./weather.js";
 
 const execAsync = promisify(exec);
+
+/** 内容版本号：sha256 前 16 位。read 返回、edit/write 校验与回传，用于拦截「读了旧内容就改」的陈旧编辑。 */
+export function shortRevision(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex").slice(0, 16);
+}
 
 /** Supported local image formats shared by `look_at` and the vision sub-model tool. */
 const IMAGE_MEDIA_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".gif": "image/gif" };
@@ -42,17 +47,33 @@ export async function readImageFile(workspace: string, filePath: string): Promis
 
 export const piTools: AgentTool[] = [
   { key: "look_at", description: "查看本地图片并把图片内容直接提供给模型。path 可使用绝对路径或相对于工作区的路径；仅支持 png、jpg、jpeg、webp、gif 图片。需要理解图片内容时必须调用此工具，不要只读取图片文件的二进制内容。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", description: "图片的绝对路径或相对于工作区的路径" } } } },
-  { key: "read", description: "读取文件内容。path 可使用绝对路径或相对于工作区的路径。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } } } },
-  { key: "write", description: "写入文件内容；父目录不存在时自动创建。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } },
-  { key: "edit", description: "将文件中唯一匹配的 oldText 替换为 newText。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "oldText", "newText"], properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" } } } },
+  { key: "read", description: "读取文件内容。返回的 content 每行带「行号|」前缀便于定位引用，并附 revision 版本号；后续 edit 传入该 revision 可防止修改已被其他操作变更的文件。path 可使用绝对路径或相对于工作区的路径。", inputSchema: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } } } },
+  { key: "read_files", description: "批量读取多个文件（最多 10 个），一次调用返回全部内容，比多次 read 节省轮次。每个文件独立分页（offset/limit），读取失败的文件以 error 字段返回、不影响其他文件。content 格式与 read 相同（行号前缀+revision）。", inputSchema: { type: "object", additionalProperties: false, required: ["files"], properties: { files: { type: "array", minItems: 1, maxItems: 10, items: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 1 }, limit: { type: "integer", minimum: 1 } } } } } } },
+  { key: "write", description: "写入文件内容；父目录不存在时自动创建。返回新内容的 revision，可用于后续 edit 的防陈旧校验。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } },
+  { key: "edit", description: "将文件中唯一匹配的 oldText 替换为 newText。oldText 必须来自最新一次 read 的正文本身（不含「行号|」前缀）。可选传入 revision（上次 read/write 返回的版本号）：文件在读取后被变更时会拒绝修改并要求重读。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "oldText", "newText"], properties: { path: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, revision: { type: "string", description: "上次 read/write 返回的版本号，用于防止修改过期内容" } } } },
   { key: "bash", description: "在工作区目录执行 shell 命令并返回标准输出和错误输出。", inputSchema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, timeout: { type: "integer", minimum: 1 } } } },
   { key: "web_search", description: "联网搜索最新信息（新闻、政策、价格、日期等时效性内容）。返回标题、链接与摘要列表；回答中引用来源并把链接给用户。", inputSchema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "搜索词，1～128 个字符" }, count: { type: "integer", minimum: 1, maximum: 10, description: "返回条数，默认 6" } } } },
   { key: "web_fetch", description: "抓取网页正文（Markdown/纯文本）。当 web_search 摘要不够、需要读页面全文时调用。", inputSchema: { type: "object", additionalProperties: false, required: ["url"], properties: { url: { type: "string", description: "http(s) 网页链接，≤8192 字符" } } } },
   { key: "calculator", description: "精确计算数学表达式（四则运算、幂、取模、sqrt/sin/cos/ln/log/min/max 等）。算钱、分数、百分比、单位换算等任何数值计算都用这个工具，不要心算。", inputSchema: { type: "object", additionalProperties: false, required: ["expression"], properties: { expression: { type: "string", description: "数学表达式，如 (1+2)*3.5、sqrt(2)、2^10、120*0.85" } } } },
-  weatherTool,
 ];
 
 function resolvePath(workspace: string, filePath: string): string { return path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath); }
+
+/** read / read_files 共用的单文件范围读取：content 带「行号|」前缀，附整文件 revision。 */
+async function readRange(workspace: string, filePath: string, spec: Record<string, unknown>) {
+  const resolved = resolvePath(workspace, filePath);
+  const content = await fs.readFile(resolved, "utf8");
+  const lines = content.split(/\r?\n/);
+  const offset = Math.max(1, Number(spec.offset) || 1);
+  const limit = Math.max(1, Number(spec.limit) || 200);
+  const startIndex = Math.min(lines.length, offset - 1);
+  const selected = lines.slice(startIndex, startIndex + limit);
+  const truncated = startIndex + selected.length < lines.length;
+  const nextOffset = truncated ? offset + selected.length : undefined;
+  /* 「N|」前缀只用于定位与引用，edit 的 oldText 需要去掉前缀后取正文。 */
+  const numbered = selected.map((line, i) => `${offset + i}|${line}`).join("\n");
+  return { path: resolved, content: numbered, revision: shortRevision(content), offset, limit, totalLines: lines.length, totalChars: content.length, truncated, ...(truncated ? { nextOffset } : {}) };
+}
 
 export async function callPiTool(workspace: string, key: string, args: Record<string, unknown>): Promise<unknown> {
   if (key === "look_at") {
@@ -63,16 +84,24 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
   }
   if (key === "read") {
     if (typeof args.path !== "string" || !args.path.trim()) throw new Error("read 需要非空 path");
-    const filePath = resolvePath(workspace, args.path);
-    const content = await fs.readFile(filePath, "utf8");
-    const lines = content.split(/\r?\n/);
-    const offset = Math.max(1, Number(args.offset) || 1);
-    const limit = Math.max(1, Number(args.limit) || 200);
-    const startIndex = Math.min(lines.length, offset - 1);
-    const selected = lines.slice(startIndex, startIndex + limit);
-    const truncated = startIndex + selected.length < lines.length;
-    const nextOffset = truncated ? offset + selected.length : undefined;
-    return { path: filePath, content: selected.join("\n"), offset, limit, totalLines: lines.length, totalChars: content.length, truncated, ...(truncated ? { nextOffset } : {}) };
+    return await readRange(workspace, args.path, args);
+  }
+  if (key === "read_files") {
+    const files = Array.isArray(args.files) ? args.files : [];
+    if (!files.length) throw new Error("read_files 需要非空 files 数组");
+    if (files.length > 10) throw new Error("read_files 单次最多 10 个文件");
+    const items = await Promise.all(files.map(async (item) => {
+      const spec = (item && typeof item === "object" && !Array.isArray(item)) ? item as Record<string, unknown> : {};
+      const p = typeof spec.path === "string" ? spec.path : "";
+      if (!p.trim()) return { path: p, error: "缺少 path" };
+      try {
+        return await readRange(workspace, p, spec);
+      } catch (error) {
+        /* 单文件失败只影响自身，不影响同批其他文件。 */
+        return { path: p, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+    return { files: items };
   }
   if (key === "write") {
     if (typeof args.path !== "string" || !args.path.trim()) throw new Error("write 需要非空 path，例如 clock.html");
@@ -80,16 +109,21 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     const filePath = resolvePath(workspace, args.path);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await fs.writeFile(filePath, args.content, "utf8");
-    return { path: filePath, bytes: Buffer.byteLength(args.content, "utf8") };
+    return { path: filePath, bytes: Buffer.byteLength(args.content, "utf8"), revision: shortRevision(args.content) };
   }
   if (key === "edit") {
     const filePath = resolvePath(workspace, String(args.path || ""));
     const content = await fs.readFile(filePath, "utf8");
+    /* 陈旧编辑拦截：调用方带着旧 revision 来改、文件却被其他操作动过时，宁可拒绝也不覆盖。 */
+    if (typeof args.revision === "string" && args.revision && args.revision !== shortRevision(content)) {
+      throw new Error(`文件内容与读取时不一致（期望 revision ${args.revision}，实际 ${shortRevision(content)}），可能已被其他操作修改。请重新 read 后再 edit。`);
+    }
     const oldText = String(args.oldText ?? "");
     const occurrences = content.split(oldText).length - 1;
     if (occurrences !== 1) throw new Error(`oldText 必须恰好匹配一次，实际匹配 ${occurrences} 次`);
-    await fs.writeFile(filePath, content.replace(oldText, String(args.newText ?? "")), "utf8");
-    return { path: filePath, replaced: 1 };
+    const updated = content.replace(oldText, String(args.newText ?? ""));
+    await fs.writeFile(filePath, updated, "utf8");
+    return { path: filePath, replaced: 1, revision: shortRevision(updated) };
   }
   if (key === "web_search") {
     const query = typeof args.query === "string" ? args.query : "";
@@ -109,10 +143,6 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
     if (!expression.trim()) throw new Error("calculator 需要 expression");
     const { value, pretty } = evaluateExpression(expression);
     return { expression, value, formatted: pretty };
-  }
-  if (key === "weather") {
-    /* 与 ClassIsland 同源的小米天气接口，见 src/weather.ts。 */
-    return await fetchWeather(args);
   }
   if (key === "bash") {
     const command = String(args.command || "");
