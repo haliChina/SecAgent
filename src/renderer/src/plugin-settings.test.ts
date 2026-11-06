@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  normalizePluginPanelStatus,
   normalizePluginSettings,
   pluginFieldDefault,
   pluginFieldKind,
+  pluginPhaseLabel,
   pluginPathKind,
   pluginValueMatchesDefault,
   pluginValuesEqual,
@@ -28,6 +30,48 @@ test("normalizePluginSettings 支持平铺 fields + groups，并过滤 hidden", 
   assert.equal(result.sections[0].description, "说明");
   assert.equal(result.sections[2].title, "general", "未在 groups 中声明的分组回退为分组 id");
   assert.deepEqual(result.actions.map((action) => action.id), ["test"]);
+});
+
+test("normalizePluginSettings 归一化服务面板并保留动作", () => {
+  const result = normalizePluginSettings({
+    groups: [{ id: "general", title: "常规", fields: [{ key: "a", type: "boolean" }] }],
+    panels: [
+      { id: "omni", title: "本地视觉服务", description: "一键安装", statusAction: "omni-status", pollMs: 1000 },
+      { id: "ext", title: "浏览器扩展桥", statusAction: "ext-status" },
+      { id: "bad", title: "", statusAction: "x" },
+      { id: "omni", title: "重复", statusAction: "dup" }
+    ]
+  });
+  assert.deepEqual(result.panels.map((panel) => panel.id), ["omni", "ext"]);
+  assert.equal(result.panels[0].pollMs, 1000);
+  assert.equal(result.panels[1].pollMs, 2000, "未声明轮询间隔时使用默认值");
+});
+
+test("normalizePluginPanelStatus 忽略非法字段并夹住进度", () => {
+  const status = normalizePluginPanelStatus({
+    phase: "installing",
+    label: "安装中",
+    message: "正在下载权重",
+    progress: 145,
+    facts: [{ label: "端口", value: 18789 }, { label: "", value: "x" }],
+    actions: [
+      { id: "omni-install", label: "一键安装", primary: true, disabled: true },
+      { id: "bad", label: "" }
+    ]
+  });
+  assert.equal(status.phase, "installing");
+  assert.equal(status.progress, 100);
+  assert.deepEqual(status.facts, [{ label: "端口", value: "18789" }]);
+  assert.deepEqual(status.actions, [{ id: "omni-install", label: "一键安装", primary: true, disabled: true }]);
+  assert.deepEqual(normalizePluginPanelStatus(null), {});
+  assert.deepEqual(normalizePluginPanelStatus("nope"), {});
+});
+
+test("pluginPhaseLabel 覆盖常见服务阶段", () => {
+  assert.equal(pluginPhaseLabel("running"), "运行中");
+  assert.equal(pluginPhaseLabel("pending"), "等待允许");
+  assert.equal(pluginPhaseLabel("custom-phase"), "custom-phase");
+  assert.equal(pluginPhaseLabel(undefined), "未连接");
 });
 
 test("normalizePluginSettings 支持分组内嵌 fields，并丢弃重复/非法 action", () => {

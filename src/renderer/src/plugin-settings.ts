@@ -40,22 +40,44 @@ export interface PluginSettingField {
 }
 export interface PluginSettingGroup { id?: string; title?: string; description?: string; fields?: PluginSettingField[] }
 export interface PluginSettingAction { id: string; label: string; description?: string; confirm?: string; danger?: boolean }
+/** 带实时状态的服务面板（Computer Use 的 OmniParser / 浏览器扩展桥）。 */
+export interface PluginSettingPanel {
+  id: string;
+  title: string;
+  description?: string;
+  /** 每次轮询调用的插件设置 action。 */
+  statusAction: string;
+  /** 轮询间隔；0 表示只在打开页面和操作后刷新。 */
+  pollMs?: number;
+}
+export interface PluginPanelAction { id: string; label: string; primary?: boolean; danger?: boolean; disabled?: boolean; confirm?: string }
+interface PluginPanelFact { label: string; value: string }
+export interface PluginPanelStatus {
+  phase?: string;
+  label?: string;
+  message?: string;
+  progress?: number | null;
+  facts?: PluginPanelFact[];
+  actions?: PluginPanelAction[];
+}
 export interface PluginSettingsDescribe {
   ok?: boolean;
   groups?: PluginSettingGroup[];
   fields?: PluginSettingField[];
   values?: Record<string, unknown>;
   actions?: PluginSettingAction[];
+  panels?: PluginSettingPanel[];
 }
 export interface PluginSettingsSection { title: string; description: string; fields: PluginSettingField[] }
-export interface NormalizedPluginSettings { sections: PluginSettingsSection[]; actions: PluginSettingAction[]; fields: PluginSettingField[] }
+export interface NormalizedPluginSettings { sections: PluginSettingsSection[]; actions: PluginSettingAction[]; fields: PluginSettingField[]; panels: PluginSettingPanel[] }
 
 type PluginFieldKind = "boolean" | "select" | "number" | "path" | "password" | "textarea" | "text";
 
 export function normalizePluginSettings(raw: PluginSettingsDescribe | null | undefined): NormalizedPluginSettings {
-  if (!raw) return { sections: [], actions: [], fields: [] };
+  if (!raw) return { sections: [], actions: [], fields: [], panels: [] };
   const groups = Array.isArray(raw.groups) ? raw.groups : [];
   const actions = normalizeActions(raw.actions);
+  const panels = normalizePanels(raw.panels);
   const sections: PluginSettingsSection[] = [];
   const flat = Array.isArray(raw.fields) ? raw.fields : null;
   const allFields = flat
@@ -82,13 +104,13 @@ export function normalizePluginSettings(raw: PluginSettingsDescribe | null | und
         if (visible.length) sections.push({ title: groupId, description: "", fields: visible });
       }
     }
-    return { sections, actions, fields: allFields };
+    return { sections, actions, fields: allFields, panels };
   }
   for (const group of groups) {
     const fields = visibleFields(Array.isArray(group?.fields) ? group.fields : []);
     if (fields.length) sections.push({ title: group?.title || group?.id || "设置", description: group?.description || "", fields });
   }
-  return { sections, actions, fields: allFields };
+  return { sections, actions, fields: allFields, panels };
 }
 
 function visibleFields(fields: PluginSettingField[]): PluginSettingField[] {
@@ -112,6 +134,87 @@ function normalizeActions(input: PluginSettingAction[] | undefined): PluginSetti
     });
   }
   return out;
+}
+
+function normalizePanels(input: PluginSettingPanel[] | undefined): PluginSettingPanel[] {
+  if (!Array.isArray(input)) return [];
+  const seen = new Set<string>();
+  const out: PluginSettingPanel[] = [];
+  for (const panel of input) {
+    if (!panel || typeof panel.id !== "string" || !panel.id || typeof panel.title !== "string" || !panel.title) continue;
+    if (typeof panel.statusAction !== "string" || !panel.statusAction) continue;
+    if (seen.has(panel.id)) continue;
+    seen.add(panel.id);
+    const pollMs = typeof panel.pollMs === "number" && Number.isFinite(panel.pollMs) && panel.pollMs >= 0
+      ? Math.min(Math.round(panel.pollMs), 30000)
+      : 2000;
+    out.push({
+      id: panel.id,
+      title: panel.title,
+      statusAction: panel.statusAction,
+      pollMs,
+      ...(typeof panel.description === "string" && panel.description ? { description: panel.description } : {})
+    });
+  }
+  return out;
+}
+
+/** 插件状态响应的保守归一：缺失字段直接省略，进度夹到 0–100。 */
+export function normalizePluginPanelStatus(raw: unknown): PluginPanelStatus {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const source = raw as Record<string, unknown>;
+  const status: PluginPanelStatus = {};
+  if (typeof source.phase === "string" && source.phase) status.phase = source.phase;
+  if (typeof source.label === "string" && source.label) status.label = source.label;
+  if (typeof source.message === "string" && source.message) status.message = source.message;
+  if (typeof source.progress === "number" && Number.isFinite(source.progress)) {
+    status.progress = Math.max(0, Math.min(100, Math.round(source.progress)));
+  }
+  if (Array.isArray(source.facts)) {
+    const facts = source.facts.flatMap((fact) => {
+      if (!fact || typeof fact !== "object") return [];
+      const item = fact as Record<string, unknown>;
+      if (typeof item.label !== "string" || !item.label) return [];
+      const value = typeof item.value === "string" ? item.value : typeof item.value === "number" ? String(item.value) : "";
+      return value ? [{ label: item.label, value }] : [];
+    });
+    if (facts.length) status.facts = facts;
+  }
+  if (Array.isArray(source.actions)) {
+    const actions = source.actions.flatMap((action) => {
+      if (!action || typeof action !== "object") return [];
+      const item = action as Record<string, unknown>;
+      if (typeof item.id !== "string" || !item.id || typeof item.label !== "string" || !item.label) return [];
+      return [{
+        id: item.id,
+        label: item.label,
+        ...(item.primary === true ? { primary: true } : {}),
+        ...(item.danger === true ? { danger: true } : {}),
+        ...(item.disabled === true ? { disabled: true } : {}),
+        ...(typeof item.confirm === "string" && item.confirm ? { confirm: item.confirm } : {})
+      }];
+    });
+    if (actions.length) status.actions = actions;
+  }
+  return status;
+}
+
+const PANEL_PHASE_LABELS: Record<string, string> = {
+  "not-installed": "未安装",
+  installing: "安装中",
+  installed: "已安装",
+  starting: "启动中",
+  running: "运行中",
+  stopped: "已停止",
+  error: "错误",
+  connected: "已连接",
+  pending: "等待允许",
+  waiting: "等待连接",
+  ready: "就绪"
+};
+
+export function pluginPhaseLabel(phase: string | undefined): string {
+  return phase ? PANEL_PHASE_LABELS[phase] || phase : "未连接";
 }
 
 export function pluginFieldKind(field: PluginSettingField): PluginFieldKind {

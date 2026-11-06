@@ -39,7 +39,7 @@ function render(mainVisible: boolean): void {
     <main class="tray-panel">
       <header class="tray-head">
         <div class="tray-id">
-          <span class="tray-mark" aria-hidden="true">S</span>
+          <img class="tray-mark" src="./icon.png" alt="" aria-hidden="true" />
           <strong>SecAgent</strong>
           <span class="tray-state"><i></i>运行中</span>
         </div>
