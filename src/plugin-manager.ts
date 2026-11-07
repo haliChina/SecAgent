@@ -457,6 +457,10 @@ export class PluginManager {
     return skills;
   }
   getTools(): PluginToolDefinition[] { return [...this.active.values()].flatMap((plugin) => [...plugin.tools.values()].map((item) => item.definition)); }
+  /** 按插件分组返回工具（工具面 park/mount 的分组依据；hidden 保留，由调用方过滤）。 */
+  getToolGroups(): Array<{ id: string; name: string; tools: PluginToolDefinition[] }> {
+    return [...this.active.values()].map((plugin) => ({ id: plugin.manifest.id, name: plugin.manifest.name, tools: [...plugin.tools.values()].map((item) => item.definition) }));
+  }
   getMcpServers(): PluginMcpServer[] { return [...this.active.values()].flatMap((plugin) => [...plugin.mcpServers.values()]); }
   async matchPreRule(input: string): Promise<ResolvedPluginPreRule | undefined> {
     for (const plugin of this.active.values()) {
