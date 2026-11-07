@@ -16,6 +16,8 @@ import { useConfiguredModel, resolveVisionAgentConfig } from "./config.js";
 import { VISION_SYSTEM_PROMPT } from "./system-prompt.js";
 import { DEFAULT_RESILIENCE, ModelHealthStore, classifyFailure, isFallbackable, planModelChain, type ResilienceSettings } from "./resilience.js";
 import { checkToolCall, normalizeToolGuardSettings, type GuardCheckRequest, type ToolGuardSettings } from "./tool-guard.js";
+import { resolvePostDecision, resolvePreDecision, type PostToolHook, type PreToolHook, type ToolCallContext } from "./tool-pipeline.js";
+import { buildToolGroups, executeToolSurfaceAction, filterToolSurface, toolSurfaceTool, type ToolGroup } from "./tool-surface.js";
 import { detectHallucination, type HallucinationReport } from "./hallucination.js";
 
 export type RunResult =
@@ -26,6 +28,8 @@ export interface ToolConfirmation {
   tool: string;
   arguments: Record<string, unknown>;
   reason: string;
+  /** 为什么危险 / 批准后可能发生什么；由 guard 的风险规则提供。 */
+  impact?: string;
 }
 
 export interface RuntimeOptions {
@@ -33,6 +37,11 @@ export interface RuntimeOptions {
   confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
   /** Persisted model health store; defaults to one in the workspace. */
   health?: ModelHealthStore;
+  /**
+   * Extra decision hooks composed after the built-in guard. They can only
+   * tighten the outcome (deny/confirm/block win), never loosen it.
+   */
+  toolHooks?: { pre?: PreToolHook[]; post?: PostToolHook[] };
 }
 
 export type TraceEvent = { sequence: number; at: string; stage: string; data: unknown };
@@ -68,8 +77,12 @@ export class SecAgentRuntime {
   private resilience: ResilienceSettings;
   private guard: ToolGuardSettings;
   private confirmToolCall?: (request: ToolConfirmation) => Promise<boolean>;
+  /** Pre-execution and post-execution decision hooks; the guard is first pre hook. */
+  private toolHooks: { pre: PreToolHook[]; post: PostToolHook[] };
   /** Per-run tool outcomes feeding hallucination detection. */
   private toolEvidence: Array<{ name: string; ok: boolean }> = [];
+  /** 工具面分组快照（runTurn 组装时写入，元工具执行时读取）。 */
+  private turnToolGroups: ToolGroup[] = [];
   /** Dedicated image-recognition sub-agent (see resolveVisionAgentConfig). */
   private visionAgent: ModelToolAgent | undefined;
   constructor(private config: SecAgentConfig, private audit: AuditStore, private skills: LoadedSkill[], private trace?: (event: TraceEvent) => void, private plugins?: PluginManager, options: RuntimeOptions = {}) {
@@ -92,6 +105,15 @@ export class SecAgentRuntime {
     this.resilience = config.resilience ?? DEFAULT_RESILIENCE;
     this.guard = normalizeToolGuardSettings(config.guard);
     this.confirmToolCall = options.confirmToolCall;
+    const guardHook: PreToolHook = (context) => {
+      const decision = checkToolCall({ tool: context.tool, arguments: context.arguments }, this.guard);
+      if (decision.action !== "confirm") return { action: "allow" };
+      return { action: "confirm", reason: decision.reason, ...(decision.impact ? { impact: decision.impact } : {}) };
+    };
+    this.toolHooks = {
+      pre: [guardHook, ...(options.toolHooks?.pre ?? [])],
+      post: options.toolHooks?.post ?? []
+    };
   }
   async run(input: string, reasoningEffort: ReasoningEffort = "high", conversation?: ConversationMessage[], signal?: AbortSignal, state: { previousAutoLoadedSkills?: string[]; previousReadSkillNames?: string[]; preRule?: ResolvedPluginPreRule; sessionId?: string } = {}): Promise<RunResult> {
     signal?.throwIfAborted();
@@ -160,17 +182,22 @@ export class SecAgentRuntime {
     }
     const mcpTools = await this.registry.discover();
     for (const error of this.registry.getDiscoveryErrors()) this.emit("mcp.tools/error", error);
-    const pluginTools = this.plugins?.getTools() || [];
+    const pluginGroups = this.plugins?.getToolGroups() || [];
+    const pluginTools = pluginGroups.flatMap((group) => group.tools);
     const hiddenTools = new Set([...mcpTools, ...pluginTools].filter((tool) => tool.hidden).map((tool) => tool.key));
+    // 工具面（借鉴 dsh-ctx-gate）：本会话收起的组不再下发 schema，元工具可挂回。
+    const surface = filterToolSurface(sessionId, mcpTools, pluginGroups);
+    this.turnToolGroups = buildToolGroups(mcpTools, pluginGroups);
     const tools = [
-      ...mcpTools.filter((tool) => !hiddenTools.has(tool.key)),
-      ...pluginTools.filter((tool) => !hiddenTools.has(tool.key)),
+      ...surface.mcp.filter((tool) => !hiddenTools.has(tool.key)),
+      ...surface.plugin.filter((tool) => !hiddenTools.has(tool.key)),
       ...piTools,
       // Dedicated vision sub-model tool: only registered when a vision model is
       // configured; lets a text-only main agent delegate image understanding.
       ...(this.visionAgent ? [{ key: "secagent__look_at_image", description: "使用独立的识图模型查看本地图片并返回文字结果。当你的模型不支持直接查看图片（无法通过 look_at 查看图片内容）时，必须调用此工具代替 look_at。path 可使用绝对路径或相对于工作区的路径；仅支持 png、jpg、jpeg、webp、gif 图片。prompt 为需要基于图片内容回答的问题。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "prompt"], properties: { path: { type: "string", description: "图片的绝对路径或相对于工作区的路径" }, prompt: { type: "string", description: "需要基于图片内容回答的问题" } } } }] : []),
       { key: "secagent__read_skill", description: "读取指定 Skill 或其 Skill 目录内专题 Markdown 的完整操作说明。仅当需要该 Skill 的详细流程、约束或示例时调用。", inputSchema: { type: "object", additionalProperties: false, required: ["name"], properties: { name: { type: "string", description: "Skill 名称，必须来自系统提示词中的可用 Skills 目录。" }, file: { type: "string", description: "可选；Skill 目录内的相对 Markdown 文件名，例如 components.md。" } } } },
-      { key: "secagent__call_hidden_tool", description: "调用 Skill 约定的隐藏 MCP 工具。工具名称和参数格式应严格遵循 Skill 正文或模型已知的其他契约。", inputSchema: { type: "object", additionalProperties: false, required: ["name", "arguments"], properties: { name: { type: "string", description: "隐藏工具的完整 key，例如 secscore-connector__list_students。" }, arguments: { type: "object", description: "按照工具契约填写的参数。" } } } }
+      { key: "secagent__call_hidden_tool", description: "调用 Skill 约定的隐藏 MCP 工具。工具名称和参数格式应严格遵循 Skill 正文或模型已知的其他契约。", inputSchema: { type: "object", additionalProperties: false, required: ["name", "arguments"], properties: { name: { type: "string", description: "隐藏工具的完整 key，例如 secscore-connector__list_students。" }, arguments: { type: "object", description: "按照工具契约填写的参数。" } } } },
+      toolSurfaceTool
     ];
     this.emit("mcp.tools/list", [...mcpTools.map((tool) => ({ key: tool.key, server: tool.server, name: tool.name, description: tool.description, hidden: tool.hidden, inputSchema: tool.inputSchema })), ...pluginTools.map((tool) => ({ ...tool, source: "plugin" }))]);
     this.emit("secagent.skills/list", this.skills.map((skill) => ({ name: skill.name, description: skill.description })));
@@ -277,31 +304,47 @@ export class SecAgentRuntime {
   /**
    * Guarded tool-call entry point: sensitive operations pause for user
    * confirmation (Codex-style) and every outcome feeds hallucination evidence.
+   * All decisions go through the pre/post pipeline so extra hooks can tighten,
+   * but never loosen, the built-in guard.
    */
   private async callTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>, sessionId = ""): Promise<unknown> {
-    const decision = checkToolCall({ tool: key, arguments: args }, this.guard);
+    const context: ToolCallContext = { tool: key, arguments: args, request, sessionId };
+    const decision = await resolvePreDecision(context, this.toolHooks.pre);
+    if (decision.action === "deny") this.rejectTool(key, decision.reason);
     if (decision.action === "confirm") {
       this.activity("approval_requested", sessionId, key);
-      const approved = this.confirmToolCall ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason }) : false;
+      const approved = this.confirmToolCall
+        ? await this.confirmToolCall({ tool: key, arguments: args, reason: decision.reason, ...(decision.impact ? { impact: decision.impact } : {}) })
+        : false;
       this.activity("approval_resolved", sessionId, key);
-      if (!approved) {
-        this.toolEvidence.push({ name: key, ok: false });
-        this.emit("secagent.tools/rejected", { name: key, reason: decision.reason });
-        throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${decision.reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
-      }
+      if (!approved) this.rejectTool(key, decision.reason);
     }
     this.activity("tool_started", sessionId, key);
+    let result: unknown;
     try {
-      const result = await this.executeGuardedTool(request, key, args, hiddenTools);
-      this.toolEvidence.push({ name: key, ok: true });
-      this.activity("tool_finished", sessionId, key);
-      return result;
+      result = await this.executeGuardedTool(request, key, args, hiddenTools, sessionId);
     } catch (error) {
       this.toolEvidence.push({ name: key, ok: false });
       // 工具失败也要收尾，否则伴生 UI 会永远停在 running。
       this.activity("tool_finished", sessionId, key);
       throw error;
     }
+    const post = await resolvePostDecision(context, result, this.toolHooks.post);
+    this.activity("tool_finished", sessionId, key);
+    if (post.action === "block") {
+      this.toolEvidence.push({ name: key, ok: false });
+      this.emit("secagent.tools/rejected", { name: key, reason: post.reason });
+      throw new Error(`工具结果被安全策略拦截：${key}。原因：${post.reason}。请换用无害方式完成任务，或请用户手动处理。`);
+    }
+    this.toolEvidence.push({ name: key, ok: true });
+    return result;
+  }
+
+  /** Record and report a pre-execution rejection, then abort the call. */
+  private rejectTool(key: string, reason: string): never {
+    this.toolEvidence.push({ name: key, ok: false });
+    this.emit("secagent.tools/rejected", { name: key, reason });
+    throw new Error(`已拦截敏感操作（用户未确认）：${key}。原因：${reason}。请向用户说明需要其手动执行，或换用无害方式完成任务。`);
   }
 
   /**
@@ -345,7 +388,7 @@ export class SecAgentRuntime {
     }
   }
 
-  private async executeGuardedTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>): Promise<unknown> {
+  private async executeGuardedTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>, sessionId = ""): Promise<unknown> {
     if (key === "secagent__look_at_image") return this.callVision(request, args);
     if (piTools.some((tool) => tool.key === key)) {
       this.emit("secagent.tools/call", { name: key, arguments: args });
@@ -355,6 +398,19 @@ export class SecAgentRuntime {
         this.emit("secagent.tools/result", { name: key, result: summary });
         this.audit.log({ id: randomUUID(), status: "completed", tool: key, request, params: args, result: summary });
         return result;
+      } catch (error) {
+        const result = { error: error instanceof Error ? error.message : String(error) };
+        this.emit("secagent.tools/result", { name: key, result });
+        throw error;
+      }
+    }
+    if (key === "secagent__tool_surface") {
+      this.emit("secagent.tools/call", { name: key, arguments: args });
+      try {
+        const result = await executeToolSurfaceAction(sessionId, this.turnToolGroups, args);
+        this.emit("secagent.tools/result", { name: key, result });
+        this.emit("secagent.tool-surface", { sessionId, parked: [...result.parked] });
+        return result.result;
       } catch (error) {
         const result = { error: error instanceof Error ? error.message : String(error) };
         this.emit("secagent.tools/result", { name: key, result });

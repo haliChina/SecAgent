@@ -13,7 +13,7 @@
 import type { AsrEvent, AsrEventSink, AsrProvider, AsrSession } from "./types.js";
 import type { AsrProviderKind } from "./settings.js";
 
-export interface AsrManagerOptions {
+interface AsrManagerOptions {
   /** Reads the live provider preference (`auto` when absent). */
   getProviderKind: () => AsrProviderKind | undefined;
   /** Reads the user's fully custom ordered fallback chain, if configured. */
@@ -184,7 +184,3 @@ export class AsrManager {
   }
 }
 
-/** Convenience wrapper matching the legacy `startSpeech` result shape. */
-export function isRemoteAsrEvent(event: AsrEvent): boolean {
-  return event.type === "ready" || event.type === "partial" || event.type === "final";
-}

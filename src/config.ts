@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { expandPath } from "./paths.js";
-import type { McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
+import type { CustomCommand, McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
 import { normalizeSpeechSettings, type BailianAsrSettings, type MimoAsrSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
 import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
@@ -10,6 +10,7 @@ import { normalizeResilienceSettings } from "./resilience.js";
 import { normalizeToolGuardSettings } from "./tool-guard.js";
 import { normalizeModelBudgetSettings } from "./model-budget.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 export const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
 export const DEFAULT_MAX_TOKENS = 16_384;
@@ -59,6 +60,7 @@ function normalizeTtsBlock(raw: unknown): import("./tts/types.js").TtsSettings {
     chain: chain.length ? chain : [provider],
     voice: text(source.voice, DEFAULT_TTS_VOICE),
     rate: text(source.rate, DEFAULT_TTS_RATE),
+    readCodeBlocks: source.readCodeBlocks === true,
     ...(has(windows) ? { windows: { ...(typeof windows.voice === "string" && windows.voice.trim() ? { voice: windows.voice.trim() } : {}) } } : {}),
     ...(has(mimo) ? { mimo: {
       ...(typeof mimo.apiKeyEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(mimo.apiKeyEnv) ? { apiKeyEnv: mimo.apiKeyEnv } : {}),
@@ -87,18 +89,23 @@ const template = (workspace: string): SecAgentConfig => ({
   version: 1,
   workspace,
   agent: {
+    /* R65：初始模板此前写死 gpt-5 + api.openai.com——用户没配 OpenAI 密钥时会
+       看到一个「意义不明的 gpt-5」还不可用。改为指向官方中继的虚拟快线层
+       （virtual-fast，实际由 DeepSeek V4 Flash 服务）；未登录时模型层会引导
+       OAuth，而不是假装有一个不可用的 OpenAI 模型。OOBE 完成后 saveSettings
+       会按用户实际选择覆盖这份兜底。 */
     models: [{
       id: "default",
-      name: "gpt-5",
-      provider: "openai-compatible",
-      model: "gpt-5",
-      apiKeyEnv: "OPENAI_API_KEY",
-      baseUrl: "https://api.openai.com/v1",
-      endpoint: "/chat/completions",
+      name: "SecAgent 官方服务（快线）",
+      provider: "openai-responses",
+      model: "virtual-fast",
+      apiKeyEnv: "SECTL_OFFICIAL_TOKEN",
+      baseUrl: "https://secagent-api.sectl.cn/v1",
+      endpoint: "/responses",
       maxTokens: DEFAULT_MAX_TOKENS
     }]
   } as SecAgentConfig["agent"],
-  tts: { provider: "edge" as const, chain: ["edge", "windows"], voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE },
+  tts: { provider: "edge" as const, chain: ["edge", "windows"], voice: DEFAULT_TTS_VOICE, rate: DEFAULT_TTS_RATE, readCodeBlocks: false },
   wake: { hotkey: DEFAULT_WAKE_HOTKEY, voiceEnabled: false, voicePhrase: DEFAULT_WAKE_PHRASE },
   updates: { ...DEFAULT_UPDATE_PREFERENCES },
   telemetry: { ...DEFAULT_TELEMETRY_SETTINGS },
@@ -272,8 +279,10 @@ export function normalizeAndValidate(raw: SecAgentConfig, workspace: string): Se
       maxTokens: DEFAULT_MAX_TOKENS
     } as SecAgentConfig["agent"];
   }
-  // 系统提示词写死在源码 system-prompt.ts 中，忽略工作区 YAML 里的 agent.systemPrompt。
-  raw.agent.systemPrompt = SYSTEM_PROMPT;
+  // 系统提示词写死在源码 system-prompt.ts 中，忽略工作区 YAML 里的 agent.systemPrompt；
+  // 用户规则只作为附加段落拼在末尾，空规则保持默认提示词不变。
+  const userRules = raw.rules?.enabled !== false && typeof raw.rules?.text === "string" ? raw.rules.text.trim() : "";
+  raw.agent.systemPrompt = userRules ? `${SYSTEM_PROMPT}\n\n## 用户自定义规则（必须遵守）\n${userRules}` : SYSTEM_PROMPT;
   raw.tts = normalizeTtsBlock(raw.tts);
   raw.updates = {
     channel: raw.updates?.channel === "preview" ? "preview" : DEFAULT_UPDATE_PREFERENCES.channel,
@@ -414,6 +423,27 @@ export function resolveVisionAgentConfig(config: SecAgentConfig): SecAgentConfig
   return undefined;
 }
 
+/** 自定义命令上限：过多会让 / 面板难以浏览。 */
+const MAX_CUSTOM_COMMANDS = 50;
+
+/** 归一化用户命令：去掉前导 / 与空白、丢弃空提示词和重名条目。 */
+function normalizeCustomCommands(value: unknown): CustomCommand[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const result: CustomCommand[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Partial<CustomCommand>;
+    const name = typeof candidate.name === "string" ? candidate.name.trim().replace(/^\/+/, "").replace(/[\s/]+/g, "-") : "";
+    const prompt = typeof candidate.prompt === "string" ? candidate.prompt.trim() : "";
+    if (!name || !prompt || seen.has(name)) continue;
+    seen.add(name);
+    result.push({ name, ...(typeof candidate.description === "string" && candidate.description.trim() ? { description: candidate.description.trim() } : {}), prompt });
+    if (result.length >= MAX_CUSTOM_COMMANDS) break;
+  }
+  return result;
+}
+
 export interface SettingsPayload {
   providers: Array<ProviderConfig & { apiKey?: string; apiKeyConfigured?: boolean }>;
   /** Compatibility field for older IPC callers; the settings UI uses providers. */
@@ -437,10 +467,32 @@ export interface SettingsPayload {
   autostartHidden?: boolean;
   /** Off by default: custom providers are ignored and the official service (login) is required. */
   customModelMode?: boolean;
+  /** Windows: clicking the main window's close button hides to tray (`tray`, default) or quits the app. */
+  closeWindowAction?: "tray" | "quit";
+  /** Chat send key: Enter sends (`enter`, default) or Cmd/Ctrl+Enter sends and Enter inserts a newline. */
+  sendShortcut?: "enter" | "modEnter";
+  /** Skills disabled by the user; matching skills are not loaded into a run. */
+  skills?: { disabled: string[] };
+  /** Show rotating usage tips while the assistant is replying (default on). */
+  responseTips?: boolean;
+  /** Saved prompt commands shown in the composer's / menu. */
+  commands?: CustomCommand[];
+  /** Custom rules appended to the system prompt; enabled by default but empty. */
+  rules?: { enabled: boolean; text: string };
+  /** Auto-archive sessions older than `retentionDays` (checked at startup). */
+  archive?: { auto: boolean; retentionDays: number };
   resilience?: import("./resilience.js").ResilienceSettings;
   guard?: import("./tool-guard.js").ToolGuardSettings;
   budget?: import("./model-budget.js").ModelBudgetSettings;
   hallucinationEnabled?: boolean;
+  /** UI theme tri-state: light / dark / system (follows OS). */
+  theme?: "light" | "dark" | "system";
+  /**
+   * R64：联网搜索（web_search/web_fetch 工具）密钥。载流字段——保存时写入
+   * 工作区 .env（BIGMODEL_API_KEY / DEEPSEEK_API_KEY），不落 config.yaml；
+   * `*Configured` 只读标记由 process.env 派生。
+   */
+  webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean };
 }
 
 export function readSettings(workspaceInput: string): SettingsPayload {
@@ -460,7 +512,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, closeWindowAction: config.defaults?.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: config.defaults?.sendShortcut === "modEnter" ? "modEnter" : "enter", skills: { disabled: Array.isArray(config.skills?.disabled) ? config.skills.disabled.filter((name): name is string => typeof name === "string") : [] }, responseTips: config.defaults?.responseTips !== false, commands: normalizeCustomCommands(config.commands?.items), rules: { enabled: config.rules?.enabled !== false, text: typeof config.rules?.text === "string" ? config.rules.text : "" }, archive: { auto: config.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(config.archive?.retentionDays || 0) ? config.archive!.retentionDays! : 7 }, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", webSearch: { bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY) } };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -563,23 +615,11 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
     inputOpenAi.apiKeyEnv = envName;
     writeWorkspaceEnv(workspace, envName, inputOpenAi.apiKey.trim());
   }
-  // 百炼 uses the documented BAILIAN_API_KEY name so headless .env setups and
-  // the settings UI share one variable.
-  const inputBailian = payload.speech?.bailian;
-  if (inputBailian && typeof inputBailian.apiKey === "string" && inputBailian.apiKey.trim()) {
-    let envName = (inputBailian.apiKeyEnv || "").trim();
-    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) envName = "BAILIAN_API_KEY";
-    inputBailian.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, inputBailian.apiKey.trim());
-  }
-  // MiMo ASR key: same convention, MIMO_API_KEY by default.
-  const inputMimo = payload.speech?.mimo;
-  if (inputMimo && typeof (inputMimo as { apiKey?: string }).apiKey === "string" && (inputMimo as { apiKey?: string }).apiKey!.trim()) {
-    const envName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(inputMimo.apiKeyEnv || "") ? inputMimo.apiKeyEnv! : "MIMO_API_KEY";
-    inputMimo.apiKeyEnv = envName;
-    writeWorkspaceEnv(workspace, envName, (inputMimo as { apiKey?: string }).apiKey!.trim());
-  }
   const nextSpeech = normalizeSpeechSettings(payload.speech);
+  /* R64：联网搜索密钥 → 工作区 .env（同 provider 模式：写盘并即时注入
+     process.env，web_search/web_fetch 无需重启即生效）。 */
+  if (typeof payload.webSearch?.bigmodelKey === "string" && payload.webSearch.bigmodelKey.trim()) writeWorkspaceEnv(workspace, "BIGMODEL_API_KEY", payload.webSearch.bigmodelKey.trim());
+  if (typeof payload.webSearch?.deepseekKey === "string" && payload.webSearch.deepseekKey.trim()) writeWorkspaceEnv(workspace, "DEEPSEEK_API_KEY", payload.webSearch.deepseekKey.trim());
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;
   const nextUpdates: UpdatePreferences = { channel: payload.updates?.channel === "preview" ? "preview" : payload.updates?.channel === "stable" ? "stable" : currentUpdates.channel, autoCheck: payload.updates ? payload.updates.autoCheck !== false : currentUpdates.autoCheck, autoDownload: payload.updates ? payload.updates.autoDownload !== false : currentUpdates.autoDownload, autoInstallOnQuit: payload.updates ? payload.updates.autoInstallOnQuit !== false : currentUpdates.autoInstallOnQuit };
   const nextTelemetry: TelemetrySettings = { enabled: payload.telemetry?.enabled !== false };
@@ -595,13 +635,22 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
   raw.updates = nextUpdates;
   raw.telemetry = nextTelemetry;
   raw.mcp = payload.mcp;
-  raw.defaults = { modelId: payload.defaultModelId || undefined, reasoningEffort: payload.defaultReasoningEffort || undefined, customModelMode: Boolean(payload.customModelMode), autostart: payload.autostart === true, autostartHidden: payload.autostartHidden !== false, visionModelId: payload.visionModelId || undefined };
+  raw.defaults = { modelId: payload.defaultModelId || undefined, reasoningEffort: payload.defaultReasoningEffort || undefined, customModelMode: Boolean(payload.customModelMode), autostart: payload.autostart === true, autostartHidden: payload.autostartHidden !== false, closeWindowAction: payload.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: payload.sendShortcut === "modEnter" ? "modEnter" : "enter", responseTips: payload.responseTips !== false, visionModelId: payload.visionModelId || undefined };
+  /* 技能开关：只持久化去重后的名字，避免重复条目让禁用集合越写越大。 */
+  raw.skills = { disabled: [...new Set((payload.skills?.disabled || []).map((name) => name.trim()).filter(Boolean))] };
+  /* 自定义命令：只在调用方显式传入数组时重写，避免旧调用方把已有命令清空。 */
+  if (Array.isArray(payload.commands)) raw.commands = { items: normalizeCustomCommands(payload.commands) };
+  raw.rules = { enabled: payload.rules?.enabled !== false, text: typeof payload.rules?.text === "string" ? payload.rules.text.trim() : "" };
+  raw.archive = { auto: payload.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(payload.archive?.retentionDays || 0) ? payload.archive!.retentionDays! : 7 };
   raw.resilience = normalizeResilienceSettings(payload.resilience);
   raw.guard = normalizeToolGuardSettings(payload.guard);
   raw.budget = normalizeModelBudgetSettings(payload.budget);
   raw.hallucination = { enabled: payload.hallucinationEnabled !== false };
+  raw.theme = payload.theme === "dark" || payload.theme === "system" ? payload.theme : "light";
   delete (raw as SecAgentConfig & { policy?: unknown }).policy;
-  fs.writeFileSync(file, YAML.stringify(raw), "utf8");
+  /* 架构审查：配置文件此前直接 writeFileSync，写一半崩溃会让整份 YAML 不可解析
+     （设置/密钥引用全丢）。改为临时文件 + rename 原子替换。 */
+  writeFileAtomic(file, YAML.stringify(raw));
   return readSettings(workspace);
 }
 
@@ -614,6 +663,6 @@ export function writeWorkspaceEnv(workspace: string, name: string, value: string
   const index = lines.findIndex((line) => line.match(new RegExp(`^\\s*${name}\\s*=`)));
   if (index >= 0) lines[index] = next;
   else lines.push(next);
-  fs.writeFileSync(file, `${lines.filter((line, item) => item !== lines.length - 1 || line).join("\n").replace(/\n*$/, "\n")}`, "utf8");
+  writeFileAtomic(file, `${lines.filter((line, item) => item !== lines.length - 1 || line).join("\n").replace(/\n*$/, "\n")}`);
   process.env[name] = value;
 }

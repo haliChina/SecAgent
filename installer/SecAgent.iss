@@ -50,6 +50,11 @@ DisableWelcomePage=yes
 ; prefills DirEdit with the previous install location.
 DisableDirPage=no
 Uninstallable=yes
+; 升级时 SecAgent 大概率正在运行：默认自动关闭锁文件进程并在安装后
+; 自动重启它（Restart Manager）。用户仍可在 Preparing 页改选。
+CloseApplications=yes
+CloseApplicationsFilter=SecAgent.exe
+RestartApplications=yes
 SetupIconFile=..\resources\icon.ico
 #ifdef UiTestBuild
 PrivilegesRequired=lowest
@@ -89,8 +94,16 @@ Filename: "{app}\SecAgent.exe"; Description: "启动 SecAgent"; Flags: nowait po
   an 820x629 borderless rounded card with a white 347px header (bare logo
   mark + "SecAgent" wordmark), an #ECECEC body and a centered 218x69
   "安装" pill in #8AABFF. All coordinates are design pixels scaled by
-  UI_SCALE_PCT via UiX/UiY - deliberately independent of the system DPI so
-  the card keeps one constant physical size everywhere.
+  UI_SCALE_PCT via UiX/UiY AND the system DPI (R62 redo: the old build froze
+  the card at one physical size and counter-scaled fonts, which read "random
+  sizes" on any 125-150% display and let DPI-scaled stock controls overlap
+  custom ones).  At 96 DPI the geometry is pixel-identical to the previous
+  build; fonts render at 75% of the old size on purpose — the old build
+  passed design px straight into TFont.Size (pt), inflating glyphs by 4/3,
+  while UiFontSize now converts design px x scale to true points
+  (design x scale x 3/400). On scaled displays everything - card, fonts,
+  pills, hit areas - grows proportionally, like a normal DPI-aware app.
+  The scale is capped so the card always fits the work area.
 
   Inno's script engine exposes no mouse-down events (PS_MINIVCL build), so
   the borderless window is dragged via a WH_MOUSE_LL hook: press on the
@@ -148,6 +161,11 @@ var
   FinishSubtitle: TNewStaticText;
   FinishButton: TBitmapButton;
 
+  { preparing page (R70): 自绘「继续」按钮——stock NextButton 在 Inno 内部
+    重排下位置不可靠（R65 移位版高 DPI 只露蓝边、R69 摘锚版整钮消失），
+    与 InstallButton/FinishButton 同款，Inno 不认识它、不会动它。 }
+  PreparingContinueButton: TBitmapButton;
+
 function CreateRoundRectRgn(X1, Y1, X2, Y2, X3, Y3: Integer): HWND;
 external 'CreateRoundRectRgn@gdi32.dll stdcall';
 function SetWindowRgn(hWnd: HWND; hRgn: HWND; bRedraw: Longint): Longint;
@@ -155,29 +173,61 @@ external 'SetWindowRgn@user32.dll stdcall';
 
 { --- small helpers ------------------------------------------------------- }
 
+{ Win32 metrics for the work-area clamp (Inno PS has no Screen/Monitor). }
+function GetSystemMetrics(nIndex: Integer): Integer;
+  external 'GetSystemMetrics@user32.dll stdcall';
+
+function UiDpiPercent: Integer;
+var
+  MaxDpi, WaW, WaH: Integer;
+begin
+  { System DPI in percent-of-96.  ScaleX(96) returns the physical width of a
+    96-logical-px rule, i.e. 144 at 150%.  Guard non-scaled runtimes. }
+  Result := ScaleX(96);
+  if Result < 96 then
+    Result := 96;
+  { Cap so the scaled card always fits the primary work area with margin:
+    UI_WIDTH * UI_SCALE_PCT * dpi / 9600 <= WorkAreaWidth - 80. }
+  { Inno Pascal Script exposes neither the VCL Screen global nor
+    WizardForm.Monitor.  Win32 GetSystemMetrics(SM_CXFULLSCREEN=16 /
+    SM_CYFULLSCREEN=17) gives the primary-monitor work area (taskbar and
+    appbars excluded) in physical pixels - the same units UiX produces,
+    since the Inno wizard itself is DPI-aware. }
+  try
+    WaW := GetSystemMetrics(16);
+    WaH := GetSystemMetrics(17);
+    if (WaW > 0) and (WaH > 0) then begin
+      MaxDpi := (WaW - 80) * 9600 div (UI_WIDTH * UI_SCALE_PCT);
+      if MaxDpi < 96 then
+        MaxDpi := 96;
+      if Result > MaxDpi then
+        Result := MaxDpi;
+    end;
+  except
+    { Metrics unavailable - keep the raw DPI }
+  end;
+end;
+
 function UiX(Value: Integer): Integer;
 begin
-  { Design pixels -> physical pixels: fixed scale, no DPI growth.  Keeps the
-    Figma card at one constant physical size on every machine. }
-  Result := Value * UI_SCALE_PCT div 100;
+  { Design pixels -> physical pixels: design scale x system DPI (R62 redo -
+    proportional on every display; at 96 dpi identical to the old fixed build). }
+  Result := Value * UI_SCALE_PCT * UiDpiPercent div 9600;
 end;
 
 function UiY(Value: Integer): Integer;
 begin
-  Result := Value * UI_SCALE_PCT div 100;
+  Result := Value * UI_SCALE_PCT * UiDpiPercent div 9600;
 end;
 
 function UiFontSize(DesignSize: Integer): Integer;
-var
-  DpiScale, Scaled: Integer;
 begin
-  { TFont.Size is interpreted in points and grows with the system DPI, so
-    counter-scale it, then apply the same UI scale as the geometry. }
-  DpiScale := ScaleX(96);
-  if DpiScale < 1 then
-    DpiScale := 1;
-  Scaled := DesignSize * 96 div DpiScale;
-  Result := Scaled * UI_SCALE_PCT div 100;
+  { TFont.Size is in points, and 1 pt renders DPI-physically (pt x dpi/72 px).
+    Geometry scales as design*scale*dpi/96, so the matching point size is
+    DPI-independent: design x scale x 72/96 = design x scale x 3/400.
+    Note: this is intentionally 75% of the old build's glyph size at 96 dpi —
+    the old code fed design px into TFont.Size as if they were points. }
+  Result := DesignSize * UI_SCALE_PCT * 3 div 400;
   if Result < 1 then
     Result := 1;
 end;
@@ -234,6 +284,8 @@ end;
 var
   DragHook: Longword;
   DragTimerID: Longword;
+  { R69: wpPreparing 显示后一次性重排定时器（见 RelayoutPreparingPage）。 }
+  PreparingFixTimerID: Longword;
   DragActive: Boolean;
   DragOffsetX, DragOffsetY: Integer;
 
@@ -650,38 +702,80 @@ end;
 
 { --- preparing page (Restart Manager / retry prompts) ---------------------- }
 
-procedure BuildPreparingPage;
+{ R69 修复「关闭进程」页内容下坠 + 按钮被裁：
+  实机（DPI 125%，5 个 SecAgent 进程锁定文件）实测——Inno 在本页显示时
+  按 stock 相对布局重排：多行列表把两个单选钮一路推到主按钮区以下、
+  接近窗口底；NextButton 的 stock akBottom 锚又在后续 VCL 对齐流里把 Top
+  从窗底重新推导，最终只露顶部蓝边、文字与可点击主体全被窗口底裁掉
+  （用户截图像素级测量：按钮设计位 y506-575，实测蓝边 y611-646）。
+  R26 的旧坐标本身还有 radio(494/516) 与按钮(506-575) 区域重叠的问题。
+
+  修法三重钉：建页时（init）、CurPageChanged 时、显示后 120ms 一次性
+  定时器（在 Inno 的 show-time 重排与 VCL 锚定流全部落定后）各钉一遍
+  设计坐标；NextButton 先摘 akBottom 锚。新坐标紧凑无重叠：
+  label 364-400 / memo 404-456(带滚动条) / radio 460-498 / 按钮 506-575。 }
+procedure RelayoutPreparingPage;
 begin
-  { shown only when running applications are locking files (upgrades with
-    SecAgent open); the memo and radios reposition themselves relative to
-    PreparingLabel at show time, so only origins and widths need fixing }
   WizardForm.PreparingErrorBitmapImage.Anchors := [akLeft, akTop];
-  WizardForm.PreparingErrorBitmapImage.Left := UiX(146);
-  WizardForm.PreparingErrorBitmapImage.Top := UiY(388);
+  WizardForm.PreparingErrorBitmapImage.SetBounds(UiX(140), UiY(368),
+    UiX(32), UiY(32));
 
   WizardForm.PreparingLabel.AutoSize := False;
   WizardForm.PreparingLabel.Anchors := [akLeft, akTop];
-  WizardForm.PreparingLabel.SetBounds(UiX(UI_MARGIN), UiY(384),
-    UiX(468), UiY(60));
+  WizardForm.PreparingLabel.SetBounds(UiX(UI_MARGIN), UiY(364),
+    UiX(468), UiY(36));
   WizardForm.PreparingLabel.Color := UI_COLOR_BAND;
   StyleFont(WizardForm.PreparingLabel.Font, 11, $333333, False);
 
   WizardForm.PreparingMemo.Anchors := [akLeft, akTop];
-  WizardForm.PreparingMemo.Left := UiX(UI_MARGIN);
-  WizardForm.PreparingMemo.Width := UiX(468);
+  { 多条锁定进程时靠滚动条，不再撑高把 radio 推出可视区 }
+  WizardForm.PreparingMemo.ScrollBars := ssVertical;
+  WizardForm.PreparingMemo.SetBounds(UiX(UI_MARGIN), UiY(404),
+    UiX(468), UiY(52));
   WizardForm.PreparingMemo.Color := clWhite;
 
   WizardForm.PreparingYesRadio.Anchors := [akLeft, akTop];
-  WizardForm.PreparingYesRadio.Left := UiX(UI_MARGIN);
-  WizardForm.PreparingYesRadio.Width := UiX(468);
+  WizardForm.PreparingYesRadio.SetBounds(UiX(UI_MARGIN), UiY(460),
+    UiX(468), UiY(18));
   WizardForm.PreparingYesRadio.Color := UI_COLOR_BAND;
   StyleFont(WizardForm.PreparingYesRadio.Font, 10, $333333, False);
 
   WizardForm.PreparingNoRadio.Anchors := [akLeft, akTop];
-  WizardForm.PreparingNoRadio.Left := UiX(UI_MARGIN);
-  WizardForm.PreparingNoRadio.Width := UiX(468);
+  WizardForm.PreparingNoRadio.SetBounds(UiX(UI_MARGIN), UiY(480),
+    UiX(468), UiY(18));
   WizardForm.PreparingNoRadio.Color := UI_COLOR_BAND;
   StyleFont(WizardForm.PreparingNoRadio.Font, 10, $333333, False);
+end;
+
+procedure PreparingFixTimerProc(Arg1, Arg2, Arg3, Arg4: Longword);
+begin
+  try
+    if PreparingFixTimerID <> 0 then begin
+      KillTimer(0, PreparingFixTimerID);
+      PreparingFixTimerID := 0;
+    end;
+    RelayoutPreparingPage;
+  except
+  end;
+end;
+
+procedure BuildPreparingPage;
+begin
+  { R26: 默认勾「是」自动关闭（原默认否→升级死锁在这里像卡死） }
+  WizardForm.PreparingYesRadio.Checked := True;
+  RelayoutPreparingPage;
+  { R70: 自绘「继续」钮，Parent 是 PreparingPage——其他页面激活时整页隐藏、
+    按钮随之隐藏，无需逐页管理。点击转发 stock NextButton 的 OnClick。 }
+  PreparingContinueButton := TBitmapButton.Create(WizardForm.PreparingPage);
+  PreparingContinueButton.Parent := WizardForm.PreparingPage;
+  PreparingContinueButton.PngImage.LoadFromFile(
+    ExpandConstant('{tmp}\button-primary.png'));
+  PreparingContinueButton.Stretch := True;
+  PreparingContinueButton.Caption := '继续';
+  PreparingContinueButton.Cursor := crHand;
+  PreparingContinueButton.OnClick := @PrimaryButtonClick;
+  PreparingContinueButton.SetBounds(UiX(301 - 2), UiY(506 - 2),
+    UiX(218 + 4), UiY(69 + 4));
 end;
 
 { --- events --------------------------------------------------------------- }
@@ -715,6 +809,10 @@ end;
 
 procedure DeinitializeSetup;
 begin
+  if PreparingFixTimerID <> 0 then begin
+    KillTimer(0, PreparingFixTimerID);
+    PreparingFixTimerID := 0;
+  end;
   RemoveDragHook;
 end;
 
@@ -747,11 +845,32 @@ begin
     WizardForm.CancelButton.Left := WizardForm.ClientWidth + UiX(400);
   end else begin
     case CurPageID of
-      wpSelectDir, wpReady, wpPreparing, wpInstalling, wpFinished:
+      wpSelectDir, wpReady, wpInstalling, wpFinished:
         begin
           WizardForm.BackButton.Visible := False;
           WizardForm.NextButton.Visible := False;
           WizardForm.CancelButton.Visible := False;
+        end;
+      wpPreparing:
+        begin
+          { R65 曾修复本页无钮（stock NextButton 移位+改文案）；R70 起放弃
+            stock NextButton——R65 移位版在高 DPI 只露蓝边、
+            R69 摘锚版整钮消失（Inno 内部重排对 stock 按钮的最终位置没有
+            可依赖的契约）。三枚 stock 钮移出屏保持 focusable（silent walk
+            约束同 proc 头注释），确认动作交给自绘 PreparingContinueButton
+            （BuildPreparingPage 创建，Parent=PreparingPage 本页隐藏时它
+            跟着隐藏）。 }
+          WizardForm.BackButton.Left := WizardForm.ClientWidth + UiX(400);
+          WizardForm.NextButton.Left := WizardForm.ClientWidth + UiX(400);
+          WizardForm.CancelButton.Left := WizardForm.ClientWidth + UiX(400);
+          { R69: Inno 显示本页时的 stock 重排与本事件的先后顺序无保证，
+            120ms 一次性定时器在一切落定后再钉一遍（见
+            RelayoutPreparingPage 头注释——只钉 label/memo/radio，
+            按钮归自绘、位置恒定）。 }
+          if PreparingFixTimerID <> 0 then
+            KillTimer(0, PreparingFixTimerID);
+          PreparingFixTimerID := SetTimer(0, 0, 120,
+            CreateCallback(@PreparingFixTimerProc));
         end;
     end;
   end;
@@ -904,6 +1023,22 @@ begin
     Log('Unable to load the installer file hash manifest; files will be checked by Inno Setup defaults.');
   end;
   Result := True;
+end;
+
+{ R71: Electron 多进程应用（主进程+渲染+GPU）常令 Restart Manager 关闭失败
+  ——CloseApplications 阶段弹原生「重试/忽略/取消」错误框（用户实测：
+  背景停在「正在关闭应用程序... 0%」）。业界惯例（VS Code/Discord 等）
+  是安装前直接杀旧进程树：taskkill /T 连子进程一起、/F 立即释放文件句柄。
+  首次安装没有 SecAgent 进程，taskkill 返回「找不到进程」无害。
+  Preparing 页保留为兜底——别的程序锁文件时仍会出现。 }
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  KillResultCode: Integer;
+begin
+  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM SecAgent.exe /F /T >nul 2>&1',
+    '', SW_HIDE, ewWaitUntilTerminated, KillResultCode);
+  Log(Format('taskkill SecAgent.exe exit=%d', [KillResultCode]));
+  Result := '';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

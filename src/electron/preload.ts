@@ -7,7 +7,12 @@ contextBridge.exposeInMainWorld("secagent", {
   listModels: () => ipcRenderer.invoke("models:list"),
   listProviders: () => ipcRenderer.invoke("providers:list"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
-  openSettings: () => ipcRenderer.invoke("settings:open"),
+  openSettings: (page?: string) => ipcRenderer.invoke("settings:open", typeof page === "string" && page ? page : undefined),
+  onSettingsNavigate: (callback: (page: string) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, page: string) => { callback(page); };
+    ipcRenderer.on("settings:navigate", wrapped);
+    return () => { ipcRenderer.removeListener("settings:navigate", wrapped); };
+  },
   getUpdateState: () => ipcRenderer.invoke("updates:get-state"),
   checkForUpdate: () => ipcRenderer.invoke("updates:check"),
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
@@ -24,6 +29,7 @@ contextBridge.exposeInMainWorld("secagent", {
   saveSettings: (payload: unknown) => ipcRenderer.invoke("settings:save", payload),
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
   callPluginSettings: (pluginId: string, pageId: string, action: string, args?: unknown) => ipcRenderer.invoke("plugins:settings-call", pluginId, pageId, action, args || {}),
+  pickPluginPath: (kind?: "file" | "directory") => ipcRenderer.invoke("plugins:pick-path", kind === "file" ? "file" : "directory"),
   setPluginEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke("plugins:set-enabled", id, enabled),
   reloadPlugin: (id: string) => ipcRenderer.invoke("plugins:reload", id),
   uninstallPlugin: (id: string) => ipcRenderer.invoke("plugins:uninstall", id),
@@ -70,7 +76,10 @@ contextBridge.exposeInMainWorld("secagent", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   completeOnboarding: () => ipcRenderer.invoke("oobe:complete"),
   createSession: () => ipcRenderer.invoke("sessions:create"),
+  syncWindowChrome: (colors: { background: string; symbol: string }) => ipcRenderer.invoke("window:chrome-sync", colors),
   deleteSession: (id: string) => ipcRenderer.invoke("sessions:delete", id),
+    archiveSession: (id: string, archived: boolean) => ipcRenderer.invoke("sessions:archive", id, archived),
+    renameSession: (id: string, title: string) => ipcRenderer.invoke("sessions:rename", id, title),
   getSession: (id: string) => ipcRenderer.invoke("sessions:get", id),
   getRuntimeEvents: (id: string) => ipcRenderer.invoke("sessions:runtime-events", id),
   uploadDiagnostic: (id: string) => ipcRenderer.invoke("sessions:diagnostic-upload", id),

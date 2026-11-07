@@ -1,0 +1,60 @@
+/* 托盘气泡：独立小窗，不引主样式表，避免把整站 CSS 带进 256px 窗口。 */
+* { box-sizing: border-box; }
+button { appearance: none; margin: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: default; }
+button:focus { outline: none; }
+
+:root {
+  color-scheme: light;
+  --tray-bg: #FBFCFE;
+  --tray-line: #DCE3EE;
+  --tray-text: #111827;
+  --tray-muted: #6B7688;
+  --tray-hover: #EEF2F8;
+  --tray-accent: #2563EB;
+  --tray-danger: #DC2626;
+  --tray-danger-bg: #FEF2F2;
+  --tray-shadow: 0 16px 40px rgba(15, 23, 42, .22);
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --tray-bg: #131A24;
+  --tray-line: #26303F;
+  --tray-text: #ECF0F8;
+  --tray-muted: #8A96AA;
+  --tray-hover: #1C2634;
+  --tray-accent: #7EB0FE;
+  --tray-danger: #F87171;
+  --tray-danger-bg: rgba(248, 113, 113, .1);
+  --tray-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+}
+
+@keyframes tray-in {
+  from { opacity: 0; transform: translateY(-4px) scale(.98); }
+}
+
+html, body { height: 100%; margin: 0; background: transparent; overflow: hidden; }
+body { color: var(--tray-text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, "PingFang SC", sans-serif; font-size: 13px; user-select: none; }
+
+.tray-panel { box-sizing: border-box; margin: 4px; padding: 6px; border: 1px solid var(--tray-line); border-radius: 14px; background: var(--tray-bg); box-shadow: var(--tray-shadow); animation: tray-in .14s cubic-bezier(.2, .8, .25, 1) both; }
+
+.tray-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 8px; }
+.tray-id { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.tray-mark { display: block; width: 22px; height: 22px; border-radius: 7px; object-fit: contain; background: #fff; }
+.tray-id strong { font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+.tray-state { display: inline-flex; align-items: center; gap: 4px; color: var(--tray-muted); font-size: 11px; }
+.tray-state i { width: 5px; height: 5px; border-radius: 50%; background: #22C55E; }
+.tray-version { color: var(--tray-muted); font-size: 10.5px; }
+
+.tray-list { display: grid; gap: 1px; }
+.tray-item { display: flex; align-items: center; gap: 8px; width: 100%; height: 36px; padding: 0 8px; border-radius: 8px; color: var(--tray-text); font-size: 12.5px; text-align: left; }
+.tray-item:hover, .tray-item:focus-visible { background: var(--tray-hover); outline: none; }
+.tray-item-icon { display: inline-flex; color: var(--tray-muted); }
+.tray-item:hover .tray-item-icon, .tray-item:focus-visible .tray-item-icon { color: var(--tray-accent); }
+.tray-item-label { flex: 1; min-width: 0; }
+.tray-item-hint { color: var(--tray-muted); font-size: 10.5px; letter-spacing: .02em; }
+.tray-divider { height: 1px; margin: 6px 4px; background: var(--tray-line); }
+.tray-item-danger { color: var(--tray-danger); }
+.tray-item-danger .tray-item-icon { color: var(--tray-danger); }
+.tray-item-danger:hover, .tray-item-danger:focus-visible { background: var(--tray-danger-bg); }
+
+@media (prefers-reduced-motion: reduce) { .tray-panel { animation: none; } }

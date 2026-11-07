@@ -24,7 +24,7 @@ const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 500;
 
-export interface BailianHttpAsrOptions {
+interface BailianHttpAsrOptions {
   /** Current 百炼 settings (re-read on each start). */
   getSettings: () => BailianAsrSettings | undefined;
   /** Resolves the API key for an env var name (usually process.env). */

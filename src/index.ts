@@ -164,7 +164,7 @@ async function openRuntime(workspace: string, modelId: string | undefined, trace
   // stdin is not a TTY (piped/CI runs) so nothing dangerous executes unattended.
   const confirmToolCall = async (confirmation: { tool: string; reason: string }): Promise<boolean> => {
     if (!process.stdin.isTTY) return false;
-    process.stdout.write(`\n⚠ 敏感操作确认（${confirmation.tool}）：${confirmation.reason}\n允许执行？[y/N] `);
+    process.stdout.write(`\n[敏感操作确认] ${confirmation.tool}：${confirmation.reason}\n允许执行？[y/N] `);
     const reply = await new Promise<string>((resolve) => {
       const onData = (chunk: Buffer) => { process.stdin.removeListener("data", onData); resolve(chunk.toString("utf8")); };
       process.stdin.once("data", onData);
