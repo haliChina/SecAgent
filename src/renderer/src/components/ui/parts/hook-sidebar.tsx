@@ -212,6 +212,7 @@ export function HookSidebar({ activeId, items, onSelect }: {
                     type="button"
                     data-slot="hook-sidebar-item"
                     data-active={isActive}
+                    aria-current={isActive ? "page" : undefined}
                     ref={setRef}
                     onMouseEnter={() => { setHoverIndex(index); setPointerInside(true); }}
                     onFocus={() => { setHoverIndex(index); setFocusInside(true); }}

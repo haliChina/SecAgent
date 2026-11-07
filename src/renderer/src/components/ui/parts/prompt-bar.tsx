@@ -72,7 +72,9 @@ export interface PromptBarProps {
   defaultEffort?: string;
   onEffortChange?: (effort: string) => void;
   busy?: boolean;
-  onSend?: (text: string, detail: PromptBarSendDetail) => void;
+  sendDisabled?: boolean;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  onSend?: (text: string, detail: PromptBarSendDetail) => void | boolean;
   onStop?: () => void;
   onAttach?: () => string | string[] | void | Promise<string | string[] | void>;
   onDictate?: () => string | void | Promise<string | void>;
@@ -261,6 +263,8 @@ export const PromptBar = ({
   defaultEffort = '',
   onEffortChange,
   busy = false,
+  sendDisabled = false,
+  textareaRef,
   onSend,
   onStop,
   onAttach,
@@ -295,7 +299,10 @@ export const PromptBar = ({
 }: PromptBarProps) => {
   const reduce = useReducedMotion();
   const rootRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fallbackInputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = textareaRef ?? fallbackInputRef;
+  const inputId = useId();
+  const menuId = useId();
   const glowRef = useRef<HTMLSpanElement>(null);
   const sparkRef = useRef<HTMLCanvasElement>(null);
   const typing = useRef({ energy: 0, strokes: 0 });
@@ -368,7 +375,7 @@ export const PromptBar = ({
     return [];
   }, [open, query, sources, commands, models]);
   const cursor = Math.min(active, Math.max(0, list.length - 1));
-  const canSend = draft.trim().length > 0 || attachments.length > 0;
+  const canSend = !sendDisabled && (draft.trim().length > 0 || attachments.length > 0);
   const armed = busy || canSend;
   /* R29 渲染期夹取：模型切换的重渲染先于上面同步 effect 生效，这里兜底防
      越界（level 空白、滑杆圆点/aria 超出范围的一帧）。 */
@@ -703,7 +710,7 @@ export const PromptBar = ({
 
   const send = () => {
     if (!canSend || busy) return;
-    latest.current.onSend?.(draft.trim(), { attachments, model, effort: level });
+    if (latest.current.onSend?.(draft.trim(), { attachments, model, effort: level }) === false) return;
     setDraft('');
     latest.current.onDraftChange?.('');
     setAttachments([]);
@@ -735,6 +742,12 @@ export const PromptBar = ({
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && open && open !== 'effort') {
+      // Tab 只移动焦点，不能顺带执行新建会话等有副作用的命令。
+      setDismissed(true);
+      closeMenus();
+      return;
+    }
     if (open && list.length) {
       /* IME 选词中（isComposing）的 Enter/方向键先让输入法消费，避免中文
          选词回车同时触发菜单 pick。 */
@@ -747,7 +760,7 @@ export const PromptBar = ({
         setActive((cursor + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length);
         return;
       }
-      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         pick(list[cursor]);
         return;
@@ -792,16 +805,19 @@ export const PromptBar = ({
           '--pb-press': pressScale
         } as CSSProperties
       }
+      onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node)) { setDismissed(true); closeMenus(); } }}
     >
       <style>{STYLE}</style>
       {open ? (
         <div
           className="absolute inset-x-0 bottom-[calc(100%+8px)] z-[2] origin-bottom max-h-[min(360px,70vh)] overflow-y-auto overscroll-contain rounded-xl p-1 shadow-[0_10px_30px_-10px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.08)] [animation:prompt-bar-pop_180ms_cubic-bezier(0.23,1,0.32,1)_both] [background:var(--pb-menu)] data-[kind=model]:right-auto data-[kind=model]:w-[260px] data-[kind=model]:origin-bottom-left data-[kind=effort]:right-auto data-[kind=effort]:w-[248px] data-[kind=effort]:origin-bottom-left data-[kind=effort]:px-3.5 data-[kind=effort]:pt-3 data-[kind=effort]:pb-3.5 motion-reduce:[animation:none]"
+          id={menuId}
           role={open === 'effort' ? 'dialog' : 'listbox'}
           aria-label={
             open === 'at' ? '来源' : open === 'slash' ? '命令' : open === 'model' ? '模型' : '推理强度'
           }
           data-kind={open}
+          onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setDismissed(true); closeMenus(); focusInput(); } }}
         >
           {open === 'effort' ? (
             <>
@@ -826,7 +842,7 @@ export const PromptBar = ({
                 className="relative mt-2 h-[22px] cursor-pointer touch-none rounded-[11px] outline-none select-none [background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)]"
                 role="slider"
                 tabIndex={0}
-                aria-label="Effort"
+                aria-label="推理强度"
                 aria-valuemin={0}
                 aria-valuemax={efforts.length - 1}
                 aria-valuenow={safeEffortIndex}
@@ -880,6 +896,8 @@ export const PromptBar = ({
                     }}
                     type="button"
                     role="option"
+                    id={`${menuId}-${i}`}
+                    tabIndex={-1}
                     aria-selected={i === cursor}
                     className="relative z-[1] flex h-9 w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-2 text-left text-inherit outline-none [font:inherit] [-webkit-tap-highlight-color:transparent]"
                     onMouseDown={e => e.preventDefault()}
@@ -915,7 +933,7 @@ export const PromptBar = ({
               ))}
               {list.length === 0 ? (
                 <div className="flex h-9 items-center px-2 text-[12px] [color:color-mix(in_srgb,var(--pb-ink)_55%,transparent)]">
-                  No matches for “{query}”
+                  没有匹配“{query}”的结果
                 </div>
               ) : null}
             </>
@@ -949,7 +967,7 @@ export const PromptBar = ({
                 <button
                   type="button"
                   className="inline-grid h-[18px] w-[18px] cursor-pointer place-items-center rounded-[5px] border-0 bg-transparent p-0 text-inherit opacity-60 outline-none [transition:opacity_120ms_ease,background-color_120ms_ease] hover:opacity-100 hover:[background:color-mix(in_srgb,var(--pb-ink)_10%,transparent)]"
-                  aria-label={`Remove ${file}`}
+                  aria-label={`移除 ${file}`}
                   onClick={() => {
                     setAttachments(a => a.filter((_, j) => j !== i));
                     latest.current.onAttachRemove?.(file);
@@ -962,13 +980,18 @@ export const PromptBar = ({
           </div>
         ) : null}
 
+        <label className="prompt-label" htmlFor={inputId}>消息</label>
         <textarea
+          id={inputId}
           ref={inputRef}
           className="block w-full resize-none border-0 bg-transparent p-0 text-[14px] leading-[22px] text-inherit outline-none [font:inherit] [overflow-wrap:anywhere] placeholder:[color:color-mix(in_srgb,var(--pb-ink)_45%,transparent)] [@media(pointer:coarse)]:text-[16px]"
           rows={1}
           value={draft}
-          placeholder={listening ? 'Listening…' : placeholder}
-          aria-label="Prompt"
+          placeholder={listening ? '正在聆听…' : placeholder}
+          aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-controls={open && open !== 'effort' ? menuId : undefined}
+          aria-activedescendant={open && open !== 'effort' && list.length ? `${menuId}-${cursor}` : undefined}
           onChange={e => {
             setDraft(e.target.value);
             latest.current.onDraftChange?.(e.target.value);
@@ -983,11 +1006,11 @@ export const PromptBar = ({
           onKeyDown={onKeyDown}
         />
 
-        <div className="flex items-center gap-1">
+        <div className="prompt-toolbar flex items-center gap-1">
           <button
             type="button"
             className="inline-grid h-7 w-7 flex-none cursor-pointer touch-manipulation place-items-center rounded-lg border-0 bg-transparent p-0 outline-none select-none [color:color-mix(in_srgb,var(--pb-ink)_60%,transparent)] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_150ms_ease,color_150ms_ease,transform_160ms_cubic-bezier(0.23,1,0.32,1)] active:[transform:scale(0.94)] data-[on]:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] data-[on]:[color:var(--pb-ink)] motion-reduce:active:[transform:none] [@media(hover:hover)_and_(pointer:fine)]:hover:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] [@media(hover:hover)_and_(pointer:fine)]:hover:[color:var(--pb-ink)]"
-            aria-label="Add files and sources"
+            aria-label="添加图片和来源"
             aria-expanded={plusOpen}
             data-on={plusOpen ? '' : undefined}
             onMouseDown={e => e.preventDefault()}
@@ -1005,7 +1028,7 @@ export const PromptBar = ({
             <button
               type="button"
               className="inline-flex h-7 flex-none cursor-pointer touch-manipulation items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-[12px] font-medium outline-none select-none [color:color-mix(in_srgb,var(--pb-ink)_70%,transparent)] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_150ms_ease,color_150ms_ease] data-[on]:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] data-[on]:[color:var(--pb-ink)] [@media(hover:hover)_and_(pointer:fine)]:hover:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] [@media(hover:hover)_and_(pointer:fine)]:hover:[color:var(--pb-ink)] data-[max]:[color:var(--pb-spark)]! "
-              aria-label="Choose model"
+              aria-label="选择模型"
               aria-expanded={modelOpen}
               data-on={modelOpen ? '' : undefined}
               onMouseDown={e => e.preventDefault()}
@@ -1017,7 +1040,7 @@ export const PromptBar = ({
                 focusInputKeepMenus();
               }}
             >
-              <span>{model.name}</span>
+              <span className="prompt-model-name" title={model.name}>{model.name}</span>
               <ChevronDownIcon size={12} strokeWidth={2.4} />
             </button>
           ) : null}
@@ -1025,7 +1048,7 @@ export const PromptBar = ({
             <button
               type="button"
               className="inline-flex h-7 flex-none cursor-pointer touch-manipulation items-center gap-1 rounded-lg border-0 bg-transparent px-2 text-[12px] font-medium outline-none select-none [color:color-mix(in_srgb,var(--pb-ink)_70%,transparent)] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_150ms_ease,color_150ms_ease] data-[on]:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] data-[on]:[color:var(--pb-ink)] [@media(hover:hover)_and_(pointer:fine)]:hover:[background:color-mix(in_srgb,var(--pb-ink)_8%,transparent)] [@media(hover:hover)_and_(pointer:fine)]:hover:[color:var(--pb-ink)] data-[max]:[color:var(--pb-spark)]! "
-              aria-label="Choose effort"
+              aria-label="选择推理强度"
               aria-expanded={effortOpen}
               data-on={effortOpen ? '' : undefined}
               data-max={maxed ? '' : undefined}
@@ -1078,7 +1101,7 @@ export const PromptBar = ({
             type="button"
             className="relative inline-grid h-7 w-7 flex-none cursor-pointer touch-manipulation place-items-center rounded-lg border-0 p-0 outline-none select-none [background:color-mix(in_srgb,var(--pb-ink)_12%,var(--pb-bg))] [color:color-mix(in_srgb,var(--pb-ink)_55%,var(--pb-bg))] [font:inherit] [-webkit-tap-highlight-color:transparent] [transition:background-color_200ms_ease,color_200ms_ease,transform_160ms_cubic-bezier(0.23,1,0.32,1)] disabled:cursor-default data-[armed]:[background:var(--pb-ink)] data-[armed]:[color:var(--pb-bg)] data-[pressed]:[transform:scale(var(--pb-press))] motion-reduce:data-[pressed]:[transform:none]"
             disabled={!armed}
-            aria-label={busy ? 'Stop' : 'Send'}
+            aria-label={busy ? '停止生成' : '发送消息'}
             data-armed={armed ? '' : undefined}
             data-pressed={pressed ? '' : undefined}
             onMouseDown={e => e.preventDefault()}

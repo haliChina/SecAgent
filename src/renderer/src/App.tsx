@@ -2,10 +2,7 @@ import { ACCENT, ACCENT_SKY, ACCENT_DEEP } from "./components/ui/parts/theme.js"
 import { Fragment, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, PointerEvent as ReactPointerEvent, WheelEvent as ReactWheelEvent } from "react";
 import { ArrowDown, LoaderCircle, Volume2 } from "lucide-react";
-import { SettingsApp } from "./components/SettingsApp.js";
-import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
-import { WakeOverlay } from "./components/WakeOverlay.js";
-import { VoiceWakeListener } from "./components/VoiceWakeListener.js";
+import { ImagePreviewDialog } from "./components/ImagePreviewDialog.js";
 import { MessageActivities } from "./components/MessageActivities.js";
 import { AttachmentStrip } from "./components/AttachmentStrip.js";
 import { MarkdownContent } from "./components/MarkdownContent.js";
@@ -23,6 +20,7 @@ import { ToolConfirmationDialog } from "./components/ToolConfirmationDialog.js";
 import { TracePanel } from "./components/TracePanel.js";
 import { DeliverableCard } from "./components/DeliverableCard.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
+import { reusableEmptySession } from "./session-navigation.js";
 import { AiStatus, AuroraBackdrop, DaySeparator, DeleteButton, FluidOrb, MatrixOrb, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, WebSearch, type WebSource, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
 
 /** 空会话的快捷提示：只填进输入框，不直接发送，用户可继续补充。 */
@@ -69,11 +67,14 @@ type PendingVoiceSend = { messageId: string; sessionId: string };
 
 export function App() {
   const bridge = window.secagent;
-  const route = new URLSearchParams(window.location.search);
-  if (route.has("settings")) return <WindowErrorBoundary crashTitle="设置页遇到错误" windowTitle="SecAgent设置"><SettingsApp /></WindowErrorBoundary>;
-  if (route.has("wake")) return <WakeOverlay />;
-  if (route.has("voice-wake")) return <VoiceWakeListener />;
   const [sessions, setSessions] = useState<SessionMeta[]>([]);
+  const [initializationError, setInitializationError] = useState("");
+  const [initializationAttempt, setInitializationAttempt] = useState(0);
+  const [sessionError, setSessionError] = useState("");
+  const runSessionAction = (action: () => Promise<unknown>) => {
+    setSessionError("");
+    void Promise.resolve().then(action).catch((error: unknown) => setSessionError(`会话操作未完成：${error instanceof Error ? error.message : String(error)}`));
+  };
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
   const [session, setSession] = useState<SessionData | null>(null);
@@ -217,7 +218,15 @@ export function App() {
   const initializing = useRef(false);
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const sessionReady = session !== null;
+  useEffect(() => { if (sessionReady) textareaRef.current?.focus(); }, [sessionReady]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = fileInputRef.current;
+    const cancel = () => { pendingAttachResolveRef.current?.([]); pendingAttachResolveRef.current = null; };
+    input?.addEventListener("cancel", cancel);
+    return () => { input?.removeEventListener("cancel", cancel); cancel(); };
+  }, []);
   const audioRef = useRef<{ context: AudioContext; stream: MediaStream; source: MediaStreamAudioSourceNode; processor: ScriptProcessorNode } | undefined>(undefined);
   const recordingRef = useRef(false);
   /** 选定的输入音频设备 ID（settings.speech.audio.input；undefined = 系统默认）。 */
@@ -317,15 +326,17 @@ export function App() {
       setSession(active);
       // 长会话打开时直接停在最新消息，而不是从历史顶部开始。
       scrollMessagesToBottom();
-      requestAnimationFrame(() => textareaRef.current?.focus());
       const configured = await modelsPromise;
       const mainModels = configured.filter((model) => !isOfficialVisionModel(model));
       const preferred = mainModels.find((model) => model.id === savedSettings.defaultModelId)
         || mainModels.find((model) => isOfficialTierModel(model) && model.model === tierDefaultId)
         || mainModels[0];
       setSelectedModelId(preferred?.id || "");
-    })();
-  }, [bridge]);
+    })().catch((error: unknown) => {
+      initializing.current = false;
+      setInitializationError(error instanceof Error ? error.message : String(error));
+    });
+  }, [bridge, initializationAttempt]);
 
   useEffect(() => {
     if (!bridge) return;
@@ -686,7 +697,7 @@ export function App() {
     // 不再重复落盘新会话——连续点 + 不会刷出一排"新会话"，也省掉 sessions:list
     // 全量预览扫描随会话数线性变慢的开销。
     const list = await bridge.listSessions();
-    const empty = list.find((item) => item.title === "新会话" && !item.preview);
+    const empty = reusableEmptySession(list);
     if (empty) {
       if (empty.id === session?.meta.id) { requestAnimationFrame(() => textareaRef.current?.focus()); return; }
       await changeSession(empty.id);
@@ -704,11 +715,12 @@ export function App() {
   /* 全局快捷键：Cmd/Ctrl+N 新建会话，Cmd/Ctrl+K 聚焦输入框。
      用 ref 取最新的 createSession，避免 effect 因函数重建而反复解绑。 */
   const createSessionRef = useRef(createSession);
-  createSessionRef.current = createSession;
+  createSessionRef.current = async () => { runSessionAction(createSession); };
   useEffect(() => {
     if (!bridge) return;
     const onShortcut = (event: KeyboardEvent) => {
       if (event.defaultPrevented || event.altKey || event.isComposing) return;
+      if (document.querySelector('dialog[open], [role="dialog"][aria-modal="true"]')) return;
       const mod = bridge.platform === "darwin" ? event.metaKey : event.ctrlKey;
       if (!mod) return;
       const key = event.key.toLowerCase();
@@ -731,6 +743,7 @@ export function App() {
       setSessions((current) => current.map((meta) => meta.id === id ? { ...meta, archived: archived || undefined } : meta));
     } catch (reason) {
       console.error("archiveSession failed", reason);
+      throw reason;
     }
   };
 
@@ -1219,7 +1232,8 @@ export function App() {
 
   return <main className="app-shell">
     <header className={`topbar ${bridge.platform === "darwin" ? "macos" : ""}`}>
-      <button className="brand" type="button" aria-label="打开设置" onDoubleClick={() => { void bridge.openSettings(); }}><span>SecAgent</span></button>
+      <button className="brand" type="button" aria-label="打开设置" onClick={() => runSessionAction(() => bridge.openSettings())}><span>SecAgent</span></button>
+      <span className="topbar-divider" aria-hidden>/</span><h1 className="topbar-session" title={session?.meta.title}>{session?.meta.title || "会话"}</h1>
 </header>
 
     {messageMenu && <div className="message-context-menu" role="menu" style={{ left: messageMenu.x, top: messageMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
@@ -1228,24 +1242,20 @@ export function App() {
       {messageMenu.selection && <button type="button" role="menuitem" onClick={() => { const query = messageMenu.selection; setMessageMenu(null); void bridge.openExternal(webSearchUrl(query)); }}>搜索</button>}
       {messageMenu.selection && <button type="button" role="menuitem" onClick={() => { setQuotedText(messageMenu.selection); setMessageMenu(null); requestAnimationFrame(() => textareaRef.current?.focus()); }}>引用</button>}
     </div>}
-    {previewAttachment && <div className="image-preview-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPreviewAttachment(null); }}>
-      <section className="image-preview" role="dialog" aria-modal="true" aria-label={`预览 ${previewAttachment.name}`} onMouseDown={(event) => event.stopPropagation()}>
-        <button type="button" className="image-preview-close" aria-label="关闭图片预览" onClick={() => setPreviewAttachment(null)}>×</button>
-        <img src={previewAttachment.dataUrl} alt={previewAttachment.name} />
-      </section>
-    </div>}
+    {previewAttachment && <ImagePreviewDialog attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />}
     <section className="workspace">
-      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => void changeSession(id)} onDelete={(id) => void deleteSession(id)} onArchive={(id, archived) => void archiveSession(id, archived)}
-          onRename={(id, title) => {
-            void bridge.renameSession(id, title).then((updated) => {
-              setSession((current) => current && current.meta.id === id ? updated : current);
-              setSessions((current) => current.map((meta) => meta.id === id ? updated.meta : meta));
-            }).catch(() => undefined);
-          }} onNew={() => void createSession()} onOpenSettings={() => void bridge.openSettings()} onOpenArchived={() => void bridge.openSettings("settings-sessions")} />
+      <SessionSidebar sessions={sessions} activeId={session?.meta.id} onSwitch={(id) => runSessionAction(() => changeSession(id))} onDelete={(id) => runSessionAction(() => deleteSession(id))} onArchive={(id, archived) => runSessionAction(() => archiveSession(id, archived))}
+          onRename={(id, title) => runSessionAction(async () => {
+            const updated = await bridge.renameSession(id, title);
+            setSession((current) => current && current.meta.id === id ? updated : current);
+            setSessions((current) => current.map((meta) => meta.id === id ? updated.meta : meta));
+          })} onNew={() => runSessionAction(createSession)} onOpenSettings={() => runSessionAction(() => bridge.openSettings())} onOpenArchived={() => runSessionAction(() => bridge.openSettings("settings-sessions"))} />
       <section className="conversation" aria-label="当前会话">
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
         <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
-          {session === null ? <div className="empty-state"><LoaderCircle className="reading-icon loading" size={22} aria-label="正在加载会话" /></div> : session.messages.length === 0 && <div className="empty-state">
+          {initializationError ? <AuiErrorState title="无法加载会话" detail={initializationError} onRetry={() => { setInitializationError(""); setInitializationAttempt((attempt) => attempt + 1); }} /> : !session && <p className="loading" role="status">正在加载会话…</p>}
+          {sessionError && <div className="session-feedback"><p role="alert">{sessionError}。请重试刚才的操作。</p><button type="button" onClick={() => setSessionError("")} aria-label="关闭会话错误提示">关闭</button></div>}
+          {session?.messages.length === 0 && <div className="empty-state">
             <AuroraBackdrop />
             <MatrixOrb size={132} state={orbState} stream={micStream} />
             <p className="empty-state-eyebrow">SECAGENT · 课堂助手</p>
@@ -1277,7 +1287,7 @@ export function App() {
         </div>
         {showJumpToLatest && session && session.messages.length > 0 && <button className="jump-to-latest" type="button" aria-label="回到最新消息" title="回到最新消息" onClick={scrollMessagesToBottom}><ArrowDown size={16} aria-hidden /></button>}
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple tabIndex={-1} aria-label="添加图片" onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。R58：右下角状态球用 rare-ui FluidOrb。R60：换真源组件（WebGL fbm 流体着色器，禁止自研仿品）——状态表达改为调用侧组合：按状态传 color、listening 加呼吸类，组件本体零改动。 */}<FluidOrb size={40} color={orbState === "listening" ? ACCENT_SKY : orbState === "thinking" ? (orbAccent || ACCENT_DEEP) : ACCENT} className={orbState === "listening" ? "fluid-orb-pulse" : undefined} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>
@@ -1300,7 +1310,7 @@ export function App() {
                 if (command) setDraft(`${command.prompt.trim()} `);
                 return;
               }
-              if (key === "new-session") void createSession();
+              if (key === "new-session") runSessionAction(createSession);
               else if (key === "stop") { if (sessionRunning) void stop(); }
               else if (key === "read") {
                 const target = session?.messages.filter((message) => message.role === "assistant" && message.content && !message.content.startsWith("执行失败：")).at(-1);
@@ -1308,7 +1318,7 @@ export function App() {
                 else flashSpeechStatus("还没有可朗读的回复");
               }
               else if (key === "stop-read") stopReading();
-              else if (key === "settings") void bridge?.openSettings();
+              else if (key === "settings") runSessionAction(() => bridge.openSettings());
             }}
             models={orderedModels.map((model) => ({ key: model.id, name: model.name, tag: modelGroupLabel(model) }))}
             model={selectedModelId}
@@ -1317,7 +1327,9 @@ export function App() {
             defaultEffort={customModelMode ? reasoningEffortLabels[reasoningEffort] : "默认"}
             onEffortChange={(label) => { const effort = reasoningEfforts.find((candidate) => reasoningEffortLabels[candidate] === label); if (effort) setReasoningEffort(effort); }}
             busy={sessionRunning}
-            onSend={(text) => { if (!session || voicePendingSendRef.current) return; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
+            textareaRef={textareaRef}
+            sendDisabled={!session || voicePendingSend}
+            onSend={(text) => { if (!session || voicePendingSendRef.current) return false; void submitMessage(buildQuotedUserMessage(quotedText, text), attachments); }}
             onStop={() => { void stop(); }}
             onAttach={() => new Promise<string[]>((resolve) => { pendingAttachResolveRef.current = resolve; fileInputRef.current?.click(); })}
             onAttachRemove={(name) => setAttachments((current) => { const index = current.findIndex((attachment) => attachment.name === name); return index < 0 ? current : current.filter((_, position) => position !== index); })}

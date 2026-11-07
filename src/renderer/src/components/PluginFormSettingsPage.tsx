@@ -5,7 +5,6 @@ import { SettingsConfirmDialog, SettingsGroup } from "./settings/SettingPrimitiv
 import {
   normalizePluginSettings,
   pluginFieldDefault,
-  normalizePluginPanelStatus,
   pluginFieldHint,
   pluginFieldKind,
   pluginPhaseLabel,
@@ -21,6 +20,7 @@ import {
   type PluginSettingsDescribe,
   type PluginSettingsSection
 } from "../plugin-settings.js";
+import { createPanelStatusReader } from "../plugin-panel-requests.js";
 
 /* R76/R80：通用插件设置表单。
  *
@@ -59,6 +59,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
   const [actionResult, setActionResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [pendingAction, setPendingAction] = useState<PluginSettingAction | null>(null);
   const aliveRef = useRef(true);
+  const panelReaderRef = useRef<ReturnType<typeof createPanelStatusReader> | null>(null);
 
   const applyDescribe = (raw: PluginSettingsDescribe | null | undefined): void => {
     const normalized = normalizePluginSettings(raw);
@@ -110,29 +111,35 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
   useEffect(() => {
     if (!panels.length) return;
     let disposed = false;
-    const timers: number[] = [];
+    const timers = new Map<string, number>();
+    const reader = createPanelStatusReader(
+      (panel) => bridge.callPluginSettings(pluginId, pageId, panel.statusAction, {}),
+      (id, status) => setPanelStatuses((current) => ({ ...current, [id]: status }))
+    );
+    panelReaderRef.current = reader;
     const poll = async (panel: PluginSettingPanel): Promise<void> => {
       try {
-        const raw = await bridge.callPluginSettings(pluginId, pageId, panel.statusAction, {});
-        if (disposed) return;
-        setPanelStatuses((current) => ({ ...current, [panel.id]: normalizePluginPanelStatus(raw) }));
+        await reader.read(panel);
       } catch {
         // 状态读取失败保持上一次结果，不打断表单编辑。
       }
       if (disposed || !panel.pollMs) return;
-      timers.push(window.setTimeout(() => void poll(panel), panel.pollMs));
+      timers.set(panel.id, window.setTimeout(() => void poll(panel), panel.pollMs));
     };
     panels.forEach((panel) => void poll(panel));
-    return () => { disposed = true; timers.forEach((timer) => window.clearTimeout(timer)); };
+    return () => {
+      disposed = true;
+      reader.dispose();
+      if (panelReaderRef.current === reader) panelReaderRef.current = null;
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
   }, [panels, pluginId, pageId]);
 
   const refreshPanel = async (panelId: string): Promise<void> => {
     const panel = panels.find((item) => item.id === panelId);
-    if (!panel) return;
+    if (!panel || !aliveRef.current) return;
     try {
-      const raw = await bridge.callPluginSettings(pluginId, pageId, panel.statusAction, {});
-      if (!aliveRef.current) return;
-      setPanelStatuses((current) => ({ ...current, [panel.id]: normalizePluginPanelStatus(raw) }));
+      await panelReaderRef.current?.read(panel);
     } catch { /* 操作后刷新失败由轮询兜底 */ }
   };
 
@@ -141,9 +148,10 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     setPanelActionBusy(`${panelId}:${action.id}`);
     setPanelFeedback(null);
     try {
-      await bridge.callPluginSettings(pluginId, pageId, action.id, {});
+      const result = (await bridge.callPluginSettings(pluginId, pageId, action.id, {})) as SaveResult;
+      if (!aliveRef.current) return;
+      setPanelFeedback({ ok: result?.ok !== false, text: result == null ? `${action.label}：已提交` : summarizePluginActionResult(result) });
       await refreshPanel(panelId);
-      if (aliveRef.current) setPanelFeedback({ ok: true, text: `${action.label}：已提交` });
     } catch (reason) {
       if (aliveRef.current) setPanelFeedback({ ok: false, text: reason instanceof Error ? reason.message : String(reason) });
     } finally {
@@ -347,7 +355,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
             </div>
             <span className={`plugin-phase-pill phase-${phase}`}>{status?.label || pluginPhaseLabel(phase)}</span>
           </header>
-          {typeof status?.progress === "number" ? <div className="plugin-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.progress}>
+          {typeof status?.progress === "number" ? <div className="plugin-progress" role="progressbar" aria-label={`${panel.title}进度`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.progress}>
             <i style={{ width: `${status.progress}%` }} />
           </div> : null}
           {status?.message ? <p className="plugin-service-message">{status.message}</p> : null}
