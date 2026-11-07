@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { PluginSettingsPanel } from "./PluginSettingsPanel.js";
 import { SecScoreSettingsPage } from "./SecScoreSettingsPage.js";
 import { PluginFormSettingsPage } from "./PluginFormSettingsPage.js";
@@ -10,9 +10,10 @@ import { ASR_BAILIAN_PRESETS, ASR_OPENAI_PRESETS, BAILIAN_DEFAULTS, MIMO_ASR_DEF
 import { emptyMcp, emptyProvider, isOfficialVisionModel, reasoningEffortsForModel } from "../utils.js";
 import { formatOfficialBalanceExpiry, formatOfficialPoints } from "../official-balance.js";
 import { Activity, Archive, Clock, Cpu, Globe, Mic, Puzzle, RefreshCw, Server, Settings2, Shield, Terminal, UserRound, Volume2 } from "lucide-react";
-import { AnimatedCounter } from "./ui/Bits.js";
+import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js";
 import { SettingsAccountPage } from "./settings/SettingsAccountPage.js";
 import { applyTheme, cacheTheme } from "../theme.js";
+import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
@@ -21,7 +22,6 @@ const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label
   { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
   { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }, { id: "settings-commands", label: "命令" }] }
 ];
-import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
 
 const settingsNavIcons: Record<string, typeof UserRound> = {
   "settings-account": UserRound,
@@ -39,6 +39,12 @@ const settingsNavIcons: Record<string, typeof UserRound> = {
   "settings-plugins": Puzzle,
   "settings-commands": Terminal
 };
+
+/** 导航图标随组内项渲染；跟随 HookSidebar 的选中/悬停色变浅变实。 */
+function navIcon(id: string): ReactElement {
+  const Icon = settingsNavIcons[id] || Settings2;
+  return <Icon size={16} strokeWidth={1.8} aria-hidden="true" />;
+}
 
 export function SettingsApp() {
   const bridge = window.secagent;
@@ -427,25 +433,26 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     {/* R61：设置窗顶栏——与主窗 .topbar 同语言（实底 bg-1/下边线/品牌位/拖拽区）。
         原 57px 透明浮字无栏感，Windows 上系统窗控直接压在设置内容上。 */}
     <div className="settings-window-title"><span className="settings-brand">SecAgent</span><span className="settings-window-title-sub">设置</span></div>
-    {!isOobe && <nav className="settings-nav" aria-label="设置导航">
-      {settingsNavGroups.map((group) => <div className="settings-nav-group" key={group.label}>
-        <span className="settings-nav-label">{group.label}</span>
-        {group.items.map((item) => {
-          const Icon = settingsNavIcons[item.id] || Settings2;
-          return <button key={item.id} type="button" className={`settings-nav-item${activePage === item.id ? " active" : ""}`} aria-current={activePage === item.id ? "page" : undefined} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>
-            <Icon className="settings-nav-icon" aria-hidden="true" />
-            <span>{item.label}</span>
-          </button>;
-        })}
-      </div>)}
-      {pluginNavPages.length > 0 && <div className="settings-nav-group">
-        <span className="settings-nav-label">插件设置</span>
-        {pluginNavPages.map((item) => <button key={item.id} type="button" className={`settings-nav-item${activePage === item.id ? " active" : ""}`} aria-current={activePage === item.id ? "page" : undefined} onClick={() => { setActivePage(item.id); window.history.replaceState(null, "", `#${item.id}`); }}>
-          <Puzzle className="settings-nav-icon" aria-hidden="true" />
-          <span>{item.label}</span>
-        </button>)}
-      </div>}
-    </nav>}
+    {!isOobe && <HookSidebar
+      activeId={activePage}
+      onSelect={(id) => { setActivePage(id); window.history.replaceState(null, "", `#${id}`); }}
+      items={[
+        // 一条轨道贯穿整列；分组标签贴在组首项之前（只设首项），标签左对齐轨道
+        ...settingsNavGroups.flatMap((group) => group.items.map((item, itemIndex) => ({
+          id: item.id,
+          label: item.label,
+          icon: navIcon(item.id),
+          ...(itemIndex === 0 ? { group: group.label } : {})
+        }))),
+        // 已安装插件声明的 settingsPages（plugin-<pluginId>-<pageId>）动态并入导航。
+        ...pluginNavPages.map((item, index) => ({
+          id: item.id,
+          label: item.label,
+          icon: navIcon("settings-plugins"),
+          ...(index === 0 ? { group: "插件设置" } : {})
+        } satisfies HookSidebarItem))
+      ] satisfies HookSidebarItem[]}
+    />}
     {error && <div className="settings-error">{error}</div>}
     {success && <div className="settings-success">{success}</div>}
     {!isOobe && <section id="settings-account" className={`settings-section ${activePage === "settings-account" ? "settings-section-active" : ""}`}>
@@ -609,11 +616,7 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     </section>
     {!isOobe && plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => activePage === `plugin-${plugin.id}-${page.id}` && <section className="settings-section settings-section-active plugin-settings-section" key={`${plugin.id}-${page.id}`}>
       <div className="section-title"><div><h2>{page.title}</h2>{page.description ? <p>{page.description}</p> : null}</div></div>
-      {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : plugin.id === "computer-use" ? <article className={`settings-card plugin-service-status ${plugin.state}`}>
-        {/* CU 走自带控制台（settings 工具打开），不渲染表单 */}
-        <span>服务状态</span>
-        <strong>{plugin.message || (plugin.state === "ready" ? "已就绪" : "未连接")}</strong>
-      </article> : <PluginFormSettingsPage pluginId={plugin.id} pageId={page.id} />}
+      {plugin.id === "secscore-connector" && page.id === "secscore" ? <SecScoreSettingsPage pluginId={plugin.id} pageId={page.id} /> : <PluginFormSettingsPage pluginId={plugin.id} pageId={page.id} />}
     </section>))}
 
     <section id="settings-system" className={"settings-section " + (activePage === "settings-system" ? "settings-section-active" : "")}><div className="section-title"><div><h2>系统</h2></div></div>

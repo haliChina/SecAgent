@@ -89,13 +89,8 @@ export function AuroraBackdrop() {
         ctx.fillRect(0, 0, cssWidth, cssHeight);
       }
       ctx.globalCompositeOperation = "source-over";
-      // 浅色版：整幅渐隐到页面底色 --bg-0 (#FFFFFF)
-      const fade = ctx.createLinearGradient(0, 0, 0, cssHeight);
-      fade.addColorStop(0, "rgba(255,255,255,0)");
-      fade.addColorStop(0.55, "rgba(255,255,255,.45)");
-      fade.addColorStop(1, "rgba(255,255,255,1)");
-      ctx.fillStyle = fade;
-      ctx.fillRect(0, 0, cssWidth, cssHeight);
+      // 整幅渐隐由容器的 CSS mask 完成，露出真实页面底色 --bg-0；
+      // 不在画布写死白色，因此主题切换和 reduced-motion 静态帧也保持一致。
     };
 
     const loop = (time: number): void => {

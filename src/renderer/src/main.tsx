@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/electron/renderer";
-import { App } from "./App.js";
-import { WindowErrorBoundary } from "./components/ErrorBoundary.js";
+import { MotionConfig } from "motion/react";
+import { WindowRouter } from "./components/WindowRouter.js";
 import { applyTheme, cacheTheme, watchSystemTheme, type Theme } from "./theme.js";
 import "./styles.css";
 
@@ -66,4 +66,5 @@ window.secagent.onSettingsChanged((settings) => activateTheme((settings as { the
 // first socket's cleanup against the second start. Keep StrictMode for the main
 // app while giving the one-shot wake window a single initialization.
 const isWakeWindow = new URLSearchParams(window.location.search).has("wake") || new URLSearchParams(window.location.search).has("voice-wake");
-createRoot(document.getElementById("root")!).render(isWakeWindow ? <WindowErrorBoundary crashTitle="界面遇到错误"><App /></WindowErrorBoundary> : <StrictMode><WindowErrorBoundary crashTitle="界面遇到错误"><App /></WindowErrorBoundary></StrictMode>);
+const app = <MotionConfig reducedMotion="user"><WindowRouter /></MotionConfig>;
+createRoot(document.getElementById("root")!).render(isWakeWindow ? app : <StrictMode>{app}</StrictMode>);

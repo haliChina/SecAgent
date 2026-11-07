@@ -24,6 +24,8 @@ let tray: Tray | undefined;
 let trayPanel: BrowserWindow | undefined;
 let trayPanelBroken = false;
 let trayPanelHiddenAt = 0;
+/** 面板最近一次 show 的时刻；用于吞掉弹出瞬间的失焦（否则会闪一下再关）。 */
+let trayPanelShownAt = 0;
 let trayPanelTheme: "light" | "dark" | "" = "";
 let trayIpcInstalled = false;
 const TRAY_PANEL_SIZE = { width: 256, height: 226 };
@@ -774,7 +776,14 @@ function ensureTrayPanel(): BrowserWindow {
   });
   panel.setAlwaysOnTop(true, "pop-up-menu");
   panel.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  panel.on("blur", () => { if (panel.isVisible()) hideTrayPanel(); });
+  panel.on("blur", () => {
+    if (!panel.isVisible()) return;
+    /* Windows 托盘点击会在面板刚 show 的瞬间把前台焦点抢回任务栏/主窗，
+       若立刻隐藏再被下一次 click 重新 show，用户看到的就是「闪一下」。
+       刚弹出的 300ms 内忽略失焦。 */
+    if (Date.now() - trayPanelShownAt < 300) return;
+    hideTrayPanel();
+  });
   panel.on("closed", () => { trayPanel = undefined; });
   panel.webContents.on("did-fail-load", (_event, _code, _description, _url, isMainFrame) => {
     if (!isMainFrame) return;
@@ -830,16 +839,21 @@ function toggleTrayPanel(): void {
     tray.setContextMenu(buildNativeTrayMenu());
     return;
   }
+  // ready-to-show 与 did-finish-load 都可能触发；只 reveal 一次，避免重复 show
+  // 造成窗口可见性抖动。
+  let revealed = false;
   const reveal = () => {
-    if (panel.isDestroyed()) return;
+    if (revealed || panel.isDestroyed()) return;
+    revealed = true;
     applyTrayPanelTheme(panel);
     positionTrayPanel();
+    trayPanelShownAt = Date.now();
     panel.show();
     panel.focus();
   };
   if (panel.webContents.isLoading()) {
     // ready-to-show 在个别透明窗口/Renderer 组合下可能不触发，
-    // 再挂一次 did-finish-load 兜底；重复 reveal 只是幂等的 show。
+    // 再挂一次 did-finish-load 兜底；reveal 内部只执行一次。
     panel.once("ready-to-show", reveal);
     panel.webContents.once("did-finish-load", reveal);
   } else reveal();

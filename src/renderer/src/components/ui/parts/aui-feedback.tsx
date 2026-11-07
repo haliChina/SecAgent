@@ -211,7 +211,7 @@ export function AuiErrorState({
         {...props}
       >
         <RefreshCwIcon className="text-muted-foreground size-3.5 shrink-0 animate-spin motion-reduce:animate-none" />
-        <ShimmerLabel className="text-muted-foreground relative inline-block">Retrying</ShimmerLabel>
+        <ShimmerLabel className="text-muted-foreground relative inline-block">正在重试…</ShimmerLabel>
       </div>
     );
   }
@@ -239,7 +239,7 @@ export function AuiErrorState({
           className="text-red-600 hover:bg-red-500/10 ms-auto flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors"
         >
           <RefreshCwIcon className="size-3" />
-          Retry
+          重试
         </button>
       )}
     </div>
