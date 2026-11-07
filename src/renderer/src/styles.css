@@ -139,12 +139,12 @@ button:focus:not(:focus-visible) { outline: none; }
 .mermaid-block { width: 100%; max-width: 100%; min-height: 28px; margin: 12px 0; overflow-x: auto; color: var(--text-2); font-size: 12px; text-align: center; }
 .mermaid-block svg { display: block; width: auto; min-width: min(100%, 420px); max-width: 100%; height: auto; margin: 0 auto; }
 .mermaid-block.mermaid-error { padding: 10px 12px; border: 1px solid rgba(248,113,113,.35); border-radius: 7px; background: rgba(248,113,113,.14); color: #F87171; text-align: left; white-space: pre-wrap; }
-.mafs-block { width: min(100%, 680px); margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.mafs-block { width: min(100%, 680px); margin: 14px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-1); }
 .mafs-block .Mafs { width: 100%; }
 .mafs-error { overflow: auto; margin: 12px 0; padding: 10px 12px; border: 1px solid rgba(248,113,113,.35); border-radius: 7px; background: rgba(248,113,113,.14); color: #F87171; white-space: pre-wrap; }
 .math-diagram-block { width: min(100%, 1120px); margin: 16px 0; overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-1); }
 .math-diagram-svg { display: block; width: 100%; max-width: 1120px; min-width: 0; height: auto; }
-.math-diagram-title text { fill: #111827; font-size: 21px; font-weight: 700; }
+.math-diagram-title text { fill: var(--text-1); font-size: 21px; font-weight: 700; }
 .math-diagram-formula, .math-diagram-note { fill: var(--accent); font-size: 19px; font-weight: 650; }
 .math-diagram-note { fill: var(--accent); }
 .math-diagram-transform-arrow text { fill: var(--text-2); font-size: 16px; }

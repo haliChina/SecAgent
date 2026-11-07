@@ -1035,8 +1035,9 @@ function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   KillResultCode: Integer;
 begin
-  Exec(ExpandConstant('{cmd}'), '/C taskkill /IM SecAgent.exe /F /T >nul 2>&1',
-    '', SW_HIDE, ewWaitUntilTerminated, KillResultCode);
+  { 绝对路径绕过 cmd 的当前目录/PATH 查找，避免提权安装时执行同名程序。 }
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM SecAgent.exe /F /T',
+    ExpandConstant('{sys}'), SW_HIDE, ewWaitUntilTerminated, KillResultCode);
   Log(Format('taskkill SecAgent.exe exit=%d', [KillResultCode]));
   Result := '';
 end;

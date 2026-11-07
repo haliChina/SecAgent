@@ -86,6 +86,8 @@ export interface PromptBarProps {
      不回调——App 侧需要 finishVoiceInput）。 */
   value?: string;
   onDraftChange?: (value: string) => void;
+  /* 宿主传入附件名列表时，PromptBar 与缩略图共用同一状态；未传仍保持真源非受控行为。 */
+  attachmentNames?: string[];
   model?: string;
   onModelChange?: (key: string) => void;
   onAttachRemove?: (name: string) => void;
@@ -271,6 +273,7 @@ export const PromptBar = ({
   onDictate,
   value,
   onDraftChange,
+  attachmentNames,
   /* R27 桥接 prop `model`（string key）与真源内部的 `const model`
      （PromptBarModel 对象，下方 models.find 结果）重名——TS2300 双重声明，
      且 send/detail、菜单高亮（model?.key）、models.indexOf(model) 全被
@@ -329,6 +332,11 @@ export const PromptBar = ({
   useEffect(() => {
     if (value !== undefined && value !== draft) setDraft(value);
   }, [value]);
+  /* App owns attachment objects; mirror its names so thumbnail removal also
+     clears the chip (and vice versa) without changing uncontrolled usage. */
+  useEffect(() => {
+    if (attachmentNames && attachmentNames.join('\n') !== attachments.join('\n')) setAttachments(attachmentNames);
+  }, [attachmentNames]);
   useEffect(() => {
     if (modelProp !== undefined && modelProp !== modelKey) setModelKey(modelProp);
   }, [modelProp]);
