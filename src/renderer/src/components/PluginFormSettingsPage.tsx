@@ -5,14 +5,19 @@ import { SettingsConfirmDialog, SettingsGroup } from "./settings/SettingPrimitiv
 import {
   normalizePluginSettings,
   pluginFieldDefault,
+  normalizePluginPanelStatus,
   pluginFieldHint,
   pluginFieldKind,
+  pluginPhaseLabel,
   pluginPathKind,
   pluginValueMatchesDefault,
   pluginValuesEqual,
   summarizePluginActionResult,
+  type PluginPanelAction,
+  type PluginPanelStatus,
   type PluginSettingAction,
   type PluginSettingField,
+  type PluginSettingPanel,
   type PluginSettingsDescribe,
   type PluginSettingsSection
 } from "../plugin-settings.js";
@@ -40,6 +45,11 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
   const [actions, setActions] = useState<PluginSettingAction[]>([]);
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [initialValues, setInitialValues] = useState<Record<string, unknown>>({});
+  const [panels, setPanels] = useState<PluginSettingPanel[]>([]);
+  const [panelStatuses, setPanelStatuses] = useState<Record<string, PluginPanelStatus>>({});
+  const [panelActionBusy, setPanelActionBusy] = useState<string | null>(null);
+  const [pendingPanelAction, setPendingPanelAction] = useState<{ panelId: string; action: PluginPanelAction } | null>(null);
+  const [panelFeedback, setPanelFeedback] = useState<{ ok: boolean; text: string } | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [saved, setSaved] = useState(false);
@@ -56,6 +66,9 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     setSections(normalized.sections);
     setFields(normalized.fields);
     setActions(normalized.actions);
+    setPanels(normalized.panels);
+    setPanelStatuses({});
+    setPanelFeedback(null);
     setValues(nextValues);
     setInitialValues(nextValues);
   };
@@ -65,6 +78,9 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
       setSections(null);
       setFields([]);
       setActions([]);
+      setPanels([]);
+      setPanelStatuses({});
+      setPanelFeedback(null);
       setValues({});
       setInitialValues({});
       setError("");
@@ -87,6 +103,53 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
     void load();
     return () => { aliveRef.current = false; };
   }, [pluginId, pageId]);
+
+  /* 服务面板轮询：插件用 statusAction 返回 { phase, label, message,
+     progress, facts, actions }，宿主只负责渲染；安装/启动这类耗时操作
+     靠轮询把进度推上来，不需要插件推送。 */
+  useEffect(() => {
+    if (!panels.length) return;
+    let disposed = false;
+    const timers: number[] = [];
+    const poll = async (panel: PluginSettingPanel): Promise<void> => {
+      try {
+        const raw = await bridge.callPluginSettings(pluginId, pageId, panel.statusAction, {});
+        if (disposed) return;
+        setPanelStatuses((current) => ({ ...current, [panel.id]: normalizePluginPanelStatus(raw) }));
+      } catch {
+        // 状态读取失败保持上一次结果，不打断表单编辑。
+      }
+      if (disposed || !panel.pollMs) return;
+      timers.push(window.setTimeout(() => void poll(panel), panel.pollMs));
+    };
+    panels.forEach((panel) => void poll(panel));
+    return () => { disposed = true; timers.forEach((timer) => window.clearTimeout(timer)); };
+  }, [panels, pluginId, pageId]);
+
+  const refreshPanel = async (panelId: string): Promise<void> => {
+    const panel = panels.find((item) => item.id === panelId);
+    if (!panel) return;
+    try {
+      const raw = await bridge.callPluginSettings(pluginId, pageId, panel.statusAction, {});
+      if (!aliveRef.current) return;
+      setPanelStatuses((current) => ({ ...current, [panel.id]: normalizePluginPanelStatus(raw) }));
+    } catch { /* 操作后刷新失败由轮询兜底 */ }
+  };
+
+  const runPanelAction = async (panelId: string, action: PluginPanelAction): Promise<void> => {
+    if (panelActionBusy) return;
+    setPanelActionBusy(`${panelId}:${action.id}`);
+    setPanelFeedback(null);
+    try {
+      await bridge.callPluginSettings(pluginId, pageId, action.id, {});
+      await refreshPanel(panelId);
+      if (aliveRef.current) setPanelFeedback({ ok: true, text: `${action.label}：已提交` });
+    } catch (reason) {
+      if (aliveRef.current) setPanelFeedback({ ok: false, text: reason instanceof Error ? reason.message : String(reason) });
+    } finally {
+      if (aliveRef.current) setPanelActionBusy(null);
+    }
+  };
 
   const save = async (): Promise<void> => {
     if (busy || pluginValuesEqual(values, initialValues)) return;
@@ -146,7 +209,7 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
   };
 
   if (sections === null) return <article className="settings-card"><p>正在读取插件设置…</p></article>;
-  if (!sections.length && !actions.length) return <article className="settings-card"><p className="settings-help">{error ? `该插件设置页不可用：${error}` : "此插件未提供声明式设置（无 describe 协议）。"}</p></article>;
+  if (!sections.length && !actions.length && !panels.length) return <article className="settings-card"><p className="settings-help">{error ? `该插件设置页不可用：${error}` : "此插件未提供声明式设置（无 describe 协议）。"}</p></article>;
 
   const setField = (key: string, value: unknown): void => {
     setSaved(false);
@@ -271,6 +334,42 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
   return <>
     {error && <div className="settings-error">{error}</div>}
     {note && <div className="settings-success">{note}</div>}
+    {panels.length > 0 && <div className="plugin-service-panels">
+      {panels.map((panel) => {
+        const status = panelStatuses[panel.id];
+        const phase = status?.phase || "unknown";
+        const panelActions = status?.actions || [];
+        return <article className={`plugin-service-panel phase-${phase}`} key={panel.id}>
+          <header className="plugin-service-head">
+            <div className="plugin-service-copy">
+              <strong>{panel.title}</strong>
+              {panel.description ? <p>{panel.description}</p> : null}
+            </div>
+            <span className={`plugin-phase-pill phase-${phase}`}>{status?.label || pluginPhaseLabel(phase)}</span>
+          </header>
+          {typeof status?.progress === "number" ? <div className="plugin-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.progress}>
+            <i style={{ width: `${status.progress}%` }} />
+          </div> : null}
+          {status?.message ? <p className="plugin-service-message">{status.message}</p> : null}
+          {status?.facts?.length ? <dl className="plugin-service-facts">
+            {status.facts.map((fact, index) => <div key={`${fact.label}-${index}`}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
+          </dl> : null}
+          {panelActions.length > 0 && <div className="plugin-service-actions">
+            {panelActions.map((action) => {
+              const key = `${panel.id}:${action.id}`;
+              return <button
+                key={action.id}
+                type="button"
+                className={action.primary ? "primary-button plugin-panel-action" : action.danger ? "secondary-button plugin-panel-action danger" : "secondary-button plugin-panel-action"}
+                disabled={panelActionBusy !== null || action.disabled === true}
+                onClick={() => { if (action.confirm) setPendingPanelAction({ panelId: panel.id, action }); else void runPanelAction(panel.id, action); }}
+              >{panelActionBusy === key ? "执行中…" : action.label}</button>;
+            })}
+          </div>}
+        </article>;
+      })}
+    </div>}
+    {panelFeedback ? <div className={panelFeedback.ok ? "settings-success plugin-action-result" : "settings-error plugin-action-result"} role="status">{panelFeedback.text}</div> : null}
     {sections.map((section, index) => <SettingsGroup key={`${section.title}-${index}`} label={section.title} desc={section.description}>
       <div className="plugin-fields">{section.fields.map(renderField)}</div>
     </SettingsGroup>)}
@@ -299,6 +398,15 @@ export function PluginFormSettingsPage({ pluginId, pageId }: { pluginId: string;
       danger={pendingAction?.danger === true}
       onCancel={() => setPendingAction(null)}
       onConfirm={() => { const action = pendingAction; setPendingAction(null); if (action) void runAction(action); }}
+    />
+    <SettingsConfirmDialog
+      open={pendingPanelAction !== null}
+      title={pendingPanelAction ? `执行「${pendingPanelAction.action.label}」` : ""}
+      message={pendingPanelAction?.action.confirm || ""}
+      confirmLabel={pendingPanelAction?.action.label || "执行"}
+      danger={pendingPanelAction?.action.danger === true}
+      onCancel={() => setPendingPanelAction(null)}
+      onConfirm={() => { const pending = pendingPanelAction; setPendingPanelAction(null); if (pending) void runPanelAction(pending.panelId, pending.action); }}
     />
   </>;
 }

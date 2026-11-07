@@ -393,8 +393,35 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-success,
 .settings-shell:not(.oobe-shell) .settings-section { max-width: 1000px; }
 .settings-shell:not(.oobe-shell) .plugin-settings-section { display: grid; gap: 28px; align-content: start; }
-.plugin-service-status { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 18px; }
-.plugin-service-status span { color: var(--text-2); font-size: 13px; }
+/* 插件服务面板：把插件 Web UI 里的「状态胶囊 + 进度条 + 操作按钮」
+   收进宿主设置页，插件只需返回结构化状态，不用自己带一整套页面。 */
+.plugin-service-panels { display: grid; gap: 12px; }
+.plugin-service-panel { padding: 16px 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-1); }
+.plugin-service-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.plugin-service-copy { min-width: 0; display: grid; gap: 4px; }
+.plugin-service-copy strong { color: var(--text-1); font-size: 14px; line-height: 1.4; }
+.plugin-service-copy p { margin: 0; color: var(--text-3); font-size: 12px; line-height: 1.5; }
+.plugin-phase-pill { flex: none; padding: 3px 9px; border-radius: 999px; background: var(--bg-2); color: var(--text-2); font-size: 11px; font-weight: 650; white-space: nowrap; }
+.plugin-phase-pill.phase-running, .plugin-phase-pill.phase-connected, .plugin-phase-pill.phase-ready { background: rgba(34, 197, 94, .14); color: #15803D; }
+.plugin-phase-pill.phase-installing, .plugin-phase-pill.phase-starting, .plugin-phase-pill.phase-pending { background: rgba(245, 158, 11, .14); color: #B45309; }
+.plugin-phase-pill.phase-error { background: rgba(239, 68, 68, .12); color: #B91C1C; }
+:root[data-theme="dark"] .plugin-phase-pill.phase-running,
+:root[data-theme="dark"] .plugin-phase-pill.phase-connected,
+:root[data-theme="dark"] .plugin-phase-pill.phase-ready { color: #4ADE80; }
+:root[data-theme="dark"] .plugin-phase-pill.phase-installing,
+:root[data-theme="dark"] .plugin-phase-pill.phase-starting,
+:root[data-theme="dark"] .plugin-phase-pill.phase-pending { color: #FBBF24; }
+:root[data-theme="dark"] .plugin-phase-pill.phase-error { color: #F87171; }
+.plugin-progress { height: 6px; margin: 12px 0 0; border-radius: 999px; background: var(--bg-2); overflow: hidden; }
+.plugin-progress i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .3s ease; }
+.plugin-service-message { margin: 10px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.55; word-break: break-word; }
+.plugin-service-facts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 10px 0 0; padding: 0; }
+.plugin-service-facts div { display: flex; align-items: baseline; gap: 6px; }
+.plugin-service-facts dt { color: var(--text-3); font-size: 11px; }
+.plugin-service-facts dd { margin: 0; color: var(--text-2); font-size: 11.5px; word-break: break-all; }
+.plugin-service-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.plugin-panel-action { min-height: 32px; padding: 5px 12px; font-size: 12px; }
+.plugin-panel-action.danger { border-color: rgba(248, 113, 113, .42); color: #F87171; }
 /* R81：通用插件设置表单——两列字段网格（标题在上、控件在下），
  * 路径/多行文本独占整行；布尔项保留整行开关。 */
 /* 保存条：长表单滚动时贴底，按钮始终可达（参考设置页的固定底部操作区）。 */
@@ -501,10 +528,6 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .plugin-action-button.danger { border-color: rgba(248,113,113,.42); color: #F87171; }
 .plugin-action-result { margin: 0 14px 12px; padding: 9px 11px; border-radius: 8px; font-size: 12.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
 .plugin-form-state { color: var(--text-3); font-size: 12px; }
-.plugin-service-status strong { color: #4ADE80; font-size: 13px; font-weight: 600; text-align: right; }
-.plugin-service-status.error { border-color: rgba(248,113,113,.35); background: var(--bg-1); }
-.plugin-service-status.error strong { color: #F87171; }
-.plugin-service-status.starting strong { color: var(--accent); }
 
 @media (max-width: 960px) {
   .settings-shell:not(.oobe-shell) { padding-left: 20px; }
@@ -878,21 +901,14 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 /* P3 R33：react-bits VoicePill 真源 CSS（.rb-vp 前缀，R24 注入）整段删除——
    rb-vp/voice-pill__* 类在全部 TSX 零引用（从未接线，录音 UI 用 VoicePill 适配版）。 */
-/* ==== R83：设置侧栏参考 ZCode / Trae 的分组导航 ====
-   组标签 + 图标行 + 柔和选中 pill；替代原钩式点线导航，信息层级更接近参考 UI。 */
-.settings-shell .settings-nav { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 208px; padding: 14px 10px; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; display: flex; flex-direction: column; gap: 18px; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 40%, transparent) transparent; }
-.settings-nav-group { display: grid; gap: 2px; }
-/* 分组之间用发丝线分隔，长导航里更容易扫读。 */
-.settings-nav-group + .settings-nav-group { padding-top: 16px; border-top: 1px solid var(--line); }
-.settings-nav-label { padding: 0 10px 4px; color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: .04em; }
-.settings-nav-item { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text-2); font-size: 13px; font-weight: 500; text-align: left; cursor: pointer; transition: background .16s ease, color .16s ease; }
-.settings-nav-item:hover { background: var(--bg-2); color: var(--text-1); }
-.settings-nav-item.active { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-text); font-weight: 600; }
-.settings-nav-icon { width: 16px; height: 16px; flex: none; opacity: .85; }
-.settings-nav-item.active .settings-nav-icon { opacity: 1; }
+/* ==== 设置侧栏：rareui 钩式导航 ====
+   点线轨 + 圆弧钩跟随选中/悬停项；分组标签会被点线穿过显得断裂，导航保持扁平列表。 */
+.settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 196px; padding: 14px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 40%, transparent) transparent; }
+.settings-shell [data-slot="hook-sidebar-item"] { width: 100%; font-size: 14px; font-weight: 550; }
+.settings-shell [data-slot="hook-sidebar-item"][data-active="true"] { font-weight: 650; }
 /* 键盘焦点环：设置窗内按钮统一反馈（此前只有开关和输入框有焦点样式）。 */
 .settings-shell :is(button, [role="menuitem"], a):focus-visible { outline: 2px solid var(--accent-border); outline-offset: 2px; }
-@media (max-width: 960px) { .settings-shell .settings-nav { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
+@media (max-width: 960px) { .settings-shell [data-slot="hook-sidebar"] { position: static; width: auto; max-width: 1000px; margin: 0 auto 22px; } .settings-shell:not(.oobe-shell) { padding-left: 48px; } }
 .composer-actions { align-items: center; }
 .composer-actions .icon-button { display: inline-flex; align-items: center; justify-content: center; }
 /* R26：麦克风按钮在 DOM 里位于 textarea 之前，视觉上贴着窗口左缘；而
@@ -1112,8 +1128,8 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .settings-shell:not(.oobe-shell) .settings-card > .card-heading > strong { flex: none; font-size: 14px; line-height: 1.5; }
 .settings-shell:not(.oobe-shell) .settings-card > .card-heading > span { max-width: 62%; text-align: right; line-height: 1.5; }
 
-/* 卡片 = 分组容器。plugin-service-status / empty-card 保持独立布局。 */
-.settings-shell:not(.oobe-shell) .settings-card:not(.plugin-service-status):not(.settings-empty-card),
+/* 卡片 = 分组容器。empty-card 保持独立布局。 */
+.settings-shell:not(.oobe-shell) .settings-card:not(.settings-empty-card),
 .settings-shell:not(.oobe-shell) .set-group {
   display: flex; flex-direction: column;
   padding: 0; overflow: hidden;
