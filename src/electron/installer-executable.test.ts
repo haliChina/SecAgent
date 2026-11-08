@@ -8,7 +8,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const script = fs.readFileSync(path.resolve(import.meta.dirname, "../../installer/SecAgent.iss"), "utf8");
+const script = fs.readFileSync(path.resolve(import.meta.dirname, "../../installer/SecAgent.iss"), "utf8").replace(/\r\n/g, "\n");
 const prepare = script.slice(script.indexOf("function PrepareToInstall"), script.indexOf("procedure CurStepChanged"));
 
 test("elevated installer runs taskkill from the trusted Windows system directory", () => {

@@ -8,9 +8,10 @@ import path from "node:path";
 import test from "node:test";
 
 // 从 dist/renderer/src 回到仓库根，避免把编译层级数当作运行位置。
+// 行尾归一为 LF：Windows 检出为 CRLF 时正则同样成立。
 const repo = path.resolve(import.meta.dirname, "..", "..", "..");
-const app = fs.readFileSync(path.join(repo, "src/renderer/src/App.tsx"), "utf8");
-const promptBar = fs.readFileSync(path.join(repo, "src/renderer/src/components/ui/parts/prompt-bar.tsx"), "utf8");
+const app = fs.readFileSync(path.join(repo, "src/renderer/src/App.tsx"), "utf8").replace(/\r\n/g, "\n");
+const promptBar = fs.readFileSync(path.join(repo, "src/renderer/src/components/ui/parts/prompt-bar.tsx"), "utf8").replace(/\r\n/g, "\n");
 
 test("App supplies the real attachment list to PromptBar", () => {
   assert.match(app, /attachmentNames=\{attachments\.map\(\(attachment\) => attachment\.name\)\}/);

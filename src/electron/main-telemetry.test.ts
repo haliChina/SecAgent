@@ -14,9 +14,12 @@ const mainSource = fs.readFileSync(path.join(repo, "src/electron/main.ts"), "utf
 
 test("telemetry module defers Sentry until the migration-aware entry runs", () => {
   assert.match(telemetrySource, /export function initializeSentryAfterMigration/);
-  // The old module top-level call sat after the final closing brace. Now the call is inside the exported migration entry.
-  assert.doesNotMatch(telemetrySource, /\n\}\ninitializeSentry\(\);\n/);
-  assert.match(telemetrySource, /\n\s*initializeSentry\(\);\n\}/);
+  // The old module top-level call sat after the final closing brace. Now the
+  // call lives inside the exported migration entry. Line endings are CRLF on
+  // Windows checkouts, so all patterns here are newline-agnostic.
+  const noNewlines = telemetrySource.replace(/\r\n/g, "\n");
+  assert.doesNotMatch(noNewlines, /\n\}\ninitializeSentry\(\);\n/);
+  assert.match(noNewlines, /\n\s*initializeSentry\(\);\n\}/);
   assert.match(telemetrySource, /let sentryTelemetryEnabled = false;/);
 });
 
