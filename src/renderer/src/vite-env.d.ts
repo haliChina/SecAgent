@@ -19,7 +19,7 @@ interface ProviderConfig { id: string; name: string; preset?: string; provider: 
 interface ProviderPreset { id: string; name: string; env: string[]; api: string; models: ProviderModel[] }
 interface TelemetrySettings { enabled: boolean }
 type AsrProviderKind = "auto" | "official" | "openai" | "local" | "bailian" | "bailian-ws" | "mimo" | "local-pro";
-interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
+interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; prompt?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface BailianAsrSettings { name?: string; apiKeyEnv: string; baseUrl: string; wsUrl: string; model: string; streamModel: string; language?: string; enableItn?: boolean; apiKey?: string; apiKeyConfigured?: boolean }
 interface MimoAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface AsrNoiseSettings { profile?: "standard" | "classroom" | "custom"; speechNoiseThreshold?: number; vadModel?: "near_meeting_16k" | "far_field_meeting_16k"; hotwords?: string[] }
