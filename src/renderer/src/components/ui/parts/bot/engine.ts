@@ -1,8 +1,8 @@
-import { arcRender, type ArcRender, type DotRender } from './decor'
-import { blendExpression, type BotExpression } from './expressions'
-import { decalageDesYeux } from './eyefit'
-import { blinkScale, eyePoses, liveliness } from './face'
-import { clamp, easings, lerp, r2 } from './math'
+import { arcRender, type ArcRender, type DotRender } from './decor.js'
+import { blendExpression, type BotExpression } from './expressions.js'
+import { decalageDesYeux } from './eyefit.js'
+import { blinkScale, eyePoses, liveliness } from './face.js'
+import { clamp, easings, lerp, r2 } from './math.js'
 import {
   blend,
   capsulePath,
@@ -11,8 +11,8 @@ import {
   toPoints,
   type Point,
   type Silhouette
-} from './shape'
-import { STATE_BY_ID, type Pose, type StateDef, type StateId } from './states'
+} from './shape.js'
+import { STATE_BY_ID, type Pose, type StateDef, type StateId } from './states.js'
 
 export interface RenderedEye {
   d: string

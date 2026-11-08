@@ -21,7 +21,7 @@ import { TracePanel } from "./components/TracePanel.js";
 import { DeliverableCard } from "./components/DeliverableCard.js";
 import { SessionSidebar } from "./components/SessionSidebar.js";
 import { reusableEmptySession } from "./session-navigation.js";
-import { AiStatus, AuroraBackdrop, BloubMorph, DaySeparator, DeleteButton, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, WebSearch, type WebSource, daySeparatorId, daySeparatorLabel } from "./components/ui/Bits.js";
+import { AiStatus, AuroraBackdrop, BloubMorph, DaySeparator, DeleteButton, PromptBar, ScrollProgress, ThoughtLine, VoicePill, AuiGuardrailNotice, AuiMessageActions, AuiErrorState, AuiStoppedRun, WebSearch, type WebSource, daySeparatorId, daySeparatorLabel, type BloubState } from "./components/ui/Bits.js";
 
 /** 空会话的快捷提示：只填进输入框，不直接发送，用户可继续补充。 */
 const EMPTY_STATE_PROMPTS = ["查询张三的积分", "给张三加 2 分", "统计本周积分变化", "生成这节课的小结"];
@@ -656,11 +656,36 @@ export function App() {
     const tokens = estimateConversationTokens(history) + estimateTokens(draft);
     return tokens > 0 ? `~${formatTokenCount(tokens)} tokens` : undefined;
   }, [session?.messages, draft]);
-  // 状态球三态映射（仅用既有变量）：说话/识别中 → listening，发送/收尾 → thinking，否则 idle。
+  // 状态球三态语义（label/aria 用）：说话/识别中 → listening，运行/收尾 → thinking，否则 idle。
   const orbState = recording || speechProcessing ? "listening" : anyRunning || anyFinishing ? "thinking" : "idle";
   // 常驻球的"仪表盘"信息（可选任务）：本轮正在调用且未返回的工具名与配色。
   const runningTool = anyRunning || anyFinishing ? [...traceActivities].reverse().find((activity): activity is Extract<AssistantActivity, { kind: "tool" }> => activity.kind === "tool" && !("result" in activity)) : undefined;
   const orbLabel = runningTool ? `正在调用 ${toolTitle(runningTool.name)}` : orbState === "thinking" ? "正在思考" : undefined;
+  // bloub 吉祥物完整状态映射（直通引擎 15 态，优先级从高到低）：
+  // 会话操作失败 → exclaim（"!"惊叹）；等工具审批 → alert（"!"警觉，视线看向确认弹窗）；
+  // 说话/识别 → listening（wide 睁大眼）；运行中 → 正调工具 orbit（环环绕球=手上转着活）/
+  // 纯模型生成 thinking（三点加载）；手动停止 → sleep（缩成小点弹跳=已暂停歇着）；
+  // 忙→闲下降沿 → burst（爆散重聚庆祝 2.4s，被手动停止则不庆祝）；其余 idle。
+  const botBusy = recording || speechProcessing || anyRunning || anyFinishing;
+  const celebrateRef = useRef(false);
+  const prevBusyRef = useRef(botBusy);
+  const [botCelebrate, setBotCelebrate] = useState(false);
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current;
+    prevBusyRef.current = botBusy;
+    if (!wasBusy || botBusy || celebrateRef.current || manuallyStopped) return;
+    celebrateRef.current = true;
+    setBotCelebrate(true);
+    const t = setTimeout(() => { celebrateRef.current = false; setBotCelebrate(false); }, 2400);
+    return () => clearTimeout(t);
+  }, [botBusy, manuallyStopped]);
+  const botState: BloubState = sessionError ? "exclaim"
+    : toolConfirmation ? "alert"
+    : recording || speechProcessing ? "listening"
+    : botBusy ? (runningTool ? "orbit" : "thinking")
+    : manuallyStopped ? "sleep"
+    : botCelebrate ? "burst"
+    : "idle";
   // ScrollProgress（rareui）节列表：按本地日聚合消息（id 即 DaySeparator 的锚点 id）
   const scrollSections = useMemo(() => {
     if (!session?.messages.length) return [] as Array<{ id: string; label: string }>;
@@ -1253,7 +1278,7 @@ export function App() {
           {sessionError && <div className="session-feedback"><p role="alert">{sessionError}。请重试刚才的操作。</p><button type="button" onClick={() => setSessionError("")} aria-label="关闭会话错误提示">关闭</button></div>}
           {session?.messages.length === 0 && <div className="empty-state">
             <AuroraBackdrop />
-            <BloubMorph className="bloub-morph" size={132} state={orbState} follow />
+            <BloubMorph className="bloub-morph" size={132} state={botState} follow entrance />
             <p className="empty-state-eyebrow">SECAGENT · 课堂助手</p>
             <h2>今天想做什么？</h2>
             <p className="empty-state-lead">查积分、加减分、整理课堂表现，直接说就好。</p>
@@ -1283,7 +1308,7 @@ export function App() {
         </div>
         {showJumpToLatest && session && session.messages.length > 0 && <button className="jump-to-latest" type="button" aria-label="回到最新消息" title="回到最新消息" onClick={scrollMessagesToBottom}><ArrowDown size={16} aria-hidden /></button>}
         {toolConfirmation && <ToolConfirmationDialog confirmation={toolConfirmation} onResolve={resolveToolConfirmation} />}
-        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple tabIndex={-1} aria-label="添加图片" onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。状态球历史：R58 MatrixOrb→R60 FluidOrb（rare-ui WebGL）→现 bloub morph 吉祥物（MIT，engine 见 parts/bot/）：墨色形状在状态间平滑变形、眼睛随鼠标注视，listening→睁大眼、thinking→视线游移——状态语义由引擎自带表情表达，调用侧不再传色。 */}<BloubMorph size={40} state={orbState} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
+        <form ref={formRef} className={`composer ${composerDragging ? "dragging" : ""}`} onSubmit={send} onPointerDown={handleMicPointerDown} onPointerMove={handleMicPointerMove} onPointerUp={handleMicPointerUp} onPointerCancel={handleMicPointerCancel} onPaste={handlePaste} onDragEnter={(event) => { if (event.dataTransfer.types.includes("Files")) { event.preventDefault(); setComposerDragging(true); } }} onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setComposerDragging(false); }} onDrop={handleDrop}><input ref={fileInputRef} className="visually-hidden" type="file" accept="image/*" multiple tabIndex={-1} aria-label="添加图片" onChange={(event) => { void addImageFiles(event.target.files || []); event.target.value = ""; }} />{session && session.messages.length > 0 && <div className="composer-orb-dock" role="img" aria-label={`Agent 状态：${orbLabel || (orbState === "listening" ? "聆听中" : orbState === "thinking" ? "思考中" : "就绪")}`} title="按住可拖拽，松手回弹" ref={orbDockRef} onPointerDown={handleOrbPointerDown} onPointerMove={handleOrbPointerMove} onPointerUp={releaseOrbDock} onPointerCancel={releaseOrbDock}>{/* 状态播报职责在 speech-status；orbLabel 随每次工具调用高频变化，role="status" 会让读屏连读刷屏（R8 a11y）。状态球历史：R58 MatrixOrb→R60 FluidOrb（rare-ui WebGL）→现 bloub morph 吉祥物（MIT，engine 见 parts/bot/）：墨色形状在状态间平滑变形、眼睛随鼠标注视，listening→睁大眼、thinking→视线游移——状态语义由引擎自带表情表达，调用侧不再传色。 */}<BloubMorph size={40} state={botState} />{orbLabel && <span className="composer-orb-label">{orbLabel}</span>}</div>}{attachments.length > 0 && <div className="composer-attachments"><AttachmentStrip attachments={attachments} removable onRemove={(id) => setAttachments((current) => current.filter((attachment) => attachment.id !== id))} /></div>}{quotedText && <div className="composer-quote"><div><strong>引用</strong><p>{quotedText}</p></div><button type="button" aria-label="取消引用" onClick={() => setQuotedText("")}>×</button></div>}{attachmentError && <div className="attachment-error">{attachmentError}</div>}{speechProcessing && !recording && speechMode === "streaming" ? <VoicePill recording={false} label={speechStatus || "正在识别…"} /> : speechStatus && !recording && !speechProcessing && <div className="speech-status" role="status">{speechStatus}</div>}
           {speechMode === "hold" && (recording || speechProcessing) ? <div className={`voice-recording-surface ${voiceDropZone === "cancel" ? "cancel-hover" : ""}`} aria-live="polite">
             {!speechProcessing && <div className="voice-drop-zones"><div ref={voiceCancelZoneRef} className={`voice-drop-zone voice-cancel-zone ${voiceDropZone === "cancel" ? "active" : ""}`}><strong>拖到这里取消</strong><small>松开取消识别</small></div><div ref={voiceEditZoneRef} className={`voice-drop-zone voice-edit-zone ${voiceDropZone === "edit" ? "active" : ""}`}><strong>拖到这里转文字</strong><small>松开写入输入框</small></div></div>}
             <div className="voice-recording-bar"><span className="voice-recording-status">{speechProcessing ? speechStatus || "正在识别…" : voiceDropZone === "edit" ? "松开写入输入框" : voiceDropZone === "cancel" ? "松开取消" : "松开直接发送"}</span><span className="voice-wave" aria-hidden="true">{[12, 22, 32, 43, 54, 42, 29, 19, 35, 49, 58, 45, 27, 18].map((height, index) => <i key={index} style={{ height: `${height}px`, animationDelay: `${index * 35}ms` }} />)}</span></div>

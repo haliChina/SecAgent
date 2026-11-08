@@ -1,6 +1,6 @@
-import { EYE_H, EYE_SPLIT, EYE_W, REST_GAZE, type HeadGaze } from './face'
-import { lerp } from './math'
-import type { EyeCfg } from './states'
+import { EYE_H, EYE_SPLIT, EYE_W, REST_GAZE, type HeadGaze } from './face.js'
+import { lerp } from './math.js'
+import type { EyeCfg } from './states.js'
 
 /**
  * Expression de repos du bot.

@@ -1,4 +1,4 @@
-import { clamp, createRng, loopNoise } from './math'
+import { clamp, createRng, loopNoise } from './math.js'
 
 /**
  * Les yeux sont peints sur une sphere, pas poses a plat.

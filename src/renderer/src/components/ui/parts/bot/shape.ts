@@ -1,5 +1,5 @@
-import { TAU, lerp, r2 } from './math'
-import { PROFILES, PROFILE_SAMPLES, type ProfileName } from './profiles'
+import { TAU, lerp, r2 } from './math.js'
+import { PROFILES, PROFILE_SAMPLES, type ProfileName } from './profiles.js'
 
 export interface Point {
   x: number

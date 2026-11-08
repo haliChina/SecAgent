@@ -1,4 +1,4 @@
-import { TAU, clamp, createRng, r2 } from './math'
+import { TAU, clamp, createRng, r2 } from './math.js'
 
 /* ------------------------------------------------------------------ couleurs */
 

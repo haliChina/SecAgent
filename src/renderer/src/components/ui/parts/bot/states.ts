@@ -14,9 +14,9 @@ import {
   particles,
   type ArcSpec,
   type DotRender
-} from './decor'
-import { EYE_H, EYE_SPLIT, EYE_W, REST_GAZE, type HeadGaze } from './face'
-import { TAU, clamp, easings } from './math'
+} from './decor.js'
+import { EYE_H, EYE_SPLIT, EYE_W, REST_GAZE, type HeadGaze } from './face.js'
+import { TAU, clamp, easings } from './math.js'
 import {
   circle,
   hullOfCircles,
@@ -24,7 +24,7 @@ import {
   profileFromPolygon,
   silhouette,
   type Silhouette
-} from './shape'
+} from './shape.js'
 
 export interface EyeCfg {
   /** largeur locale (axe court de la gelule), en unites de rayon de boule */

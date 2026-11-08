@@ -25,6 +25,9 @@ import { NOTIF_BLUE } from "./bot/decor.js";
 
 export type OrbState = "idle" | "listening" | "thinking";
 
+/** 组件接受的完整状态：App 三态语义 + bloub 引擎 15 态直通（orbit/burst/play/…）。 */
+export type BloubState = OrbState | StateId;
+
 /** OrbState → bloub 状态。listening 用 wide（睁大眼）表现专注收音。 */
 const STATE_OF: Record<OrbState, StateId> = {
   idle: "idle",
@@ -32,10 +35,28 @@ const STATE_OF: Record<OrbState, StateId> = {
   thinking: "thinking"
 };
 
-const LABEL_OF: Record<OrbState, string> = {
+/** BloubState → 引擎状态（三态语义先归一，其余原样直通）。 */
+function resolveState(state: BloubState): StateId {
+  return (STATE_OF as Record<string, StateId | undefined>)[state] ?? (state as StateId);
+}
+
+const LABEL_OF: Record<BloubState, string> = {
   idle: "待命",
   listening: "聆听中",
-  thinking: "思考中"
+  thinking: "思考中",
+  wide: "聆听中",
+  wink: "眨眼",
+  alert: "等待确认",
+  notify: "有通知",
+  exclaim: "出错了",
+  sleep: "已暂停",
+  egg: "变身",
+  hexagon: "变身",
+  play: "庆祝",
+  orbit: "忙碌",
+  swirl: "入场",
+  burst: "完成",
+  comet: "完成"
 };
 
 /** 明暗主题下的墨色/纸色（纸色即眼睛孔洞透出的底色，须与页面背景一致）。 */
@@ -47,13 +68,16 @@ function palette(): { ink: string; paper: string } {
 
 interface BloubMorphProps {
   size: number;
-  state?: OrbState;
+  /** App 三态语义或引擎 15 态直通（idle/listening/thinking/orbit/burst/…）。 */
+  state?: BloubState;
   /** 眼睛跟随鼠标（空状态大尺寸时开启）。 */
   follow?: boolean;
+  /** 入场：先播 swirl（上游的进场动画，约 1.3s），再 morph 到目标状态。 */
+  entrance?: boolean;
   className?: string;
 }
 
-export function BloubMorph({ size, state = "idle", follow = false, className }: BloubMorphProps) {
+export function BloubMorph({ size, state = "idle", follow = false, entrance = false, className }: BloubMorphProps) {
   const VB = DEMI_VIEWBOX;
   const rawId = useId();
   const uid = `bm${rawId.replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -71,16 +95,32 @@ export function BloubMorph({ size, state = "idle", follow = false, className }: 
   if (engineRef.current === null) {
     engineRef.current = new BotEngine(
       RAYON,
-      STATE_OF[state],
+      entrance ? "swirl" : resolveState(state),
       SHAPE_BY_ID.get(DEFAULT_SHAPE)?.radii ?? null,
       null
     );
   }
 
-  /* 状态切换：引擎自己 morph，重复设置同值是 no-op。 */
+  /* 入场未完成前，外部状态不进场（swirl 先播完）。stateRef 供 timeout 读取最新值。 */
+  const entranceRef = useRef(!entrance);
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  /* 状态切换：引擎自己 morph，重复设置同值是 no-op。入场期间由 timeout 接管。 */
   useEffect(() => {
-    engineRef.current?.setState(STATE_OF[state], clockRef.current);
+    if (!entranceRef.current) return;
+    engineRef.current?.setState(resolveState(state), clockRef.current);
   }, [state]);
+
+  /* 入场：swirl 播到 ~1.3s 后 morph 到（可能是最新的）目标状态。 */
+  useEffect(() => {
+    if (entranceRef.current) return;
+    const t = setTimeout(() => {
+      entranceRef.current = true;
+      engineRef.current?.setState(resolveState(stateRef.current), clockRef.current);
+    }, 1300);
+    return () => clearTimeout(t);
+  }, []);
 
   /* 指针跟随：记录相对屏幕中心的归一化坐标。 */
   useEffect(() => {

@@ -38,11 +38,11 @@
  * donc sans effet sur la purete de `engine.sample(t)`.
  */
 
-import { EXPRESSIONS, type BotExpression } from './expressions'
-import { eyePoses } from './face'
-import { radiusAtAngle, toPoints, type Point } from './shape'
-import { SHAPES } from './skins'
-import { STATES, type Pose, type StateDef, type StateId } from './states'
+import { EXPRESSIONS, type BotExpression } from './expressions.js'
+import { eyePoses } from './face.js'
+import { radiusAtAngle, toPoints, type Point } from './shape.js'
+import { SHAPES } from './skins.js'
+import { STATES, type Pose, type StateDef, type StateId } from './states.js'
 
 /** Rayon de reference du solveur. Le decalage rendu est en unites de ce rayon. */
 const R = 100
