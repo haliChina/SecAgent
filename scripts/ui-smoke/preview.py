@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
             path = path[len('/baseline'):]
         if path == '/fixture-config.js':
             data, mime = config.encode(), 'text/javascript'
-        elif path in ('/bridge-mock.js', '/native-checks.js', '/integration-checks.js'):
+        elif path in ('/bridge-mock.js', '/native-checks.js', '/integration-checks.js', '/fix-checks.js'):
             data, mime = (HERE / path.lstrip('/')).read_bytes(), 'text/javascript'
         elif path == '/axe.js' and args.axe:
             data, mime = args.axe.read_bytes(), 'text/javascript'

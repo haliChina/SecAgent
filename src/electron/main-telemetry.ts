@@ -1,8 +1,8 @@
 /**
  * 主进程遥测/Sentry（B2 自 main.ts 拆出，纯搬家）。
  *
- * 匿名遥测默认关闭（fail-closed）：用户在设置里开启前不初始化
- * Sentry 原生集成。Sentry 上报前脱敏（去 headers/cookies/user，
+ * 工作区迁移与偏好读取完成前保持关闭（fail-closed），随后尊重已有
+ * 遥测设置。Sentry 上报前脱敏（去 headers/cookies/user，
  * 路径与消息经 normalizeMessage）。
  */
 import fs from "node:fs";
@@ -20,9 +20,9 @@ function readInitialTelemetryEnabled(): boolean {
   catch { return false; }
 }
 
-// Fail closed for an existing opt-out and avoid starting Sentry's native
-// minidump/session integrations until the user has opted in.
-let sentryTelemetryEnabled = readInitialTelemetryEnabled();
+// Fail closed during module loading: main explicitly reads the persisted
+// preference after workspace migration, before starting native integrations.
+let sentryTelemetryEnabled = false;
 let sentryInitialized = false;
 let telemetry: TelemetryClient | undefined;
 
@@ -82,4 +82,8 @@ export function recordTelemetryFailure(failure: TelemetryFailure): void {
   telemetry?.recordFailure(failure);
   if (SENTRY_DSN && telemetry?.isEnabled()) Sentry.captureException(captureSafeException(failure.error || failure.type));
 }
-initializeSentry();
+/** The main entry calls this only after migrating the legacy workspace. */
+export function initializeSentryAfterMigration(): void {
+  setSentryTelemetryEnabled(readInitialTelemetryEnabled());
+  initializeSentry();
+}

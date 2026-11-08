@@ -1335,6 +1335,7 @@ export function App() {
             onAttachRemove={(name) => setAttachments((current) => { const index = current.findIndex((attachment) => attachment.name === name); return index < 0 ? current : current.filter((_, position) => position !== index); })}
             onDictate={startPromptDictation}
             onDictateCancel={cancelPromptDictation}
+            attachmentNames={attachments.map((attachment) => attachment.name)}
             value={draft}
             onDraftChange={setDraft}
             sendShortcut={sendShortcut}

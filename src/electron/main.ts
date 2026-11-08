@@ -29,7 +29,7 @@ import { registerSettingsIpc } from "./ipc-settings.js";
 import { closeVoiceWakeWindow, closeWakeWindow, getVoiceWakeWindow, getWakeWindow, openWakeWindow, registerWakeIpc, registerWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import { registerSessionsIpc } from "./ipc-sessions.js";
 import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, openPluginOverlay, openPluginSvgPreview, openSettings, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge } from "./windows.js";
-import { SENTRY_DSN, Sentry, getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
+import { SENTRY_DSN, Sentry, getTelemetry, initializeSentryAfterMigration, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARG, AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
 import { listGoogleModels, type GoogleModelInfo } from "../google-models.js";
@@ -54,6 +54,8 @@ try {
 } catch (error) {
   console.warn("[paths] 旧工作区迁移失败，将继续使用新路径", error);
 }
+
+initializeSentryAfterMigration();
 
 let pluginManager: PluginManager | undefined;
 let secAgentHttpServer: SecAgentHttpServer | undefined;
