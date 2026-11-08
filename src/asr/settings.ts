@@ -19,6 +19,12 @@ export interface OpenAiAsrSettings {
   model: string;
   /** Optional ISO language hint (`zh`, `en`…). */
   language?: string;
+  /** Optional hotword/biasing hint posted as the Whisper `prompt` field —
+   * 专有名词、人名、术语等，提高转写命中率（学习自 OpenMinis：他们把
+   * prompt 作为 transcriptions 请求的常设字段透传；chat-based 路径则拼进
+   * 系统提示词）。上限 1000 字符，超出静默截断（Whisper 官方预算约
+   * 224 token，这里是宽松护栏）。 */
+  prompt?: string;
 }
 
 /**
@@ -187,7 +193,8 @@ export function normalizeSpeechSettings(raw: unknown): SpeechAsrSettings {
     baseUrl: typeof openaiRaw.baseUrl === "string" ? openaiRaw.baseUrl.trim().replace(/\/+$/, "") : "",
     apiKeyEnv: typeof openaiRaw.apiKeyEnv === "string" && /^[A-Za-z_][A-Za-z0-9_]*$/.test(openaiRaw.apiKeyEnv) ? openaiRaw.apiKeyEnv : "",
     model: typeof openaiRaw.model === "string" ? openaiRaw.model.trim() : "",
-    ...(typeof openaiRaw.language === "string" && openaiRaw.language.trim() ? { language: openaiRaw.language.trim() } : {})
+    ...(typeof openaiRaw.language === "string" && openaiRaw.language.trim() ? { language: openaiRaw.language.trim() } : {}),
+    ...(typeof openaiRaw.prompt === "string" && openaiRaw.prompt.trim() ? { prompt: openaiRaw.prompt.trim().slice(0, 1000) } : {})
   };
   // Only emit the third-party block when it carries a usable endpoint, so an
   // untouched config stays `{ betterRecognition, provider }` without an empty

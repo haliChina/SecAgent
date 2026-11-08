@@ -43,3 +43,12 @@ test("isOpenAiAsrConfigured requires endpoint, model and key name", () => {
   assert.equal(isOpenAiAsrConfigured({ ...base, openai: { ...base.openai!, model: "" } }), false);
   assert.equal(isOpenAiAsrConfigured(undefined), false);
 });
+
+test("openai prompt 热词：trim 后保留、上限 1000、空值丢弃（OpenMinis 学习项）", () => {
+  const kept = normalizeSpeechSettings({ provider: "openai", openai: { baseUrl: "https://api.example.com/v1/", model: "whisper-1", apiKeyEnv: "K", prompt: "  SecAgent GLM  " } });
+  assert.equal(kept.openai?.prompt, "SecAgent GLM");
+  const dropped = normalizeSpeechSettings({ provider: "openai", openai: { baseUrl: "https://api.example.com/v1", model: "whisper-1", apiKeyEnv: "K", prompt: "   " } });
+  assert.equal("prompt" in (dropped.openai || {}), false);
+  const capped = normalizeSpeechSettings({ provider: "openai", openai: { baseUrl: "https://api.example.com/v1", model: "whisper-1", apiKeyEnv: "K", prompt: "词".repeat(1500) } });
+  assert.equal(capped.openai?.prompt?.length, 1000);
+});
