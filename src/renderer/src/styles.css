@@ -855,12 +855,10 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* 设计 token：主蓝 var(--accent) · 文字 var(--text-1) / 次要 var(--text-3) · 线 var(--line)   */
 /* ================================================================== */
 
-/* ---- MatrixOrb (rareui matrixorb · size prop 定尺寸，动画在 JS 内逐点计算) ---- */
-.matrix-orb { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; margin: 0 auto 18px; }
-.matrix-orb-canvas { display: block; }
-.matrix-orb-label { font-size: 14px; color: var(--text-2); }
-.empty-state .matrix-orb + h2 { margin-top: 0; }
-.empty-state .matrix-orb { margin-bottom: 18px; }
+/* ---- BloubMorph（bloub MIT 移植：SVG morph 吉祥物，动画在 JS 内逐帧采样） ---- */
+.bloub-morph { display: block; margin: 0 auto 18px; }
+.empty-state .bloub-morph + h2 { margin-top: 0; }
+.empty-state .bloub-morph { margin-bottom: 18px; }
 /* ---- AuroraBackdrop (reactbits · lightMode 移植，画在 JS 内) ---- */
 .aurora-backdrop { position: absolute; inset: 0; overflow: hidden; border-radius: 28px; pointer-events: none; }
 .aurora-backdrop { mask-image: linear-gradient(#000, rgba(0,0,0,.55) 55%, transparent); }
@@ -869,14 +867,7 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 .composer-orb-dock { position: absolute; right: 18px; bottom: calc(100% + 10px); display: flex; align-items: center; gap: 8px; padding: 4px 12px 4px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--glass-strong); box-shadow: 0 2px 12px rgba(15, 23, 42, .1); animation: orb-dock-in .28s cubic-bezier(.2, .8, .3, 1); touch-action: none; user-select: none; -webkit-user-select: none; cursor: grab; }
 /* R74 拖拽态：抬升阴影 + 置顶；回弹曲线由 JS 内联（松手时写入）。 */
 .composer-orb-dock.dragging { cursor: grabbing; z-index: 60; box-shadow: 0 10px 28px rgba(15, 23, 42, .22); }
-.composer-orb-dock .matrix-orb, .composer-orb-dock .fluid-orb { margin: 0; gap: 0; display: block; }
-/* R62：FluidOrb 白底白球看不清——orb 外框加弱描边+内高光+微投影（凸起感）。
-   打在 .fluid-orb 根节点（组件 className 透传），组件本体零改动。 */
-.composer-orb-dock .fluid-orb { border: 1px solid color-mix(in srgb, var(--text-3) 38%, transparent); box-shadow: inset 0 1px 2px rgba(255, 255, 255, .55), 0 2px 6px rgba(15, 23, 42, .16); background: var(--bg-2); }
-/* R60：真源 FluidOrb（WebGL）listening 态呼吸——调用侧组合，组件本体零改动。 */
-.fluid-orb-pulse { animation: fluid-orb-pulse 1.6s ease-in-out infinite; }
-@keyframes fluid-orb-pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.09); } }
-@media (prefers-reduced-motion: reduce) { .fluid-orb-pulse { animation: none; } }
+.composer-orb-dock .bloub-morph { margin: 0; display: block; flex: none; }
 .composer-orb-dock:not(:has(.composer-orb-label)) { padding-right: 6px; }
 .composer-orb-label { font-size: 11px; color: var(--text-2); white-space: nowrap; }
 @keyframes orb-dock-in { from { opacity: 0; transform: translateY(8px) scale(.5); } }
@@ -1350,8 +1341,7 @@ body:has(.app-shell) { min-width: 320px; }
 .app-shell .messages:has(.empty-state) { padding-block: 16px; }
 @media (max-height: 700px) {
   .empty-state { padding: 12px; }
-  .empty-state .matrix-orb { margin-bottom: 8px; }
-  .empty-state .matrix-orb-canvas { width: 80px !important; height: 80px !important; }
+  .empty-state .bloub-morph { margin-bottom: 8px; width: 80px; height: 80px; }
   .empty-state h2 { font-size: 28px; }
   .empty-state-lead { margin: 8px 0 14px; }
 }

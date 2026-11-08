@@ -3,17 +3,25 @@ SecAgent 第三方组件声明（Third-Party Notices）
 本仓库部分界面组件逐行移植自 Rare UI（https://rareui.com/ ,
 https://github.com/swamimalode07/rare-ui）：
 
-  src/renderer/src/components/ui/parts/matrix-orb.tsx
   src/renderer/src/components/ui/parts/delete-button.tsx
   src/renderer/src/components/ui/parts/scroll-progress.tsx
   src/renderer/src/components/ui/parts/hook-sidebar.tsx
   src/renderer/src/components/ui/parts/animated-counter.tsx
-  src/renderer/src/components/ui/parts/fluid-orb.tsx
 
 这些组件在应用内保留可见的 Rare UI 署名链接（设置 → 关于），README「开源致谢」
 与源码文件头也保留了来源说明。
 
 --------------------------------------------------------------------------
+
+--------------------------------------------------------------------------
+
+吉祥物组件 BloubMorph（src/renderer/src/components/ui/parts/bloub-morph.tsx
+与 parts/bot/ 引擎目录）逐行移植自 bloub
+（https://github.com/jeremy-prt/bloub ，MIT License，Copyright (c) 2025
+jeremy-prt）。引擎（states/shape/face/decor/expressions/eyefit/math/
+profiles/repere/skins）为上游原样拷贝，React 客户端对应上游
+src/components/BloubBot.vue 的最小移植。MIT 许可证全文见
+https://opensource.org/licenses/MIT 。
 
 上下文预算与 token 估算思路（src/context-budget.ts）参考自 AIStudio
 （https://github.com/SRInternet-Studio/AIStudio ，Apache License 2.0，
