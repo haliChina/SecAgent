@@ -1,11 +1,24 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
+import { mermaidThemeFor, mermaidThemeVariables } from "../mermaid-theme.js";
 
 let mermaidId = 0;
+
+function currentTheme() {
+  return mermaidThemeFor(document.documentElement.dataset.theme === "dark");
+}
 
 export function MermaidBlock({ chart }: { chart: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const idRef = useRef(`mermaid-diagram-${++mermaidId}`);
+  const [theme, setTheme] = useState(currentTheme);
+
+  /* 主题可在运行中切换（设置页保存后广播 data-theme），图表需随主题重绘。 */
+  useEffect(() => {
+    const observer = new MutationObserver(() => setTheme(currentTheme()));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -14,7 +27,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
 
     container.textContent = "正在渲染图表…";
     container.classList.remove("mermaid-error");
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "default" });
+    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, themeVariables: mermaidThemeVariables(theme) });
     void mermaid.render(idRef.current, chart).then(({ svg, bindFunctions }) => {
       if (cancelled || !containerRef.current) return;
       containerRef.current.innerHTML = svg;
@@ -28,7 +41,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
     return () => {
       cancelled = true;
     };
-  }, [chart]);
+  }, [chart, theme]);
 
   return <div ref={containerRef} className="mermaid-block" role="img" aria-label="Mermaid 图表" />;
 }
