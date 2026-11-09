@@ -131,7 +131,7 @@ export function PluginSettingsPanel({
           <button type="button" role="tab" aria-selected={category === "installed"} className={category === "installed" ? "active" : ""} onClick={() => setCategory("installed")}>已安装 <span>{plugins.length}</span></button>
           <button type="button" role="tab" aria-selected={category === "market"} className={category === "market" ? "active" : ""} onClick={() => setCategory("market")}>市场 <span>{marketPlugins.length}</span></button>
         </div>
-        <div className="plugin-list" role="listbox" aria-label={category === "installed" ? "已安装插件" : "插件市场"}>
+        <div className="plugin-list" role={visiblePlugins.length ? "listbox" : undefined} aria-label={category === "installed" ? "已安装插件" : "插件市场"}>
           {visiblePlugins.map((plugin) => {
             const local = plugins.find((item) => item.id === plugin.id);
             const marketPlugin = category === "market" ? plugin as MarketplacePlugin : undefined;
@@ -144,7 +144,7 @@ export function PluginSettingsPanel({
               <span className={`plugin-list-state ${local?.state || "market"}`}>{state}</span>
             </button>;
           })}
-          {!visiblePlugins.length && <div className="plugin-list-empty"><PackageOpen size={26} /><span>{category === "installed" ? "还没有安装插件" : marketLoading ? "正在加载市场…" : "没有找到匹配的插件"}</span></div>}
+          {!visiblePlugins.length && <div className="plugin-list-empty" role="status"><PackageOpen size={26} /><span>{category === "installed" ? "还没有安装插件" : marketLoading ? "正在加载市场…" : "没有找到匹配的插件"}</span></div>}
         </div>
       </aside>
       <section className="plugin-detail" aria-label="插件详情">
@@ -165,11 +165,11 @@ export function PluginSettingsPanel({
           {market?.releaseError && <div className="plugin-detail-message error"><CircleAlert size={16} />暂不可用：{market.releaseError}</div>}
           {installed?.message && <div className={`plugin-detail-message ${installed.state}`}><CircleAlert size={16} />{installed.message}</div>}
           <div className="plugin-detail-tabs" role="tablist">
-            <button type="button" className={detailTab === "readme" ? "active" : ""} onClick={() => setDetailTab("readme")}>概览</button>
-            {installed?.state === "error" && <button type="button" className={detailTab === "error" ? "active" : ""} onClick={() => setDetailTab("error")}>错误信息</button>}
-            <button type="button" className={detailTab === "details" ? "active" : ""} onClick={() => setDetailTab("details")}>权限与设置</button>
+            <button type="button" role="tab" aria-selected={detailTab === "readme"} className={detailTab === "readme" ? "active" : ""} onClick={() => setDetailTab("readme")}>概览</button>
+            {installed?.state === "error" && <button type="button" role="tab" aria-selected={detailTab === "error"} className={detailTab === "error" ? "active" : ""} onClick={() => setDetailTab("error")}>错误信息</button>}
+            <button type="button" role="tab" aria-selected={detailTab === "details"} className={detailTab === "details" ? "active" : ""} onClick={() => setDetailTab("details")}>权限与设置</button>
           </div>
-          <div className="plugin-detail-content">
+          <div className="plugin-detail-content" role="tabpanel">
             {detailTab === "readme" && <div className="plugin-readme"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedReadme || "暂无 README。"}</ReactMarkdown></div>}
             {detailTab === "error" && <div className="plugin-error-panel"><CircleAlert size={20} /><p>{installed?.message || "插件加载时没有报告错误。"}</p></div>}
             {detailTab === "details" && <div className="plugin-info-grid"><div><small>插件 ID</small><strong>{selected.id}</strong></div><div><small>格式</small><strong>{selected.format === "agent" || installed?.format === "agent" ? "Agent Plugins" : "SecAgent"}</strong></div><div><small>版本</small><strong>v{installed?.version || selectedVersion?.version || "—"}</strong></div><div><small>权限</small><strong>{(installed?.permissions || selectedVersion?.permissions || []).length ? (installed?.permissions || selectedVersion?.permissions || []).join("、") : "未声明权限"}</strong></div><div><small>设置页面</small><strong>{installed?.settingsPages.length ? installed.settingsPages.map((page) => page.title).join("、") : "无"}</strong></div></div>}
