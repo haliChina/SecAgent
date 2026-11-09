@@ -156,6 +156,8 @@ export interface SecAgentConfig {
   hallucination?: { enabled?: boolean };
   /** UI theme tri-state (P3-5): light / dark / system. Invalid values fall back to light. */
   theme?: "light" | "dark" | "system";
+  /** 渲染性能：auto 跟随大屏/触控，smooth 关闭重特效，quality 保留全部。 */
+  performance?: "auto" | "smooth" | "quality";
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */

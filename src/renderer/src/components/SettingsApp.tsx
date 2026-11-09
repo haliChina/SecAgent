@@ -13,6 +13,7 @@ import { Activity, Archive, Clock, Cpu, Globe, Mic, Puzzle, RefreshCw, Server, S
 import { AnimatedCounter, HookSidebar, type HookSidebarItem } from "./ui/Bits.js";
 import { SettingsAccountPage } from "./settings/SettingsAccountPage.js";
 import { applyTheme, cacheTheme } from "../theme.js";
+import { applyPerformanceMode } from "../performance-mode.js";
 import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./SettingsFields.js";
 
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
@@ -459,6 +460,11 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
       {/* R78：新「账户与通用」页——行式分组 + 用户卡片 + 二次确认退出/清缓存。 */}
       <SettingsAccountPage
         theme={settings.theme || "light"}
+        performance={settings.performance || "auto"}
+        onPerformanceChange={(performance) => {
+          applyPerformanceMode(performance, document.documentElement.dataset.display === "big-touch");
+          setSettings((current) => current && { ...current, performance });
+        }}
         onThemeChange={(theme) => {
           // 先本地即时换肤（设置窗自身），再交给自动保存落盘并广播主窗。
           cacheTheme(theme);
@@ -476,7 +482,7 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
       />
     </section>}
     <section id="settings-wake" className={`settings-section ${isOobe || activePage === "settings-wake" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>随时唤醒</h2></div></div>
-      <article className="settings-card"><WakeHotkeyField value={settings.wake.hotkey} platform={bridge.platform} onChange={(hotkey) => setSettings((current) => current && { ...current, wake: { ...current.wake, hotkey } })} /><div className="form-grid wake-model-setting"><label>随时唤起使用的模型<SelectCombobox ariaLabel="随时唤起使用的模型" value={settings.wake.modelId || settings.defaultModelId || mainModelOptions[0]?.id || ""} options={mainModelOptions.map((model) => ({ value: model.id, label: model.name, group: model.providerLabel }))} onChange={(modelId) => setSettings((current) => current && { ...current, wake: { ...current.wake, modelId } })} /></label></div><label className="toggle-row"><span className="toggle-copy"><strong>语音唤醒</strong><small>开启后持续使用麦克风，识别到唤醒词后等同于按下上面的快捷键。</small></span><input type="checkbox" checked={settings.wake.voiceEnabled === true} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voiceEnabled: event.target.checked } })} /></label><label className="wake-phrase-field">唤醒词<input value={settings.wake.voicePhrase || "小泽同学"} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voicePhrase: event.target.value } })} placeholder="小泽同学" /></label><p className="settings-help">Windows/Linux 默认 Ctrl Alt A；macOS 默认 Ctrl Option A。语音唤醒始终使用随安装包提供的本地模型，无需网络。</p></article>    </section>
+      <article className="settings-card"><WakeHotkeyField value={settings.wake.hotkey} platform={bridge.platform} onChange={(hotkey) => setSettings((current) => current && { ...current, wake: { ...current.wake, hotkey } })} /><div className="form-grid wake-model-setting"><label>随时唤起使用的模型<SelectCombobox ariaLabel="随时唤起使用的模型" value={settings.wake.modelId || settings.defaultModelId || mainModelOptions[0]?.id || ""} options={mainModelOptions.map((model) => ({ value: model.id, label: model.name, group: model.providerLabel }))} onChange={(modelId) => setSettings((current) => current && { ...current, wake: { ...current.wake, modelId } })} /></label></div><label className="toggle-row"><span className="toggle-copy"><strong>语音唤醒</strong><small>开启后持续使用麦克风，识别到唤醒词后等同于按下上面的快捷键。</small></span><input type="checkbox" checked={settings.wake.voiceEnabled === true} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voiceEnabled: event.target.checked } })} /></label><label className="wake-phrase-field">唤醒词<input value={settings.wake.voicePhrase || "小泽同学"} onChange={(event) => setSettings((current) => current && { ...current, wake: { ...current.wake, voicePhrase: event.target.value } })} placeholder="小泽同学" /></label><p className="settings-help">Windows/Linux 默认 Ctrl Alt A；macOS 默认 Ctrl Option A。语音唤醒始终使用随安装包提供的本地模型，无需网络；麦克风与「语音识别 → 输入设备」共用，建议选一体机的远场阵列麦。</p></article>    </section>
     <section id="settings-rules" className={`settings-section ${isOobe || activePage === "settings-rules" ? "settings-section-active" : ""}`}>
       <div className="section-title"><div><h2>规则与记忆</h2><p>写下长期要求，每次对话都会遵守。</p></div></div>
       <article className="settings-card">

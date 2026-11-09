@@ -12,6 +12,7 @@ import {
   nextMessageSeq,
   openSessionDb,
   readSessionDbMeta,
+  readMessageRow,
   readSessionRow,
   updateMessagePayload,
   updateSessionArchived,
@@ -99,6 +100,19 @@ export class SessionStore {
     });
     return data;
   }
+  /** R87：按需读取单张历史附件，避免 sessions:get 把全部 dataUrl 常驻渲染进程。 */
+  attachmentDataUrl(sessionId: string, messageId: string, attachmentId: string): string | null {
+    const row = readMessageRow(this.db, messageId);
+    if (!row || row.sessionId !== sessionId || !row.payload) return null;
+    try {
+      const parsed = JSON.parse(row.payload) as { attachments?: Array<{ id?: unknown; dataUrl?: unknown }> };
+      const attachment = parsed.attachments?.find((item) => item.id === attachmentId);
+      return typeof attachment?.dataUrl === "string" && attachment.dataUrl ? attachment.dataUrl : null;
+    } catch {
+      return null;
+    }
+  }
+
   get(id: string): SessionData {
     const row = readSessionRow(this.db, id);
     if (!row) throw new Error(`会话不存在：${id}`);

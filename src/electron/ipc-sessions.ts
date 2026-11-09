@@ -10,7 +10,7 @@
 import { ipcMain } from "electron";
 import { readSettings, type SettingsPayload } from "../config.js";
 import { DEFAULT_WORKSPACE } from "../paths.js";
-import { SessionStore } from "../session-store.js";
+import { SessionStore, type SessionData } from "../session-store.js";
 import { hashIdentifier } from "../telemetry.js";
 import { logMain } from "./main-log.js";
 import { getTelemetry } from "./main-telemetry.js";
@@ -30,6 +30,17 @@ interface SessionIpcDeps {
   toolConfirmWindowHooks?: ToolConfirmWindowHooks;
 }
 
+/** R87：渲染进程只拿“骨架”附件；真正图片在可见时走 sessions:attachment。 */
+function stripAttachmentData(session: SessionData): SessionData {
+  if (!session.messages.some((message) => message.attachments?.length)) return session;
+  return {
+    ...session,
+    messages: session.messages.map((message) => message.attachments?.length
+      ? { ...message, attachments: message.attachments.map((attachment) => ({ ...attachment, dataUrl: "" })) }
+      : message)
+  };
+}
+
 export function registerSessionsIpc(deps: SessionIpcDeps): void {
   const { sendToAppWindows } = deps;
 
@@ -37,7 +48,7 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
   /* sessions:list：复用同一个 store 实例，避免每个会话各 new 一次 SessionStore
      再逐个同步读盘（N+1）。previewOf 内部仍逐文件读——会话数大时可再做批量化。 */
   ipcMain.handle("sessions:list", () => { logMain("ipc.sessions.list"); const sessionStore = store(); return sessionStore.list(); });
-  ipcMain.handle("sessions:create", () => { const session = store().create(); logMain("ipc.sessions.create", { sessionId: session.meta.id }); return session; });
+  ipcMain.handle("sessions:create", () => { const session = store().create(); logMain("ipc.sessions.create", { sessionId: session.meta.id }); return stripAttachmentData(session); });
   ipcMain.handle("sessions:delete", (_event, id: string) => { store().delete(id); logMain("ipc.sessions.delete", { sessionId: id }); return store().list(); });
   ipcMain.handle("sessions:archive", (_event, id: string, archived: boolean) => {
     store().setArchived(id, archived === true);
@@ -48,10 +59,16 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     if (typeof title !== "string" || !title.trim() || title.trim().length > 60) throw new Error("标题必须为 1-60 个字符");
     const session = store().setTitle(id, title.trim());
     logMain("ipc.sessions.rename", { sessionId: id });
-    return session;
+    return stripAttachmentData(session);
   });
 
-  ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return store().get(id); });
+  ipcMain.handle("sessions:get", (_event, id: string) => { logMain("ipc.sessions.get", { sessionId: id }); return stripAttachmentData(store().get(id)); });
+  ipcMain.handle("sessions:attachment", (_event, sessionId: string, messageId: string, attachmentId: string) => {
+    if (typeof sessionId !== "string" || typeof messageId !== "string" || typeof attachmentId !== "string") throw new Error("附件参数无效");
+    const dataUrl = store().attachmentDataUrl(sessionId, messageId, attachmentId);
+    if (!dataUrl) throw new Error("附件不存在或已清理");
+    return dataUrl;
+  });
   ipcMain.handle("sessions:runtime-events", (_event, id: string) => { logMain("ipc.sessions.runtime-events", { sessionId: id }); return store().getRuntimeEvents(id).map((item) => ({ sessionId: id, ...item })); });
   ipcMain.handle("sessions:diagnostic-upload", async (_event, id: string) => {
     if (!getTelemetry()?.isEnabled()) throw new Error("请先在设置中开启匿名诊断数据上传");
@@ -76,6 +93,6 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
   ipcMain.handle("sessions:send", async (event, id: string, text: string, modelId?: string, reasoningEffort: ReasoningEffort = "high", rawAttachments?: unknown) => {
     const attachments = normalizeAttachments(rawAttachments);
     if (typeof text !== "string" || (!text.trim() && !attachments.length)) throw new Error("消息不能为空");
-    return runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id });
+    return stripAttachmentData(await runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id }));
   });
 }

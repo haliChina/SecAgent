@@ -1,9 +1,11 @@
-import { lazy, memo, Suspense, type ComponentProps } from "react";
+import { isValidElement, lazy, memo, Suspense, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { Check, Copy } from "lucide-react";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
 import "katex/dist/katex.min.css";
+import { copyText } from "./MessageQuoted.js";
 import { VisualizationBoundary } from "./VisualizationBoundary.js";
 
 const MermaidBlock = lazy(() => import("./MermaidBlock.js").then((module) => ({ default: module.MermaidBlock })));
@@ -28,6 +30,40 @@ function MarkdownCode({ inline, className, children, ...props }: MarkdownCodePro
   return <code className={className} {...props}>{children}</code>;
 }
 
+function languageOf(children: ReactNode): string {
+  if (!isValidElement(children)) return "";
+  const className = (children.props as { className?: string }).className || "";
+  return /language-(\w+)/.exec(className)?.[1] || "";
+}
+
+/** R82：代码块工具条——语言标签 + 一键复制（成功 1.5s 内显示 ✓）。
+ * 复制对象取 <pre> 的真实 textContent，避免 React 节点拼装丢换行。 */
+function MarkdownPre({ children }: ComponentProps<"pre">) {
+  const preRef = useRef<HTMLPreElement>(null);
+  const [copied, setCopied] = useState(false);
+  const language = languageOf(children);
+  return <div className="md-code">
+    <div className="md-code-head">
+      <span className="md-code-language">{language || "代码"}</span>
+      <button
+        type="button"
+        className={`md-code-copy ${copied ? "copied" : ""}`}
+        aria-label={copied ? "已复制代码" : "复制代码"}
+        onClick={() => {
+          void copyText(preRef.current?.textContent ?? "").then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1500);
+          }).catch(() => undefined);
+        }}
+      >
+        {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+        <span>{copied ? "已复制" : "复制"}</span>
+      </button>
+    </div>
+    <pre ref={preRef}>{children}</pre>
+  </div>;
+}
+
 function expandMafsTags(markdown: string): string {
   const expanded = markdown
     .replace(/<Mafs\b[^>]*>([\s\S]*?)<\/Mafs>/gi, (_, source: string) => `\n\n\`\`\`mafs\n${source.trim()}\n\`\`\`\n\n`)
@@ -42,5 +78,5 @@ export const MarkdownContent = memo(function MarkdownContent({ children }: { chi
   //   会被 react-markdown 直接丢弃（只保留可显示的文本/结构）
   // - URL 协议白名单——显式传 defaultUrlTransform（https?/ircs?/mailto/xmpp +
   //   相对地址），javascript:/data: 等被替换为空串；行为由 ansi.test.ts 上锁
-  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} urlTransform={defaultUrlTransform} components={{ code: MarkdownCode }}>{expandMafsTags(children)}</ReactMarkdown>;
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]} urlTransform={defaultUrlTransform} components={{ code: MarkdownCode, pre: MarkdownPre }}>{expandMafsTags(children)}</ReactMarkdown>;
 });

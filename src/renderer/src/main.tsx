@@ -4,7 +4,14 @@ import * as Sentry from "@sentry/electron/renderer";
 import { MotionConfig } from "motion/react";
 import { WindowRouter } from "./components/WindowRouter.js";
 import { applyTheme, cacheTheme, watchSystemTheme, type Theme } from "./theme.js";
+import { applyDisplayMode, readStoredDisplayMode, resolveDisplayMode, watchTouchInput } from "./display-mode.js";
+import { applyPerformanceMode } from "./performance-mode.js";
 import "./styles.css";
+
+/* R83：首帧前应用显示模式，避免大屏上先闪一下桌面小字。 */
+applyDisplayMode(resolveDisplayMode(readStoredDisplayMode(), window.screen.width, navigator.maxTouchPoints));
+applyPerformanceMode("auto", document.documentElement.dataset.display === "big-touch");
+watchTouchInput();
 
 const sentryDsn = window.secagent.telemetryConfig.sentryDsn;
 let sentryTelemetryEnabled = window.secagent.telemetryConfig.enabled;
@@ -58,8 +65,14 @@ function activateTheme(theme: unknown): void {
   unwatchSystemTheme?.();
   unwatchSystemTheme = theme === "system" ? watchSystemTheme("system", () => applyTheme("system")) : undefined;
 }
-void window.secagent.getSettings().then((settings) => activateTheme((settings as { theme?: unknown }).theme)).catch(() => undefined);
-window.secagent.onSettingsChanged((settings) => activateTheme((settings as { theme?: unknown }).theme));
+void window.secagent.getSettings().then((settings) => {
+  activateTheme((settings as { theme?: unknown }).theme);
+  applyPerformanceMode((settings as { performance?: unknown }).performance, document.documentElement.dataset.display === "big-touch");
+}).catch(() => undefined);
+window.secagent.onSettingsChanged((settings) => {
+  activateTheme((settings as { theme?: unknown }).theme);
+  applyPerformanceMode((settings as { performance?: unknown }).performance, document.documentElement.dataset.display === "big-touch");
+});
 
 // WakeOverlay starts a microphone/WebSocket session as soon as it mounts. React
 // StrictMode intentionally mounts effects twice in development, which races the

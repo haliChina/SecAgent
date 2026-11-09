@@ -179,6 +179,20 @@ export function listMessageRows(db: DatabaseSync, sessionId: string): MessageRow
   }));
 }
 
+export function readMessageRow(db: DatabaseSync, id: string): MessageRow | null {
+  const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    seq: Number(row.seq),
+    role: String(row.role),
+    content: String(row.content),
+    createdAt: String(row.created_at),
+    payload: typeof row.payload === "string" ? row.payload : null,
+  };
+}
+
 export function nextMessageSeq(db: DatabaseSync, sessionId: string): number {
   const row = db.prepare("SELECT COALESCE(MAX(seq), -1) + 1 AS next FROM messages WHERE session_id = ?").get(sessionId) as { next?: number } | undefined;
   return Number(row?.next ?? 0);

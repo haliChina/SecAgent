@@ -74,10 +74,24 @@ interface BloubMorphProps {
   follow?: boolean;
   /** 入场：先播 swirl（上游的进场动画，约 1.3s），再 morph 到目标状态。 */
   entrance?: boolean;
+  /** 低性能/大屏：进一步降到 24fps，减少 SVG 重绘。 */
+  lowPower?: boolean;
   className?: string;
 }
 
-export function BloubMorph({ size, state = "idle", follow = false, entrance = false, className }: BloubMorphProps) {
+/** 尊重系统减少动态偏好：不跑连续 rAF，只在状态切换时取一帧静态姿态。 */
+function useReducedMotionPreference(): boolean {
+  const [reduced, setReduced] = useState(() => typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = () => setReduced(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
+
+export function BloubMorph({ size, state = "idle", follow = false, entrance = false, lowPower = false, className }: BloubMorphProps) {
   const VB = DEMI_VIEWBOX;
   const rawId = useId();
   const uid = `bm${rawId.replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -91,6 +105,7 @@ export function BloubMorph({ size, state = "idle", follow = false, entrance = fa
   const turnSinceRef = useRef(0);
   const engineRef = useRef<BotEngine | null>(null);
   const [frame, setFrame] = useState<BotFrame | null>(null);
+  const reducedMotion = useReducedMotionPreference();
 
   if (engineRef.current === null) {
     engineRef.current = new BotEngine(
@@ -118,6 +133,8 @@ export function BloubMorph({ size, state = "idle", follow = false, entrance = fa
     const t = setTimeout(() => {
       entranceRef.current = true;
       engineRef.current?.setState(resolveState(stateRef.current), clockRef.current);
+      /* reduced-motion 没有 rAF 循环，入场结束后要主动补一帧目标姿态。 */
+      if (engineRef.current) setFrame(engineRef.current.sample(clockRef.current + 1));
     }, 1300);
     return () => clearTimeout(t);
   }, []);
@@ -139,12 +156,21 @@ export function BloubMorph({ size, state = "idle", follow = false, entrance = fa
     };
   }, [follow]);
 
-  /* rAF 时钟 + 注视 + 采样。 */
+  /* rAF 时钟 + 注视 + 采样。
+     R85：低端 OPS/大屏上，60fps 的 React setFrame + 整棵 SVG 重渲染会吃掉
+     可观 CPU。改为按尺寸限帧（小球 30fps、大球 45fps），页面隐藏时停止采样；
+     prefers-reduced-motion 下不跑连续循环，只在状态切换时取一帧。 */
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine) return;
+    if (reducedMotion) {
+      setFrame(engine.sample(clockRef.current));
+      return;
+    }
     let raf = 0;
     let last = 0;
+    let lastPaint = 0;
+    const paintInterval = 1000 / (lowPower ? 24 : size >= 100 ? 45 : 30);
     const aim = () => {
       const box = svgRef.current?.getBoundingClientRect();
       if (!box || box.width === 0 || box.height === 0) return;
@@ -167,13 +193,24 @@ export function BloubMorph({ size, state = "idle", follow = false, entrance = fa
       const dt = last ? clamp((now - last) / 1000, 0, 0.1) : 0;
       last = now;
       clockRef.current += dt;
-      if (follow) aim();
-      setFrame(engine.sample(clockRef.current));
+      if (now - lastPaint >= paintInterval) {
+        lastPaint = now;
+        if (follow) aim();
+        if (document.visibilityState !== "hidden") setFrame(engine.sample(clockRef.current));
+      }
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [follow]);
+  }, [follow, lowPower, reducedMotion, size]);
+
+  /* reduced-motion 下状态仍要变：切状态时补一帧静态姿态（入场结束后也一样）。 */
+  useEffect(() => {
+    if (!reducedMotion) return;
+    const engine = engineRef.current;
+    /* +1s：跳过 morph 中间态，直接显示目标姿态（减少动态模式不做补间）。 */
+    if (engine) setFrame(engine.sample(clockRef.current + 1));
+  }, [state, reducedMotion]);
 
   if (!frame) {
     return <svg ref={svgRef} width={size} height={size} viewBox={`${-VB} ${-VB} ${VB * 2} ${VB * 2}`} className={className} role="img" aria-label={LABEL_OF[state]} />;

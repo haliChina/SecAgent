@@ -22,7 +22,7 @@ import { Fragment, createContext, isValidElement, memo, useCallback, useContext,
 import { AnimatePresence, animate, motion, useMotionTemplate, useMotionValue, useMotionValueEvent, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue, type Transition } from "motion/react";
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
-import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon, ChevronDownIcon, PaperclipIcon, CalendarIcon, ChartLineIcon, FileIcon, GlobeIcon, MailIcon, PlusIcon, SparklesIcon, CheckIcon, ShieldIcon, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, EllipsisIcon, SquareIcon, ArrowRightIcon, CircleAlertIcon } from "lucide-react";
+import { AlertCircleIcon, Loader2Icon, RotateCwIcon, ArrowUpIcon, XIcon, RefreshCwIcon, UserIcon, WrenchIcon, BotIcon, MousePointer2Icon, MicIcon, ArrowLeftIcon, DownloadIcon, RocketIcon, SettingsIcon, PaintbrushIcon, TypeIcon, LayersIcon, BellIcon, ChevronDownIcon, PaperclipIcon, CalendarIcon, ChartLineIcon, FileIcon, GlobeIcon, MailIcon, PlusIcon, SparklesIcon, CheckIcon, ShieldIcon, CopyIcon, ThumbsUpIcon, ThumbsDownIcon, EllipsisIcon, SquareIcon, ArrowRightIcon, CircleAlertIcon, Volume2Icon, VolumeXIcon, QuoteIcon } from "lucide-react";
 
 /** rare-ui 的 cn 为 twMerge(clsx(...))；本项目无 Tailwind 类冲突合并需求，clsx 等价 */
 const cn = clsx;
@@ -105,23 +105,30 @@ export function AuiMessageActions({
   copied,
   reaction,
   regenerating,
+  speaking,
   onCopy,
   onReactionChange,
   onRegenerate,
+  onSpeak,
+  onQuote,
   onMore,
   className,
   ...props
 }: Omit<
   ComponentProps<"div">,
-  "children" | "copied" | "reaction" | "regenerating" | "onCopy" | "onReactionChange" | "onRegenerate" | "onMore"
+  "children" | "copied" | "reaction" | "regenerating" | "speaking" | "onCopy" | "onReactionChange" | "onRegenerate" | "onSpeak" | "onQuote" | "onMore"
 > & {
   // 应用适配：全部可选；未传回调的按钮隐藏；copied 未受控时内部维护
   copied?: boolean;
   reaction?: AuiReaction;
   regenerating?: boolean;
+  /** R82：朗读状态与引用入口（应用侧传入；未传时不渲染）。 */
+  speaking?: boolean;
   onCopy?: () => void;
   onReactionChange?: (reaction: AuiReaction) => void;
   onRegenerate?: () => void;
+  onSpeak?: () => void;
+  onQuote?: () => void;
   onMore?: () => void;
 }) {
   const [localCopied, setLocalCopied] = useState(false);
@@ -149,6 +156,22 @@ export function AuiMessageActions({
               isCopied ? AUI_ICON_SWAP_IN : AUI_ICON_SWAP_OUT,
             )}
           />
+        </button>
+      )}
+      {onSpeak && (
+        <button
+          type="button"
+          aria-label={speaking ? "停止朗读" : "朗读回答"}
+          aria-pressed={speaking}
+          onClick={onSpeak}
+          className={cn(buttonClassName, "grid place-items-center", speaking && "text-accent")}
+        >
+          {speaking ? <VolumeXIcon className="size-3.5" /> : <Volume2Icon className="size-3.5" />}
+        </button>
+      )}
+      {onQuote && (
+        <button type="button" aria-label="引用这段内容" onClick={onQuote} className={cn(buttonClassName, "grid place-items-center")}>
+          <QuoteIcon className="size-3.5" />
         </button>
       )}
       {onReactionChange && (
