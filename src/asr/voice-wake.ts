@@ -166,7 +166,7 @@ export class VoiceWakeEngine {
       this.options.log?.(`[voice-wake] worker audio heartbeat frames=${this.audioFrames} elapsed=${now - this.startedAt}ms`);
     }
     try {
-      worker.postMessage({ type: "audio", samples }, [samples.buffer]);
+      worker.postMessage({ type: "audio", samples }, [samples.buffer as ArrayBuffer]);
     } catch (error) {
       this.options.log?.(`[voice-wake] worker post failed: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -5,8 +5,9 @@
  */
 import { useEffect, useRef, useState } from "react";
 
-function AttachmentThumb({ attachment, messageId, removable, onRemove, onOpen }: {
+function AttachmentThumb({ attachment, sessionId, messageId, removable, onRemove, onOpen }: {
   attachment: ChatAttachment;
+  sessionId?: string;
   messageId?: string;
   removable?: boolean;
   onRemove?: (id: string) => void;
@@ -22,13 +23,13 @@ function AttachmentThumb({ attachment, messageId, removable, onRemove, onOpen }:
   }, [attachment.id, attachment.dataUrl]);
 
   useEffect(() => {
-    if (src || failed || !messageId || !attachment.id) return;
+    if (src || failed || !sessionId || !messageId || !attachment.id) return;
     const holder = holderRef.current;
     if (!holder) return;
     let cancelled = false;
     let observer: IntersectionObserver | undefined;
     const load = (): void => {
-      void window.secagent.loadAttachment(messageId, attachment.id).then((dataUrl) => {
+      void window.secagent.loadAttachment(sessionId, messageId, attachment.id).then((dataUrl) => {
         if (!cancelled) setSrc(dataUrl);
       }).catch(() => {
         if (!cancelled) setFailed(true);
@@ -45,7 +46,7 @@ function AttachmentThumb({ attachment, messageId, removable, onRemove, onOpen }:
     }, { rootMargin: "360px 0px" });
     observer.observe(holder);
     return () => { cancelled = true; observer?.disconnect(); };
-  }, [src, failed, messageId, attachment.id]);
+  }, [src, failed, sessionId, messageId, attachment.id]);
 
   const canPreview = Boolean(onOpen && src);
   return <div className={`attachment-card ${src ? "" : "attachment-loading"}`} ref={holderRef} title={attachment.name}>
@@ -62,12 +63,13 @@ function AttachmentThumb({ attachment, messageId, removable, onRemove, onOpen }:
   </div>;
 }
 
-export function AttachmentStrip({ attachments, messageId, removable = false, onRemove, onOpen }: { attachments: ChatAttachment[]; messageId?: string; removable?: boolean; onRemove?: (id: string) => void; onOpen?: (attachment: ChatAttachment) => void }) {
+export function AttachmentStrip({ attachments, sessionId, messageId, removable = false, onRemove, onOpen }: { attachments: ChatAttachment[]; sessionId?: string; messageId?: string; removable?: boolean; onRemove?: (id: string) => void; onOpen?: (attachment: ChatAttachment) => void }) {
   if (!attachments.length) return null;
   return <div className={`attachment-strip ${removable ? "composer-attachment-strip" : "message-attachment-strip"}`}>
     {attachments.map((attachment) => <AttachmentThumb
       key={attachment.id}
       attachment={attachment}
+      sessionId={sessionId}
       messageId={messageId}
       removable={removable}
       onRemove={onRemove}

@@ -133,7 +133,7 @@ export class LocalAsrWorker {
 
   push(samples: Float32Array): void {
     if (!this.active || !this.worker) return;
-    try { this.worker.postMessage({ type: "audio", samples }, [samples.buffer]); } catch { /* worker gone */ }
+    try { this.worker.postMessage({ type: "audio", samples }, [samples.buffer as ArrayBuffer]); } catch { /* worker gone */ }
   }
 
   stop(): Promise<void> {

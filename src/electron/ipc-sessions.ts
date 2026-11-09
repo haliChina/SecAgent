@@ -93,6 +93,7 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
   ipcMain.handle("sessions:send", async (event, id: string, text: string, modelId?: string, reasoningEffort: ReasoningEffort = "high", rawAttachments?: unknown) => {
     const attachments = normalizeAttachments(rawAttachments);
     if (typeof text !== "string" || (!text.trim() && !attachments.length)) throw new Error("消息不能为空");
-    return stripAttachmentData(await runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id }));
+    const result = await runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id });
+    return result ? stripAttachmentData(result) : result;
   });
 }
