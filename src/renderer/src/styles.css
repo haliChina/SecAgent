@@ -1640,3 +1640,13 @@ body:has(.app-shell) { min-width: 320px; }
 @keyframes attachment-sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 @media (prefers-reduced-motion: reduce) { .attachment-placeholder::after { animation: none; } }
 [data-display="big-touch"] .attachment-placeholder { font-size: 26px; }
+
+
+/* R88 Windows WCO：右上角原生 关闭/最大化/最小化 永远画在应用内容之上，
+   无法用 z-index 覆盖。给顶栏/设置标题保留右侧安全区，应用按钮不再钻到
+   系统按钮下面。env(titlebar-area-*) 由 Electron 注入；无 WCO 时回退 138px。 */
+:root { --wco-inset: max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))); }
+.topbar.windows { padding-right: calc(16px + var(--wco-inset)); }
+[data-display="big-touch"] .topbar.windows { padding-right: calc(24px + var(--wco-inset)); }
+.settings-shell.windows-settings .settings-window-title { padding-right: calc(20px + var(--wco-inset)); }
+.oobe-shell.windows-settings .oobe-window-title-ready { padding-right: calc(20px + var(--wco-inset)); }

@@ -1346,7 +1346,7 @@ export function App() {
   }
 
   return <main className="app-shell">
-    <header className={`topbar ${bridge.platform === "darwin" ? "macos" : ""}`}>
+    <header className={`topbar ${bridge.platform === "darwin" ? "macos" : "windows"}`}>
       <button className="brand" type="button" aria-label="打开设置" onClick={() => runSessionAction(() => bridge.openSettings())}><span>SecAgent</span></button>
       <span className="topbar-divider" aria-hidden>/</span><h1 className="topbar-session" title={session?.meta.title}>{session?.meta.title || "会话"}</h1>
       <span className="topbar-spacer" />
