@@ -29,7 +29,7 @@ interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
 interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number; contextTokens: number }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system"; performance?: "auto" | "smooth" | "quality";
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system"; performance?: "auto" | "smooth" | "quality"; windowControls?: "custom" | "native";
     /** R64：联网搜索工具密钥（载流字段：保存时写工作区 .env，不落 config.yaml）。 */
     webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean } }
 interface SkillSummary { name: string; description: string; path: string; enabled?: boolean }
@@ -112,7 +112,7 @@ interface Window {
     createSession(): Promise<SessionData>;
     /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
     syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
-    windowControl(action: "minimize" | "toggle-maximize" | "close" | "state"): Promise<{ isMaximized: boolean }>;
+    windowControl(action: "minimize" | "toggle-maximize" | "close" | "state"): Promise<{ isMaximized: boolean; custom?: boolean }>;
     onWindowMaximized(callback: (maximized: boolean) => void): () => void;
     deleteSession(id: string): Promise<SessionMeta[]>;
     archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;

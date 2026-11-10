@@ -11,11 +11,16 @@ import { Minus, Minimize2, Square, X } from "lucide-react";
 export function WindowControls() {
   const bridge = window.secagent;
   const [maximized, setMaximized] = useState(false);
+  const [custom, setCustom] = useState(false);
 
   useEffect(() => {
     if (!bridge || bridge.platform !== "win32") return;
     let alive = true;
-    void bridge.windowControl("state").then((state: { isMaximized?: boolean }) => { if (alive) setMaximized(Boolean(state?.isMaximized)); }).catch(() => undefined);
+    void bridge.windowControl("state").then((state: { isMaximized?: boolean; custom?: boolean }) => {
+      if (!alive) return;
+      setMaximized(Boolean(state?.isMaximized));
+      setCustom(state?.custom !== false);
+    }).catch(() => { if (alive) setCustom(true); });
     const off = bridge.onWindowMaximized((value: boolean) => { if (alive) setMaximized(value); });
     const onDoubleClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -27,7 +32,7 @@ export function WindowControls() {
     return () => { alive = false; window.removeEventListener("dblclick", onDoubleClick); off(); };
   }, [bridge]);
 
-  if (!bridge || bridge.platform !== "win32") return null;
+  if (!bridge || bridge.platform !== "win32" || !custom) return null;
 
   return <div className="window-controls" aria-label="窗口控制">
     <button type="button" className="window-control-button" aria-label="最小化" title="最小化" onClick={() => { void bridge.windowControl("minimize"); }}>

@@ -160,16 +160,17 @@ ipcMain.handle("window:chrome-sync", (_event, colors: { background?: string; sym
 
 /** R89：自绘窗口三键。close 仍走 BrowserWindow.close()，保留主窗“关到托盘”的既有行为。 */
 ipcMain.handle("window:control", (event, action: unknown) => {
-  if (process.platform !== "win32") return { isMaximized: false };
+  if (process.platform !== "win32") return { isMaximized: false, custom: false };
   const target = BrowserWindow.fromWebContents(event.sender);
-  if (!target || target.isDestroyed()) return { isMaximized: false };
+  if (!target || target.isDestroyed()) return { isMaximized: false, custom: false };
+  const custom = readSettings(DEFAULT_WORKSPACE).windowControls !== "native";
   if (action === "minimize") { target.minimize(); return { isMaximized: target.isMaximized() }; }
   if (action === "toggle-maximize") {
     if (target.isMaximized()) target.unmaximize(); else target.maximize();
     return { isMaximized: target.isMaximized() };
   }
   if (action === "close") { target.close(); return { isMaximized: target.isMaximized() }; }
-  return { isMaximized: target.isMaximized() };
+  return { isMaximized: target.isMaximized(), custom };
 });
     } catch {
       // Not every window uses the overlay.

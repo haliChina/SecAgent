@@ -25,6 +25,8 @@ type AccountPageProps = {
   onThemeChange: (theme: "light" | "dark") => void;
   performance: "auto" | "smooth" | "quality";
   onPerformanceChange: (mode: "auto" | "smooth" | "quality") => void;
+  windowControls: "custom" | "native";
+  onWindowControlsChange: (mode: "custom" | "native") => void;
   version?: string;
   officialLoggedIn: boolean;
   officialEmail: string;
@@ -145,7 +147,8 @@ export function SettingsAccountPage(props: AccountPageProps) {
       rows: [
         { kind: "link", title: "账号与安全", desc: "登录状态与账号凭据", value: props.officialLoggedIn ? "已登录" : "未登录", onSelect: () => props.onNavigate("settings-models") },
         { kind: "switch", title: "深色模式", checked: darkActive, onChange: (next) => props.onThemeChange(next ? "dark" : "light") },
-        { kind: "select", title: "性能模式", desc: "自动：大屏/触控优先流畅；流畅：关闭极光、毛玻璃与 3D 常驻渲染；画质：保留全部效果。", value: props.performance, options: [{ value: "auto", label: "自动" }, { value: "smooth", label: "流畅" }, { value: "quality", label: "画质" }], onChange: (next) => props.onPerformanceChange(next as "auto" | "smooth" | "quality") }
+        { kind: "select", title: "性能模式", desc: "自动：大屏/触控优先流畅；流畅：关闭极光、毛玻璃与 3D 常驻渲染；画质：保留全部效果。", value: props.performance, options: [{ value: "auto", label: "自动" }, { value: "smooth", label: "流畅" }, { value: "quality", label: "画质" }], onChange: (next) => props.onPerformanceChange(next as "auto" | "smooth" | "quality") },
+        { kind: "select", title: "窗口按钮", desc: "重启应用后生效。自绘适合触控/大屏；系统原生保留 Windows 11 Snap Layouts。", value: props.windowControls, options: [{ value: "custom", label: "自绘" }, { value: "native", label: "系统原生" }], onChange: (next) => props.onWindowControlsChange(next as "custom" | "native") }
       ]
     },
     {

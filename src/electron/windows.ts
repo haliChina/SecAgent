@@ -86,10 +86,18 @@ function windowChromeOptions(overlayColor = "#F1F4F9"): Electron.BrowserWindowCo
     return { titleBarStyle: "hidden", trafficLightPosition: { x: 16, y: 21 } };
   }
   if (process.platform === "win32") {
-    /* R89：Windows 改无边框 + 自绘三键。原生 WCO 只能改颜色/高度，且永远画在
-       应用内容之上；自绘可以做大触控目标、按大屏模式收敛，也让顶栏按钮不再
-       和系统三键打架。thickFrame 保留窗口边缘缩放与阴影。 */
-    return { frame: false, thickFrame: true, autoHideMenuBar: true };
+    /* R89：Windows 可选无边框 + 自绘三键；R90 增加原生 WCO 回退。
+       原生 WCO 保留 Windows 11 Snap Layouts，但不能改图标/顺序；
+       自绘适合触控/大屏，代价是没有最大化悬停 Snap Layouts 弹层。
+       设置项重启窗口后生效（frame 不能在运行时切换）。 */
+    let custom = true;
+    try { custom = readSettings(DEFAULT_WORKSPACE).windowControls !== "native"; } catch { /* 配置读取失败时用自绘 */ }
+    if (custom) return { frame: false, thickFrame: true, autoHideMenuBar: true };
+    return {
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: overlayColor, symbolColor: "#475569", height: 57 },
+      autoHideMenuBar: true
+    };
   }
   // Linux keeps the Window Controls Overlay; a native frame would stack the
   // system title bar on top of the in-app draggable topbar.

@@ -158,6 +158,8 @@ export interface SecAgentConfig {
   theme?: "light" | "dark" | "system";
   /** 渲染性能：auto 跟随大屏/触控，smooth 关闭重特效，quality 保留全部。 */
   performance?: "auto" | "smooth" | "quality";
+  /** Windows 窗口按钮：custom 自绘（默认）/ native 系统 WCO（重启生效）。 */
+  windowControls?: "custom" | "native";
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */
