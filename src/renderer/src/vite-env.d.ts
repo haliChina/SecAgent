@@ -112,6 +112,8 @@ interface Window {
     createSession(): Promise<SessionData>;
     /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
     syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
+    windowControl(action: "minimize" | "toggle-maximize" | "close" | "state"): Promise<{ isMaximized: boolean }>;
+    onWindowMaximized(callback: (maximized: boolean) => void): () => void;
     deleteSession(id: string): Promise<SessionMeta[]>;
     archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;
     renameSession(id: string, title: string): Promise<SessionData>;

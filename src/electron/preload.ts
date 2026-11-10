@@ -77,6 +77,12 @@ contextBridge.exposeInMainWorld("secagent", {
   completeOnboarding: () => ipcRenderer.invoke("oobe:complete"),
   createSession: () => ipcRenderer.invoke("sessions:create"),
   syncWindowChrome: (colors: { background: string; symbol: string }) => ipcRenderer.invoke("window:chrome-sync", colors),
+  windowControl: (action: "minimize" | "toggle-maximize" | "close" | "state") => ipcRenderer.invoke("window:control", action),
+  onWindowMaximized: (callback: (maximized: boolean) => void) => {
+    const handler = (_event: unknown, maximized: boolean) => callback(maximized);
+    ipcRenderer.on("window:maximized-changed", handler);
+    return () => ipcRenderer.removeListener("window:maximized-changed", handler);
+  },
   deleteSession: (id: string) => ipcRenderer.invoke("sessions:delete", id),
     archiveSession: (id: string, archived: boolean) => ipcRenderer.invoke("sessions:archive", id, archived),
     renameSession: (id: string, title: string) => ipcRenderer.invoke("sessions:rename", id, title),

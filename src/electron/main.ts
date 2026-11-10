@@ -157,6 +157,20 @@ ipcMain.handle("window:chrome-sync", (_event, colors: { background?: string; sym
         symbolColor: typeof colors.symbol === "string" ? colors.symbol : "#475569",
         height: 57
       });
+
+/** R89：自绘窗口三键。close 仍走 BrowserWindow.close()，保留主窗“关到托盘”的既有行为。 */
+ipcMain.handle("window:control", (event, action: unknown) => {
+  if (process.platform !== "win32") return { isMaximized: false };
+  const target = BrowserWindow.fromWebContents(event.sender);
+  if (!target || target.isDestroyed()) return { isMaximized: false };
+  if (action === "minimize") { target.minimize(); return { isMaximized: target.isMaximized() }; }
+  if (action === "toggle-maximize") {
+    if (target.isMaximized()) target.unmaximize(); else target.maximize();
+    return { isMaximized: target.isMaximized() };
+  }
+  if (action === "close") { target.close(); return { isMaximized: target.isMaximized() }; }
+  return { isMaximized: target.isMaximized() };
+});
     } catch {
       // Not every window uses the overlay.
     }

@@ -1650,3 +1650,13 @@ body:has(.app-shell) { min-width: 320px; }
 [data-display="big-touch"] .topbar.windows { padding-right: calc(24px + var(--wco-inset)); }
 .settings-shell.windows-settings .settings-window-title { padding-right: calc(20px + var(--wco-inset)); }
 .oobe-shell.windows-settings .oobe-window-title-ready { padding-right: calc(20px + var(--wco-inset)); }
+
+/* R89 Windows 自绘窗口三键（frameless）。宽 46*3=138，和 --wco-inset 对齐；
+   顶栏/设置标题的右侧 padding 已预留同宽安全区，应用按钮不会压到它们。 */
+.window-controls { position: fixed; z-index: 1000; top: 0; right: 0; display: flex; height: 57px; -webkit-app-region: no-drag; user-select: none; background: var(--bg-1); }
+.window-control-button { display: grid; width: 46px; height: 57px; place-items: center; border: 0; border-radius: 0; background: transparent; color: var(--text-2); cursor: pointer; transition: background .12s ease, color .12s ease; -webkit-app-region: no-drag; }
+.window-control-button:hover { background: var(--bg-2); color: var(--text-1); }
+.window-control-button:active { transform: none; }
+.window-control-button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.window-control-close:hover { background: #E81123; color: #fff; }
+.window-control-close:active { background: #C50F1F; color: #fff; }

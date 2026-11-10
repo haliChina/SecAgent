@@ -85,10 +85,14 @@ function windowChromeOptions(overlayColor = "#F1F4F9"): Electron.BrowserWindowCo
   if (process.platform === "darwin") {
     return { titleBarStyle: "hidden", trafficLightPosition: { x: 16, y: 21 } };
   }
-  // Windows and Linux share the Window Controls Overlay. A native frame on
-  // Linux would stack the system title bar on top of the in-app draggable topbar.
-  // R57：overlay 底色默认取 topbar 浅色实色（不再是刺眼的白色）；
-  // 渲染端换肤后经 window:chrome-sync 动态改写（暗色主题同步为 --bg-1 暗色）。
+  if (process.platform === "win32") {
+    /* R89：Windows 改无边框 + 自绘三键。原生 WCO 只能改颜色/高度，且永远画在
+       应用内容之上；自绘可以做大触控目标、按大屏模式收敛，也让顶栏按钮不再
+       和系统三键打架。thickFrame 保留窗口边缘缩放与阴影。 */
+    return { frame: false, thickFrame: true, autoHideMenuBar: true };
+  }
+  // Linux keeps the Window Controls Overlay; a native frame would stack the
+  // system title bar on top of the in-app draggable topbar.
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: { color: overlayColor, symbolColor: "#475569", height: 57 },
@@ -101,6 +105,11 @@ function configureWindowChrome(window: BrowserWindow): void {
   // Keep the application menu alive for its fallback shortcuts while hiding its UI.
   window.setAutoHideMenuBar(true);
   window.setMenuBarVisibility(false);
+  /* 自绘最大化按钮需要拿到状态；窗口最大化/还原时通知渲染层。 */
+  window.on("maximize", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", true); });
+  window.on("unmaximize", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", false); });
+  window.on("enter-full-screen", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", true); });
+  window.on("leave-full-screen", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", false); });
 }
 
 function isOpenSettingsShortcut(input: Electron.Input): boolean {
