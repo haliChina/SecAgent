@@ -233,6 +233,7 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
 
   const attempted: string[] = [];
   for (const provider of chain) {
+    if (provider === "auto") continue;
     if (!configured.has(provider)) {
       attempted.push(`${provider}（未配置）`);
       continue;
