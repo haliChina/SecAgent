@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld("secagent", {
     archiveSession: (id: string, archived: boolean) => ipcRenderer.invoke("sessions:archive", id, archived),
     renameSession: (id: string, title: string) => ipcRenderer.invoke("sessions:rename", id, title),
   getSession: (id: string) => ipcRenderer.invoke("sessions:get", id),
+  loadAttachment: (sessionId: string, messageId: string, attachmentId: string) => ipcRenderer.invoke("sessions:attachment", sessionId, messageId, attachmentId),
   getRuntimeEvents: (id: string) => ipcRenderer.invoke("sessions:runtime-events", id),
   uploadDiagnostic: (id: string) => ipcRenderer.invoke("sessions:diagnostic-upload", id),
   previewWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:preview-file", relativePath),

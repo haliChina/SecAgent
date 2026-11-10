@@ -20,6 +20,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Archive, MoreHorizontal, PanelLeftClose, PanelLeftOpen, PencilLine, Plus, Search, Settings, X } from "lucide-react";
 import { FuseButton } from "./ui/Bits.js";
 import { filterActiveSessions } from "../session-navigation.js";
+import { formatSessionAge, groupSessionsByDate } from "../session-groups.js";
 
 const COLLAPSED_KEY = "secagent.sidebar.collapsed";
 
@@ -84,6 +85,7 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
 
   const filtered = filterActiveSessions(sessions, query);
   const archived = sessions.filter((item) => item.archived);
+  const grouped = groupSessionsByDate(filtered);
 
   if (collapsed) {
     /* R72 缩小态定调（用户：简洁美观不臃肿）——不渲染会话列表与已归档区，
@@ -111,9 +113,10 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
       </div>
     </div>
     {filtered.length === 0 && <p className="sidebar-empty">{query.trim() ? "没有匹配的会话，试试其他关键词。" : archived.length ? "暂无未归档会话" : "还没有会话"}</p>}
-    <span className="sidebar-section-label">会话</span>
     <div className="sidebar-list" role="list" aria-label="未归档会话">
-      {filtered.map((item) => {
+      {grouped.map((group) => <div className="sidebar-group" key={group.key}>
+        <span className="sidebar-group-label">{group.label}</span>
+        {group.items.map((item) => {
         const renaming = renameState?.id === item.id;
         return <div className={`sidebar-item ${item.id === activeId ? "active" : ""} ${menu?.id === item.id ? "menu-open" : ""} ${renaming ? "renaming" : ""}`} role="listitem" key={item.id} onContextMenu={(event) => { if (renaming) return; event.preventDefault(); setMenu((current) => current?.id === item.id ? null : { id: item.id }); }}>
           {renaming ? (
@@ -160,10 +163,11 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
               {item.preview && <span className="sidebar-item-preview">{item.preview}</span>}
             </button>
           )}
-          <time dateTime={item.updatedAt}>{new Date(item.updatedAt).toLocaleDateString(undefined, { month: "numeric", day: "numeric" })}</time>
+          <time dateTime={item.updatedAt} title={item.updatedAt}>{formatSessionAge(item.updatedAt)}</time>
           <button className="sidebar-more" type="button" ref={menu?.id === item.id ? menuAnchor : undefined} aria-label={`更多操作（会话 ${item.title}）`} aria-controls={menu?.id === item.id ? "session-actions" : undefined} aria-expanded={menu?.id === item.id} onClick={() => setMenu((current) => current?.id === item.id ? null : { id: item.id })}><MoreHorizontal size={15} aria-hidden /></button>
         </div>;
-      })}
+        })}
+      </div>)}
     </div>
     {archived.length > 0 && <div className="sidebar-archived">
       {/* R73：归档管理迁设置页（用户提议）——侧栏只留紧凑入口行，不再铺 47 条挤爆侧栏。 */}

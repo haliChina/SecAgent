@@ -11,6 +11,8 @@ export function VoiceWakeListener() {
     const phrase = new URLSearchParams(window.location.search).get("phrase") || "小泽同学";
     let audioFrames = 0;
     let lastHeartbeatAt = 0;
+    let lastFrameAt = 0;
+    let lastLevelLogAt = 0;
     const log = (stage: string, data: Record<string, unknown> = {}) => {
       const payload = { stage, ...data };
       console.info("[voice-wake] renderer", payload);
@@ -50,7 +52,21 @@ registerProcessor("wake-capture", WakeCaptureProcessor);`;
       try {
         log("capture.starting", { phrase });
         await window.secagent.startVoiceWake(phrase);
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        /* R84：唤醒窗此前固定用系统默认输入，用户在设置里选了阵列麦/耳麦也无效——
+           大屏上默认设备常是摄像头麦或 HDMI，直接导致「喊不醒」。这里复用
+           speech.audio.input；精确设备不可用时回退默认并在日志里写明。 */
+        const savedSettings = await window.secagent.getSettings().catch(() => null);
+        const selectedInput = savedSettings?.speech?.audio?.input;
+        const requestedDevice = selectedInput && selectedInput !== "auto" && selectedInput !== "default" ? selectedInput : undefined;
+        const baseAudio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: requestedDevice ? { ...baseAudio, deviceId: { exact: requestedDevice } } : baseAudio });
+        } catch (error) {
+          if (!requestedDevice) throw error;
+          log("capture.device-fallback", { requested: requestedDevice, error: error instanceof Error ? error.message : String(error) });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+        }
+        log("capture.device", { requested: selectedInput || "default", label: stream.getAudioTracks()[0]?.label || "" });
         if (stopped) return;
         context = new AudioContext({ sampleRate: 16000 });
         context.onstatechange = () => log("audio-context.state", { state: context?.state || "closed" });
@@ -63,9 +79,15 @@ registerProcessor("wake-capture", WakeCaptureProcessor);`;
         workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
           audioFrames += 1;
           const now = Date.now();
-          if (audioFrames === 1 || now - lastHeartbeatAt >= 15000) {
+          lastFrameAt = now;
+          if (audioFrames === 1 || now - lastHeartbeatAt >= 15000 || now - lastLevelLogAt >= 2500) {
             lastHeartbeatAt = now;
-            log("audio.frames", { count: audioFrames, contextState: context?.state || "closed" });
+            lastLevelLogAt = now;
+            const samples = event.data;
+            let energy = 0;
+            let peak = 0;
+            for (const sample of samples) { energy += sample * sample; peak = Math.max(peak, Math.abs(sample)); }
+            log("audio.level", { count: audioFrames, rms: Math.sqrt(energy / Math.max(1, samples.length)), peak, contextState: context?.state || "closed" });
           }
           window.secagent.sendVoiceWakeAudio(event.data);
         };
@@ -77,8 +99,19 @@ registerProcessor("wake-capture", WakeCaptureProcessor);`;
         await window.secagent.stopVoiceWake();
       }
     })();
+    const watchdog = window.setInterval(() => {
+      if (stopped) return;
+      if (context && context.state !== "running") {
+        log("audio-context.stalled", { state: context.state });
+        void context.resume().catch(() => undefined);
+      }
+      if (lastFrameAt && Date.now() - lastFrameAt > 5000) {
+        log("audio.stalled", { sinceMs: Date.now() - lastFrameAt, contextState: context?.state || "uninitialized" });
+      }
+    }, 4000);
     return () => {
       stopped = true;
+      window.clearInterval(watchdog);
       log("capture.stopping", { audioFrames, contextState: context?.state || "uninitialized" });
       workletNode?.disconnect();
       source?.disconnect();
