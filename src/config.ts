@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
 import { expandPath } from "./paths.js";
-import type { CustomCommand, McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences } from "./types.js";
+import type { CustomCommand, McpServerConfig, ModelProfile, ProviderConfig, ReasoningEffort, SecAgentConfig, TelemetrySettings, UpdatePreferences, WebSearchProvider, WebSearchSettings } from "./types.js";
 import { normalizeSpeechSettings, type BailianAsrSettings, type MimoAsrSettings, type OpenAiAsrSettings, type SpeechAsrSettings } from "./asr/settings.js";
 import type { GoogleModelInfo } from "./google-models.js";
 import { DEFAULT_WAKE_HOTKEY, normalizeWakeHotkey } from "./wake-hotkey.js";
@@ -496,7 +496,23 @@ export interface SettingsPayload {
    * 工作区 .env（BIGMODEL_API_KEY / DEEPSEEK_API_KEY），不落 config.yaml；
    * `*Configured` 只读标记由 process.env 派生。
    */
-  webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean };
+  webSearch?: WebSearchSettings & { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean };
+}
+
+const WEB_SEARCH_PROVIDERS: WebSearchProvider[] = ["auto", "official", "bigmodel", "deepseek", "local"];
+
+/** R91：联网搜索设置的唯一归一化入口（配置文件/UI/IPC 都可能缺字段）。 */
+function normalizeWebSearchSettings(input?: Partial<WebSearchSettings> | null): WebSearchSettings {
+  const provider = WEB_SEARCH_PROVIDERS.includes(input?.provider as WebSearchProvider) ? input!.provider as WebSearchProvider : "auto";
+  const max = Number(input?.maxResults);
+  return {
+    enabled: input?.enabled !== false,
+    provider,
+    fallback: input?.fallback !== false,
+    localFallback: input?.localFallback !== false,
+    fetchEnabled: input?.fetchEnabled !== false,
+    maxResults: Number.isFinite(max) && max >= 1 && max <= 10 ? Math.round(max) : 6
+  };
 }
 
 export function readSettings(workspaceInput: string): SettingsPayload {
@@ -516,7 +532,8 @@ export function readSettings(workspaceInput: string): SettingsPayload {
     }];
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, closeWindowAction: config.defaults?.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: config.defaults?.sendShortcut === "modEnter" ? "modEnter" : "enter", skills: { disabled: Array.isArray(config.skills?.disabled) ? config.skills.disabled.filter((name): name is string => typeof name === "string") : [] }, responseTips: config.defaults?.responseTips !== false, commands: normalizeCustomCommands(config.commands?.items), rules: { enabled: config.rules?.enabled !== false, text: typeof config.rules?.text === "string" ? config.rules.text : "" }, archive: { auto: config.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(config.archive?.retentionDays || 0) ? config.archive!.retentionDays! : 7 }, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", performance: config.performance === "smooth" || config.performance === "quality" ? config.performance : "auto", windowControls: config.windowControls === "native" ? "native" : "custom", webSearch: { bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY) } };
+  const webSearch = normalizeWebSearchSettings(config.webSearch);
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, closeWindowAction: config.defaults?.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: config.defaults?.sendShortcut === "modEnter" ? "modEnter" : "enter", skills: { disabled: Array.isArray(config.skills?.disabled) ? config.skills.disabled.filter((name): name is string => typeof name === "string") : [] }, responseTips: config.defaults?.responseTips !== false, commands: normalizeCustomCommands(config.commands?.items), rules: { enabled: config.rules?.enabled !== false, text: typeof config.rules?.text === "string" ? config.rules.text : "" }, archive: { auto: config.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(config.archive?.retentionDays || 0) ? config.archive!.retentionDays! : 7 }, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", performance: config.performance === "smooth" || config.performance === "quality" ? config.performance : "auto", windowControls: config.windowControls === "native" ? "native" : "custom", webSearch: { ...webSearch, bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY) } };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -624,6 +641,7 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
      process.env，web_search/web_fetch 无需重启即生效）。 */
   if (typeof payload.webSearch?.bigmodelKey === "string" && payload.webSearch.bigmodelKey.trim()) writeWorkspaceEnv(workspace, "BIGMODEL_API_KEY", payload.webSearch.bigmodelKey.trim());
   if (typeof payload.webSearch?.deepseekKey === "string" && payload.webSearch.deepseekKey.trim()) writeWorkspaceEnv(workspace, "DEEPSEEK_API_KEY", payload.webSearch.deepseekKey.trim());
+  if (payload.webSearch) raw.webSearch = normalizeWebSearchSettings(payload.webSearch);
   const currentUpdates = raw.updates || DEFAULT_UPDATE_PREFERENCES;
   const nextUpdates: UpdatePreferences = { channel: payload.updates?.channel === "preview" ? "preview" : payload.updates?.channel === "stable" ? "stable" : currentUpdates.channel, autoCheck: payload.updates ? payload.updates.autoCheck !== false : currentUpdates.autoCheck, autoDownload: payload.updates ? payload.updates.autoDownload !== false : currentUpdates.autoDownload, autoInstallOnQuit: payload.updates ? payload.updates.autoInstallOnQuit !== false : currentUpdates.autoInstallOnQuit };
   const nextTelemetry: TelemetrySettings = { enabled: payload.telemetry?.enabled !== false };

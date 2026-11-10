@@ -1,5 +1,20 @@
 import type { SpeechAsrSettings } from "./asr/settings.js";
 
+/** 联网搜索设置：工具开关、供应商选择与回退策略（R91）。 */
+export type WebSearchProvider = "auto" | "official" | "bigmodel" | "deepseek" | "local";
+export interface WebSearchSettings {
+  enabled?: boolean;
+  provider?: WebSearchProvider;
+  /** 选中服务失败时是否继续尝试其他服务。 */
+  fallback?: boolean;
+  /** 是否允许 Bing 网页抓取兜底（反爬/ToS 风险，默认开以保持零配置）。 */
+  localFallback?: boolean;
+  /** 是否向模型暴露 web_fetch。 */
+  fetchEnabled?: boolean;
+  /** 每次搜索最多返回条数（1-10）。 */
+  maxResults?: number;
+}
+
 export interface McpServerConfig {
   transport: "stdio" | "http";
   command?: string;
@@ -160,6 +175,8 @@ export interface SecAgentConfig {
   performance?: "auto" | "smooth" | "quality";
   /** Windows 窗口按钮：custom 自绘（默认）/ native 系统 WCO（重启生效）。 */
   windowControls?: "custom" | "native";
+  /** 联网搜索：开关、供应商、回退与条数。 */
+  webSearch?: WebSearchSettings;
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */

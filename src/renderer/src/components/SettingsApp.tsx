@@ -430,6 +430,10 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
     { value: "bailian", label: "阿里云百炼 CosyVoice（云端，需 API Key）" }
   ];
   const pluginNavPages = plugins.flatMap((plugin) => (plugin.enabled ? (plugin.settingsPages ?? []) : []).map((page) => ({ id: `plugin-${plugin.id}-${page.id}`, label: page.title })));
+  const updateWebSearch = (patch: Partial<NonNullable<SettingsPayload["webSearch"]>>): void => {
+    setSettings((current) => current && { ...current, webSearch: { ...(current.webSearch || {}), ...patch } });
+  };
+
   return <main className={`settings-shell has-window-title ${isOobe ? "oobe-shell" : ""} ${activePage === "settings-plugins" ? "plugin-settings-shell" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
     {/* R61：设置窗顶栏——与主窗 .topbar 同语言（实底 bg-1/下边线/品牌位/拖拽区）。
         原 57px 透明浮字无栏感，Windows 上系统窗控直接压在设置内容上。 */}
@@ -594,12 +598,23 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
       <div className="provider-list settings-cards">{settings.providers.filter((provider) => provider.id !== "sectl-official" && provider.name !== "SecAgent 官方服务").map((provider) => <article className={`settings-card provider-list-item${provider.models.length === 1 ? " single-model" : ""}`} key={provider.id}><div className="card-heading"><div><strong>{provider.name}</strong><span>{provider.models.length} 个模型 · {provider.preset && provider.preset !== "custom" ? `预设：${provider.preset}` : "自定义"}</span></div><div className="item-actions"><button className="secondary-button" type="button" onClick={() => { setEditingProvider({ ...provider, models: provider.models.map((model) => ({ ...model })) }); setProviderModalOpen(true); }}>编辑</button><button className="text-button danger" type="button" onClick={() => removeProvider(provider.id)}>删除</button></div></div></article>)}</div></> : null}
     </section>
     <section id="settings-websearch" className={`settings-section ${activePage === "settings-websearch" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>联网搜索</h2></div></div>
+      <article className="settings-card"><div className="card-heading"><strong>搜索开关与策略</strong></div>
+        <label className="toggle-row"><span className="toggle-copy"><strong>启用联网搜索</strong><small>关闭后模型不再看到 web_search / web_fetch，也不会发起任何搜索请求。</small></span><input type="checkbox" checked={settings.webSearch?.enabled !== false} onChange={(event) => updateWebSearch({ enabled: event.target.checked })} /></label>
+        <label className="toggle-row"><span className="toggle-copy"><strong>允许抓取网页正文</strong><small>控制 web_fetch：关闭后只能看搜索结果摘要，不能读整页。</small></span><input type="checkbox" checked={settings.webSearch?.fetchEnabled !== false} disabled={settings.webSearch?.enabled === false} onChange={(event) => updateWebSearch({ fetchEnabled: event.target.checked })} /></label>
+        <div className="form-grid">
+          <label>搜索服务<SelectCombobox ariaLabel="搜索服务" value={settings.webSearch?.provider || "auto"} options={[{ value: "auto", label: "自动（按顺序回退）" }, { value: "official", label: "官方中继（登录）" }, { value: "bigmodel", label: "智谱 BigModel" }, { value: "deepseek", label: "DeepSeek" }, { value: "local", label: "本地网页抓取" }]} onChange={(provider) => updateWebSearch({ provider: provider as NonNullable<SettingsPayload["webSearch"]>["provider"] })} /></label>
+          <label>每次最多返回<SelectCombobox ariaLabel="搜索结果数量" value={String(settings.webSearch?.maxResults ?? 6)} options={[{ value: "3", label: "3 条" }, { value: "5", label: "5 条" }, { value: "6", label: "6 条" }, { value: "10", label: "10 条" }]} onChange={(value) => updateWebSearch({ maxResults: Number(value) })} /></label>
+        </div>
+        <label className="toggle-row"><span className="toggle-copy"><strong>失败时自动换下一个服务</strong><small>只对“固定搜索服务”生效；自动模式本身就会按链回退。</small></span><input type="checkbox" checked={settings.webSearch?.fallback !== false} onChange={(event) => updateWebSearch({ fallback: event.target.checked })} /></label>
+        <label className="toggle-row"><span className="toggle-copy"><strong>允许本地网页抓取兜底</strong><small>零密钥时直接抓 Bing 结果页；可能被反爬拦截，且属于搜索页抓取的灰色地带。</small></span><input type="checkbox" checked={settings.webSearch?.localFallback !== false} onChange={(event) => updateWebSearch({ localFallback: event.target.checked })} /></label>
+        <p className="settings-help">自动顺序：官方中继 → BigModel → DeepSeek → 本地。内置 web_search 与 MCP 里的搜索工具同时启用时，模型可能重复调用；建议只保留一个入口。</p>
+      </article>
       <article className="settings-card"><div className="card-heading"><strong>搜索服务密钥</strong></div>
         <div className="form-grid">
-          <label>BigModel API Key<input type="password" placeholder={settings.webSearch?.bigmodelKeyConfigured ? "已配置（留空保持不变）" : "粘贴智谱 BigModel API Key"} value={settings.webSearch?.bigmodelKey || ""} onChange={(event) => setSettings((current) => current && { ...current, webSearch: { ...(current.webSearch || {}), bigmodelKey: event.target.value } })} /></label>
-          <label>DeepSeek API Key<input type="password" placeholder={settings.webSearch?.deepseekKeyConfigured ? "已配置（留空保持不变）" : "粘贴 DeepSeek API Key"} value={settings.webSearch?.deepseekKey || ""} onChange={(event) => setSettings((current) => current && { ...current, webSearch: { ...(current.webSearch || {}), deepseekKey: event.target.value } })} /></label>
+          <label>BigModel API Key<input type="password" placeholder={settings.webSearch?.bigmodelKeyConfigured ? "已配置（留空保持不变）" : "粘贴智谱 BigModel API Key"} value={settings.webSearch?.bigmodelKey || ""} onChange={(event) => updateWebSearch({ bigmodelKey: event.target.value })} /></label>
+          <label>DeepSeek API Key<input type="password" placeholder={settings.webSearch?.deepseekKeyConfigured ? "已配置（留空保持不变）" : "粘贴 DeepSeek API Key"} value={settings.webSearch?.deepseekKey || ""} onChange={(event) => updateWebSearch({ deepseekKey: event.target.value })} /></label>
         </div>
-        <p className="settings-help">密钥保存在 .env，保存后立即生效；搜索会自动选择可用服务。</p>
+        <p className="settings-help">密钥保存在 .env，保存后立即生效。</p>
       </article>
     </section>
     <section id="settings-mcp" className={`settings-section ${isOobe || activePage === "settings-mcp" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>MCP 服务</h2></div><button className="secondary-button" onClick={() => setSettings((current) => current && { ...current, mcp: { servers: { ...current.mcp.servers, [`mcp-${Object.keys(current.mcp.servers).length + 1}`]: emptyMcp() } } })}>+ 添加服务</button></div>

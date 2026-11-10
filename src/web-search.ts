@@ -29,6 +29,8 @@ interface WebSearchHit {
   publishDate: string | null;
 }
 
+import type { WebSearchProvider, WebSearchSettings } from "./types.js";
+
 interface WebSearchOutcome {
   provider: "official" | "bigmodel" | "deepseek" | "local";
   query: string;
@@ -174,67 +176,84 @@ async function localBingSearch(query: string, count: number): Promise<WebSearchH
   }
 }
 
-/** 执行一次联网搜索；提供方可用的按 官方中继 → BigModel → DeepSeek 顺序。 */
-export async function runWebSearch(query: string, count = 6): Promise<WebSearchOutcome> {
+/** 执行一次联网搜索。R91：设置可选择供应商/回退/条数；默认保持原有自动链。 */
+export async function runWebSearch(query: string, count = 6, settings?: WebSearchSettings): Promise<WebSearchOutcome> {
+  if (settings?.enabled === false) throw new Error("联网搜索已在设置中关闭。");
   const trimmed = query.trim();
   if (!trimmed || trimmed.length > 128) throw new Error("搜索词须为 1～128 个字符。");
-  const capped = Math.max(1, Math.min(MAX_COUNT, Math.round(count) || 6));
+  const requested = Math.max(1, Math.min(MAX_COUNT, Math.round(count) || 6));
+  const capped = Math.max(1, Math.min(requested, settings?.maxResults ?? MAX_COUNT));
 
   const officialToken = envKey("SECTL_OFFICIAL_TOKEN");
   const officialBase = envKey("SECTL_OFFICIAL_API_URL");
-  if (officialToken && officialBase) {
-    try {
+  const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
+  const deepSeekKey = envKey("DEEPSEEK_API_KEY");
+  const localAllowed = settings?.localFallback !== false;
+
+  const runProvider = async (provider: WebSearchProvider): Promise<WebSearchHit[]> => {
+    if (provider === "official") {
+      if (!officialToken || !officialBase) throw new Error("官方中继未登录或未配置搜索地址");
       const base = officialBase.replace(/\/+$/, "");
       const payload = await postJson(`${base}/v1/tools/search`, officialToken, { query: trimmed, count: capped });
-      const hits = hitsFromDeepSeek(payload);
-      if (hits.length) return { provider: "official", query: trimmed, hits };
-    } catch {
-      /* 官方中继失败（未开通搜索/网络）→ 落到直连 API。 */
+      return hitsFromDeepSeek(payload);
     }
-  }
-
-  const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
-  if (bigModelKey) {
-    try {
+    if (provider === "bigmodel") {
+      if (!bigModelKey) throw new Error("未配置智谱 BigModel API Key");
       const payload = await postJson("https://open.bigmodel.cn/api/paas/v4/web_search", bigModelKey, {
         search_query: trimmed,
         search_engine: "search_std",
         search_intent: false,
         count: capped
       });
-      const hits = hitsFromBigModel(payload);
-      if (hits.length) return { provider: "bigmodel", query: trimmed, hits };
-    } catch {
-      /* BigModel 失败（401/网络/解析）→ 继续下一层，不直接上抛。 */
+      return hitsFromBigModel(payload);
     }
-  }
-
-  const deepSeekKey = envKey("DEEPSEEK_API_KEY");
-  if (deepSeekKey) {
-    try {
+    if (provider === "deepseek") {
+      if (!deepSeekKey) throw new Error("未配置 DeepSeek API Key");
       const payload = await postJson("https://api.deepseek.com/v1/tools/search", deepSeekKey, { query: trimmed, count: capped });
-      const hits = hitsFromDeepSeek(payload);
-      if (hits.length) return { provider: "deepseek", query: trimmed, hits };
-    } catch {
-      /* DeepSeek 失败 → 继续下一层，不直接上抛。 */
+      return hitsFromDeepSeek(payload);
+    }
+    if (provider === "local") {
+      if (!localAllowed) throw new Error("本地网页抓取兜底已在设置中关闭");
+      return await localBingSearch(trimmed, capped);
+    }
+    throw new Error(`未知搜索服务：${provider}`);
+  };
+
+  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "local"];
+  const configured = new Set<WebSearchProvider>();
+  if (officialToken && officialBase) configured.add("official");
+  if (bigModelKey) configured.add("bigmodel");
+  if (deepSeekKey) configured.add("deepseek");
+  if (localAllowed) configured.add("local");
+
+  const selected = settings?.provider && settings.provider !== "auto" ? settings.provider : undefined;
+  const chain: WebSearchProvider[] = selected
+    ? [selected, ...(settings?.fallback !== false ? defaultOrder.filter((id) => id !== selected) : [])]
+    : defaultOrder;
+
+  const attempted: string[] = [];
+  for (const provider of chain) {
+    if (!configured.has(provider)) {
+      attempted.push(`${provider}（未配置）`);
+      continue;
+    }
+    attempted.push(provider);
+    try {
+      const hits = await runProvider(provider);
+      if (hits.length) return { provider, query: trimmed, hits };
+      attempted[attempted.length - 1] = `${provider}（空结果）`;
+    } catch (error) {
+      attempted[attempted.length - 1] = `${provider}（${error instanceof Error ? error.message : String(error)}）`;
     }
   }
 
-  /* 自研兜底：零密钥时（以及所有配置层失败时）本地抓取 Bing 结果页。
-     失败则抛聚合的可读错误。 */
-  try {
-    const hits = await localBingSearch(trimmed, capped);
-    if (hits.length) return { provider: "local", query: trimmed, hits };
-  } catch {
-    /* 本地抓取失败 → 统一错误。 */
+  if (selected && settings?.fallback === false) {
+    throw new Error(`${selected} 搜索失败：${attempted[attempted.length - 1] || "未配置"}。可打开“失败时自动换下一个服务”。`);
   }
-
-  const configured = [officialToken && "官方中继", bigModelKey && "BigModel", deepSeekKey && "DeepSeek"].filter(Boolean);
-  throw new Error(
-    configured.length
-      ? "各搜索服务均未返回结果（额度耗尽或网络受限），已尝试本地抓取也未命中；可稍后重试。"
-      : "搜索失败：本地抓取未命中。要更稳定的结果，可在 .env 配置 ZAI_API_KEY（智谱）或 DEEPSEEK_API_KEY 后重启。"
-  );
+  if (!configured.size) {
+    throw new Error("没有可用的联网搜索服务：请登录官方服务、在设置中填写 BigModel/DeepSeek Key，或打开“本地网页抓取兜底”。");
+  }
+  throw new Error(`联网搜索未返回结果，已尝试：${attempted.join(" → ")}。`);
 }
 
 interface WebFetchOutcome {

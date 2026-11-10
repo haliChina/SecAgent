@@ -7,6 +7,7 @@ import type { AgentTool } from "./model-provider.js";
 import type { ToolImageContent } from "./tool-content.js";
 import { runWebFetch, runWebSearch } from "./web-search.js";
 import { evaluateExpression } from "./calc.js";
+import { readSettings } from "./config.js";
 
 const execAsync = promisify(exec);
 
@@ -128,12 +129,19 @@ export async function callPiTool(workspace: string, key: string, args: Record<st
   if (key === "web_search") {
     const query = typeof args.query === "string" ? args.query : "";
     const count = typeof args.count === "number" && Number.isFinite(args.count) ? args.count : 6;
-    /* R62：runWebSearch 自带 官方中继→BigModel→DeepSeek→本地 Bing 抓取 的
-       分层回退，零密钥也能出结果（兜底层）。 */
-    return await runWebSearch(query, count);
+    /* R91：设置决定供应商、回退、条数与是否允许本地抓取；读取失败时退回旧自动链。 */
+    let settings: ReturnType<typeof readSettings>["webSearch"] | undefined;
+    try { settings = readSettings(workspace).webSearch; } catch { settings = undefined; }
+    return await runWebSearch(query, count, settings);
   }
   if (key === "web_fetch") {
     const url = typeof args.url === "string" ? args.url : "";
+    try {
+      const settings = readSettings(workspace).webSearch;
+      if (settings?.enabled === false || settings?.fetchEnabled === false) throw new Error("网页抓取已在设置中关闭。");
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("设置中关闭")) throw error;
+    }
     /* R63：DeepSeek fetch API 优先，本地直抓兜底（见 web-search.ts）。 */
     return await runWebFetch(url);
   }

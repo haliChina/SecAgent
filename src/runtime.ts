@@ -188,10 +188,16 @@ export class SecAgentRuntime {
     // 工具面（借鉴 dsh-ctx-gate）：本会话收起的组不再下发 schema，元工具可挂回。
     const surface = filterToolSurface(sessionId, mcpTools, pluginGroups);
     this.turnToolGroups = buildToolGroups(mcpTools, pluginGroups);
+    const webSearchEnabled = this.config.webSearch?.enabled !== false;
+    const webFetchEnabled = webSearchEnabled && this.config.webSearch?.fetchEnabled !== false;
+    const builtInTools = piTools.filter((tool) =>
+      (tool.key !== "web_search" || webSearchEnabled)
+      && (tool.key !== "web_fetch" || webFetchEnabled)
+    );
     const tools = [
       ...surface.mcp.filter((tool) => !hiddenTools.has(tool.key)),
       ...surface.plugin.filter((tool) => !hiddenTools.has(tool.key)),
-      ...piTools,
+      ...builtInTools,
       // Dedicated vision sub-model tool: only registered when a vision model is
       // configured; lets a text-only main agent delegate image understanding.
       ...(this.visionAgent ? [{ key: "secagent__look_at_image", description: "使用独立的识图模型查看本地图片并返回文字结果。当你的模型不支持直接查看图片（无法通过 look_at 查看图片内容）时，必须调用此工具代替 look_at。path 可使用绝对路径或相对于工作区的路径；仅支持 png、jpg、jpeg、webp、gif 图片。prompt 为需要基于图片内容回答的问题。", inputSchema: { type: "object", additionalProperties: false, required: ["path", "prompt"], properties: { path: { type: "string", description: "图片的绝对路径或相对于工作区的路径" }, prompt: { type: "string", description: "需要基于图片内容回答的问题" } } } }] : []),
@@ -391,6 +397,8 @@ export class SecAgentRuntime {
   private async executeGuardedTool(request: string, key: string, args: Record<string, unknown>, hiddenTools?: Set<string>, sessionId = ""): Promise<unknown> {
     if (key === "secagent__look_at_image") return this.callVision(request, args);
     if (piTools.some((tool) => tool.key === key)) {
+      if (key === "web_search" && this.config.webSearch?.enabled === false) throw new Error("联网搜索已在设置中关闭。");
+      if (key === "web_fetch" && (this.config.webSearch?.enabled === false || this.config.webSearch?.fetchEnabled === false)) throw new Error("网页抓取已在设置中关闭。");
       this.emit("secagent.tools/call", { name: key, arguments: args });
       try {
         const result = await callPiTool(this.config.workspace, key, args);
