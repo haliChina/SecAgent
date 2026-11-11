@@ -62,6 +62,8 @@ test("旧 .env 迁移：明文密钥移入 vault，保留非敏感项", () => {
     assert.equal(migratePlaintextSecrets(dir), 0);
   } finally {
     configureSecretCipher(null);
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.DEEPSEEK_API_KEY;
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
