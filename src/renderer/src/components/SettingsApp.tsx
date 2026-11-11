@@ -619,7 +619,7 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
           <label>Google CSE Key<input type="password" placeholder={settings.webSearch?.googleKeyConfigured ? "已配置（留空保持不变）" : "粘贴 Google API Key"} value={settings.webSearch?.googleKey || ""} onChange={(event) => updateWebSearch({ googleKey: event.target.value })} /></label>
           <label>Google CSE CX<input type="password" placeholder={settings.webSearch?.googleCxConfigured ? "已配置（留空保持不变）" : "粘贴 Programmable Search Engine CX"} value={settings.webSearch?.googleCx || ""} onChange={(event) => updateWebSearch({ googleCx: event.target.value })} /></label>
         </div>
-        <p className="settings-help">密钥保存在 .env，保存后立即生效；Tavily/Brave/Serper/Google 只在选中或自动模式且 Key 已配置时才会调用。Microsoft Bing Web Search API 已退役，不再提供。</p>
+        <p className="settings-help">密钥存储：{settings.secrets === "encrypted" ? "系统密钥环（已加密）" : settings.secrets === "unavailable" ? "系统密钥环不可用，新密钥将以明文保存" : "未加密（CLI/开发环境）"}。Tavily/Brave/Serper/Google 只在选中或自动模式且 Key 已配置时才会调用。Microsoft Bing Web Search API 已退役，不再提供。</p>
       </article>
     </section>
     <section id="settings-mcp" className={`settings-section ${isOobe || activePage === "settings-mcp" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>MCP 服务</h2></div><button className="secondary-button" onClick={() => setSettings((current) => current && { ...current, mcp: { servers: { ...current.mcp.servers, [`mcp-${Object.keys(current.mcp.servers).length + 1}`]: emptyMcp() } } })}>+ 添加服务</button></div>

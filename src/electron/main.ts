@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, screen, session, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, safeStorage, screen, session, shell, Tray } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
@@ -17,6 +17,7 @@ import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
 import { closeAllSessionDbs } from "../session-db.js";
+import { configureSecretCipher, migratePlaintextSecrets } from "../secret-store.js";
 import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
@@ -208,8 +209,26 @@ app.on("second-instance", (_event, argv) => {
 });
 app.whenReady().then(async () => {
   if (!app.hasSingleInstanceLock()) return;
+  /* R93：密钥加密必须在 initializeWorkspace/readSettings 之前配置；
+     safeStorage 只在 app ready 后可用。不可用时保持旧明文 .env，不静默降级。 */
+  try {
+    configureSecretCipher({
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (value: string) => safeStorage.encryptString(value).toString("base64"),
+      decrypt: (payload: string) => safeStorage.decryptString(Buffer.from(payload, "base64"))
+    });
+  } catch (error) {
+    configureSecretCipher(null);
+    logMain("secrets.cipher.unavailable", { error: error instanceof Error ? error.message : String(error) });
+  }
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   initializeWorkspace(DEFAULT_WORKSPACE);
+  try {
+    const migrated = migratePlaintextSecrets(DEFAULT_WORKSPACE);
+    if (migrated) logMain("secrets.migrated", { count: migrated });
+  } catch (error) {
+    logMain("secrets.migrate.failed", { error: error instanceof Error ? error.message : String(error) });
+  }
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
   /* 自动归档：启动时扫描一次；读取或写库失败都不应阻塞应用启动。 */
   const archivePolicy = initialSettings.archive;

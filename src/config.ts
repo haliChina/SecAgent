@@ -11,6 +11,7 @@ import { normalizeToolGuardSettings } from "./tool-guard.js";
 import { normalizeModelBudgetSettings } from "./model-budget.js";
 import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { writeFileAtomic } from "./atomic-write.js";
+import { isSecretEnvName, loadSecrets, secretStoreStatus, storeSecret, type SecretStoreStatus } from "./secret-store.js";
 
 export const DEFAULT_GOOGLE_MODEL = "gemini-2.5-flash";
 export const DEFAULT_MAX_TOKENS = 16_384;
@@ -185,6 +186,7 @@ export function initializeWorkspace(workspace: string): void {
   const envFile = path.join(workspace, ".env");
   if (!fs.existsSync(envFile)) fs.writeFileSync(envFile, "# 本地密钥和官方服务连接配置，不要提交或分享此文件。\nOPENAI_API_KEY=\nANTHROPIC_API_KEY=\nGEMINI_API_KEY=\nSECTL_OFFICIAL_API_URL=\nSECTL_OAUTH_API_URL=https://appwrite.sectl.cn\nSECTL_OAUTH_CALLBACK_PORT=49152\nSECTL_OFFICIAL_PLATFORM_ID=\nSECTL_OFFICIAL_CLIENT_ID=\nSECTL_OFFICIAL_TOKEN=\nSECTL_OFFICIAL_EMAIL=\nSECTL_OFFICIAL_SECTL_TOKEN=\nSECTL_OFFICIAL_USER_ID=\n", "utf8");
   removeReservedWorkspaceEnvEntries(envFile);
+  try { fs.chmodSync(envFile, 0o600); } catch { /* Windows / 文件系统不支持 */ }
 }
 
 export function loadConfig(workspaceInput: string): { workspace: string; config: SecAgentConfig } {
@@ -193,6 +195,7 @@ export function loadConfig(workspaceInput: string): { workspace: string; config:
   if (!fs.existsSync(file)) throw new Error(`未找到配置：${file}。请先执行 secagent init。`);
   const envFile = path.join(workspace, ".env");
   if (fs.existsSync(envFile)) loadWorkspaceEnv(envFile);
+  loadSecrets(workspace);
   const raw = YAML.parse(fs.readFileSync(file, "utf8")) as SecAgentConfig;
   return { workspace, config: normalizeAndValidate(raw, workspace) };
 }
@@ -491,10 +494,11 @@ export interface SettingsPayload {
   performance?: "auto" | "smooth" | "quality";
   /** R90：Windows 自绘三键 / 系统原生 WCO；重启窗口生效。 */
   windowControls?: "custom" | "native";
+  /** 密钥存储状态：Electron 密钥环可用时 encrypted；CLI/无 keyring 时 legacy/unavailable。 */
+  secrets?: SecretStoreStatus;
   /**
-   * R64：联网搜索（web_search/web_fetch 工具）密钥。载流字段——保存时写入
-   * 工作区 .env（BIGMODEL_API_KEY / DEEPSEEK_API_KEY），不落 config.yaml；
-   * `*Configured` 只读标记由 process.env 派生。
+   * R64：联网搜索密钥。载流字段——保存时写入工作区密钥仓库（R93：系统密钥环加密；
+   * 无 keyring 时回退 .env），不落 config.yaml；`*Configured` 只读标记由 process.env 派生。
    */
   webSearch?: WebSearchSettings & { bigmodelKey?: string; deepseekKey?: string; tavilyKey?: string; braveKey?: string; serperKey?: string; googleKey?: string; googleCx?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean; tavilyKeyConfigured?: boolean; braveKeyConfigured?: boolean; serperKeyConfigured?: boolean; googleKeyConfigured?: boolean; googleCxConfigured?: boolean };
 }
@@ -533,7 +537,7 @@ export function readSettings(workspaceInput: string): SettingsPayload {
   const providers = config.agent.providers?.length ? config.agent.providers : groupLegacyModels(configured);
   const speech = normalizeSpeechSettings(config.speech);
   const webSearch = normalizeWebSearchSettings(config.webSearch);
-  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, closeWindowAction: config.defaults?.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: config.defaults?.sendShortcut === "modEnter" ? "modEnter" : "enter", skills: { disabled: Array.isArray(config.skills?.disabled) ? config.skills.disabled.filter((name): name is string => typeof name === "string") : [] }, responseTips: config.defaults?.responseTips !== false, commands: normalizeCustomCommands(config.commands?.items), rules: { enabled: config.rules?.enabled !== false, text: typeof config.rules?.text === "string" ? config.rules.text : "" }, archive: { auto: config.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(config.archive?.retentionDays || 0) ? config.archive!.retentionDays! : 7 }, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", performance: config.performance === "smooth" || config.performance === "quality" ? config.performance : "auto", windowControls: config.windowControls === "native" ? "native" : "custom", webSearch: { ...webSearch, bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY), tavilyKeyConfigured: Boolean(process.env.TAVILY_API_KEY), braveKeyConfigured: Boolean(process.env.BRAVE_SEARCH_API_KEY), serperKeyConfigured: Boolean(process.env.SERPER_API_KEY), googleKeyConfigured: Boolean(process.env.GOOGLE_SEARCH_KEY), googleCxConfigured: Boolean(process.env.GOOGLE_SEARCH_CX) } };
+  return { providers: providers.map((provider) => ({ ...provider, apiKeyConfigured: Boolean(process.env[provider.apiKeyEnv]) })), models: configured.map((model) => ({ ...model, apiKeyConfigured: Boolean(process.env[model.apiKeyEnv]) })), tts: { ...normalizeTtsBlock(config.tts), ...(config.tts?.mimo ? { mimo: { ...config.tts.mimo, apiKeyConfigured: Boolean(config.tts.mimo.apiKeyEnv && process.env[config.tts.mimo.apiKeyEnv]) } } : {}), ...(config.tts?.bailian ? { bailian: { ...config.tts.bailian, apiKeyConfigured: Boolean(process.env[config.tts.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}) }, wake: { hotkey: config.wake?.hotkey || DEFAULT_WAKE_HOTKEY, ...(config.wake?.modelId ? { modelId: config.wake.modelId } : {}), voiceEnabled: config.wake?.voiceEnabled === true, voicePhrase: config.wake?.voicePhrase || DEFAULT_WAKE_PHRASE }, speech: { ...speech, ...(speech.openai ? { openai: { ...speech.openai, apiKeyConfigured: Boolean(speech.openai.apiKeyEnv && process.env[speech.openai.apiKeyEnv]) } } : {}), ...(speech.bailian ? { bailian: { ...speech.bailian, apiKeyConfigured: Boolean(process.env[speech.bailian.apiKeyEnv || "BAILIAN_API_KEY"]) } } : {}), ...(speech.mimo ? { mimo: { ...speech.mimo, apiKeyConfigured: Boolean(process.env[speech.mimo.apiKeyEnv || "MIMO_API_KEY"]) } } : {}) }, updates: { ...(config.updates || DEFAULT_UPDATE_PREFERENCES) }, telemetry: { enabled: config.telemetry?.enabled !== false }, mcp: config.mcp, defaultModelId: config.defaults?.modelId, defaultReasoningEffort: config.defaults?.reasoningEffort, visionModelId: config.defaults?.visionModelId, autostart: config.defaults?.autostart === true, autostartHidden: config.defaults?.autostartHidden !== false, customModelMode: config.defaults?.customModelMode ?? false, closeWindowAction: config.defaults?.closeWindowAction === "quit" ? "quit" : "tray", sendShortcut: config.defaults?.sendShortcut === "modEnter" ? "modEnter" : "enter", skills: { disabled: Array.isArray(config.skills?.disabled) ? config.skills.disabled.filter((name): name is string => typeof name === "string") : [] }, responseTips: config.defaults?.responseTips !== false, commands: normalizeCustomCommands(config.commands?.items), rules: { enabled: config.rules?.enabled !== false, text: typeof config.rules?.text === "string" ? config.rules.text : "" }, archive: { auto: config.archive?.auto === true, retentionDays: [3, 7, 14, 30].includes(config.archive?.retentionDays || 0) ? config.archive!.retentionDays! : 7 }, resilience: normalizeResilienceSettings(config.resilience), guard: normalizeToolGuardSettings(config.guard), budget: normalizeModelBudgetSettings(config.budget), hallucinationEnabled: config.hallucination?.enabled !== false, theme: config.theme === "dark" || config.theme === "system" ? config.theme : "light", performance: config.performance === "smooth" || config.performance === "quality" ? config.performance : "auto", windowControls: config.windowControls === "native" ? "native" : "custom", secrets: secretStoreStatus(), webSearch: { ...webSearch, bigmodelKeyConfigured: Boolean(process.env.BIGMODEL_API_KEY), deepseekKeyConfigured: Boolean(process.env.DEEPSEEK_API_KEY), tavilyKeyConfigured: Boolean(process.env.TAVILY_API_KEY), braveKeyConfigured: Boolean(process.env.BRAVE_SEARCH_API_KEY), serperKeyConfigured: Boolean(process.env.SERPER_API_KEY), googleKeyConfigured: Boolean(process.env.GOOGLE_SEARCH_KEY), googleCxConfigured: Boolean(process.env.GOOGLE_SEARCH_CX) } };
 }
 
 function groupLegacyModels(models: ModelProfile[]): ProviderConfig[] {
@@ -686,6 +690,13 @@ export function saveSettings(workspaceInput: string, payload: SettingsPayload): 
 export function writeWorkspaceEnv(workspace: string, name: string, value: string): void {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`API Key 环境变量名无效：${name}`);
   if (/[\r\n]/.test(value)) throw new Error("API Key 不能包含换行符");
+  /* R93：敏感值优先写加密仓库；没有 cipher（CLI/测试）保持旧 .env 行为，
+     系统密钥环不可用时回退明文但明确告警（设置页也会显示“不可用”）。 */
+  if (isSecretEnvName(name)) {
+    const result = storeSecret(workspace, name, value);
+    if (result === "encrypted") return;
+    if (result === "unavailable") console.warn(`[secrets] 系统密钥环不可用，${name} 将以明文写入 .env；请在系统启用 DPAPI/Keychain/libsecret。`);
+  }
   const file = path.join(workspace, ".env");
   const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
   const next = `${name}=${value}`;
