@@ -1,15 +1,16 @@
 /**
  * 联网搜索工具（R62）——Pi 内置 `web_search` 的后端。
  *
- * API 兼容两家（按参考文档逐字段实现，载荷归一化后统一返回）：
- *  - 智谱 BigModel 工具 API：POST https://open.bigmodel.cn/api/paas/v4/web_search
- *    body { search_query, search_engine: "search_std", search_intent: false, count }
- *    响应 { search_result: [{ title, content, link, media, icon, refer, publish_date }] }
- *    （docs.bigmodel.cn → 工具 API → 网络搜索）
- *  - DeepSeek 网页搜索：POST https://api.deepseek.com/v1/tools/search
- *    body { query, count, need_content: false }
- *    响应 { results: [{ title, url, snippet, summary, content, site_name, site_icon, date }] }
- *    （api-docs.deepseek.com/zh-cn/api/search）
+ * R92 起按文档核对接入多家（载荷归一化后统一返回）：
+ *  - 官方中继：POST {SECTL_OFFICIAL_API_URL}/v1/tools/search（登录用户）
+ *  - 智谱 BigModel：POST https://open.bigmodel.cn/api/paas/v4/web_search
+ *  - DeepSeek：POST https://api.deepseek.com/v1/tools/search
+ *  - Tavily：POST https://api.tavily.com/search，Bearer tvly-…（docs.tavily.com）
+ *  - Brave：GET https://api.search.brave.com/res/v1/web/search，X-Subscription-Token
+ *  - Serper：POST https://google.serper.dev/search，X-API-KEY
+ *  - Google CSE：GET https://www.googleapis.com/customsearch/v1?key&cx&q&num
+ *  - 本地兜底：Bing 结果页抓取（反爬/ToS 风险，设置中可关）
+ * 微软 Bing Web Search API 已于 2025-08 退役，不再作为可选接口。
  *
  * R63 增补：web_fetch（DeepSeek /v1/tools/fetch，返回 Markdown 正文）——
  * 第六轮 review 建议项；web_search 只给摘要，模型要读全文时用 fetch。
@@ -32,7 +33,7 @@ interface WebSearchHit {
 import type { WebSearchProvider, WebSearchSettings } from "./types.js";
 
 interface WebSearchOutcome {
-  provider: "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "bing" | "serper" | "google" | "local";
+  provider: "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "serper" | "google" | "local";
   query: string;
   hits: WebSearchHit[];
 }
@@ -128,22 +129,6 @@ function hitsFromBrave(payload: unknown): WebSearchHit[] {
       siteName: profile && typeof profile.name === "string" ? profile.name : siteNameOf(url),
       siteIcon: null,
       publishDate: typeof item.age === "string" ? item.age : null
-    };
-  }).filter((hit) => hit.url);
-}
-
-function hitsFromBing(payload: unknown): WebSearchHit[] {
-  const list = (payload as { webPages?: { value?: unknown } } | null)?.webPages?.value;
-  if (!Array.isArray(list)) return [];
-  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
-    const url = String(item.url ?? "");
-    return {
-      title: String(item.name ?? "无标题"),
-      url,
-      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
-      siteName: siteNameOf(url),
-      siteIcon: null,
-      publishDate: typeof item.dateLastCrawled === "string" ? item.dateLastCrawled : null
     };
   }).filter((hit) => hit.url);
 }
@@ -300,7 +285,6 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
   const deepSeekKey = envKey("DEEPSEEK_API_KEY");
   const tavilyKey = envKey("TAVILY_API_KEY");
   const braveKey = envKey("BRAVE_SEARCH_API_KEY");
-  const bingKey = envKey("BING_SEARCH_KEY", "BING_API_KEY");
   const serperKey = envKey("SERPER_API_KEY");
   const googleKey = envKey("GOOGLE_SEARCH_KEY", "GOOGLE_API_KEY");
   const googleCx = envKey("GOOGLE_SEARCH_CX", "GOOGLE_CSE_CX");
@@ -330,18 +314,13 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
     }
     if (provider === "tavily") {
       if (!tavilyKey) throw new Error("未配置 TAVILY_API_KEY");
-      const payload = await postJson("https://api.tavily.com/search", tavilyKey, { api_key: tavilyKey, query: trimmed, max_results: capped, search_depth: "basic", include_answer: false, include_raw_content: false });
+      const payload = await postJson("https://api.tavily.com/search", tavilyKey, { query: trimmed, max_results: capped, search_depth: "basic", include_answer: false, include_raw_content: false, include_published_date: true });
       return hitsFromTavily(payload);
     }
     if (provider === "brave") {
       if (!braveKey) throw new Error("未配置 BRAVE_SEARCH_API_KEY");
       const payload = await requestJson(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(trimmed)}&count=${capped}`, { headers: { "X-Subscription-Token": braveKey } });
       return hitsFromBrave(payload);
-    }
-    if (provider === "bing") {
-      if (!bingKey) throw new Error("未配置 BING_SEARCH_KEY");
-      const payload = await requestJson(`https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(trimmed)}&count=${capped}&mkt=zh-CN`, { headers: { "Ocp-Apim-Subscription-Key": bingKey } });
-      return hitsFromBing(payload);
     }
     if (provider === "serper") {
       if (!serperKey) throw new Error("未配置 SERPER_API_KEY");
@@ -360,14 +339,13 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
     throw new Error(`未知搜索服务：${provider}`);
   };
 
-  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "tavily", "brave", "bing", "serper", "google", "local"];
+  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "tavily", "brave", "serper", "google", "local"];
   const configured = new Set<WebSearchProvider>();
   if (officialToken && officialBase) configured.add("official");
   if (bigModelKey) configured.add("bigmodel");
   if (deepSeekKey) configured.add("deepseek");
   if (tavilyKey) configured.add("tavily");
   if (braveKey) configured.add("brave");
-  if (bingKey) configured.add("bing");
   if (serperKey) configured.add("serper");
   if (googleKey && googleCx) configured.add("google");
   if (localAllowed) configured.add("local");
