@@ -32,7 +32,7 @@ interface WebSearchHit {
 import type { WebSearchProvider, WebSearchSettings } from "./types.js";
 
 interface WebSearchOutcome {
-  provider: "official" | "bigmodel" | "deepseek" | "local";
+  provider: "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "bing" | "serper" | "google" | "local";
   query: string;
   hits: WebSearchHit[];
 }
