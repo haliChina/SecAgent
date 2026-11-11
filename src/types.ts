@@ -1,7 +1,7 @@
 import type { SpeechAsrSettings } from "./asr/settings.js";
 
 /** 联网搜索设置：工具开关、供应商选择与回退策略（R91）。 */
-export type WebSearchProvider = "auto" | "official" | "bigmodel" | "deepseek" | "local";
+export type WebSearchProvider = "auto" | "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "bing" | "serper" | "google" | "local";
 export interface WebSearchSettings {
   enabled?: boolean;
   provider?: WebSearchProvider;

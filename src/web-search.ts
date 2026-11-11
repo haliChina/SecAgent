@@ -70,6 +70,116 @@ async function postJson(url: string, token: string, body: Record<string, unknown
   }
 }
 
+/** R92：支持自定义 method/headers 的通用 JSON 请求（Brave/Bing/Serper/Google 用）。 */
+async function requestJson(url: string, init: { method?: string; headers?: Record<string, string>; body?: unknown } = {}): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const headers: Record<string, string> = { Accept: "application/json", ...(init.headers || {}) };
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  try {
+    const response = await fetch(url, {
+      method: init.method || "GET",
+      headers,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`HTTP ${response.status}：${text.slice(0, 300)}`);
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`响应不是合法 JSON：${text.slice(0, 200)}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function siteNameOf(url: string): string | null {
+  try { return new URL(url).hostname; } catch { return null; }
+}
+
+function hitsFromTavily(payload: unknown): WebSearchHit[] {
+  const list = (payload as { results?: unknown } | null)?.results;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.url ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.content === "string" ? item.content.slice(0, 300) : "",
+      siteName: siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.published_date === "string" ? item.published_date : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromBrave(payload: unknown): WebSearchHit[] {
+  const list = (payload as { web?: { results?: unknown } } | null)?.web?.results;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.url ?? "");
+    const profile = item.profile && typeof item.profile === "object" ? item.profile as Record<string, unknown> : null;
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.description === "string" ? item.description.slice(0, 300) : "",
+      siteName: profile && typeof profile.name === "string" ? profile.name : siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.age === "string" ? item.age : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromBing(payload: unknown): WebSearchHit[] {
+  const list = (payload as { webPages?: { value?: unknown } } | null)?.webPages?.value;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.url ?? "");
+    return {
+      title: String(item.name ?? "无标题"),
+      url,
+      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
+      siteName: siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.dateLastCrawled === "string" ? item.dateLastCrawled : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromSerper(payload: unknown): WebSearchHit[] {
+  const list = (payload as { organic?: unknown } | null)?.organic;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.link ?? item.url ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
+      siteName: siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.date === "string" ? item.date : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromGoogle(payload: unknown): WebSearchHit[] {
+  const list = (payload as { items?: unknown } | null)?.items;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.link ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
+      siteName: typeof item.displayLink === "string" ? item.displayLink : siteNameOf(url),
+      siteIcon: null,
+      publishDate: null
+    };
+  }).filter((hit) => hit.url);
+}
+
 /** BigModel 载荷 → 归一化命中列表。 */
 function hitsFromBigModel(payload: unknown): WebSearchHit[] {
   const list = (payload as { search_result?: unknown } | null)?.search_result;
@@ -188,6 +298,12 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
   const officialBase = envKey("SECTL_OFFICIAL_API_URL");
   const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
   const deepSeekKey = envKey("DEEPSEEK_API_KEY");
+  const tavilyKey = envKey("TAVILY_API_KEY");
+  const braveKey = envKey("BRAVE_SEARCH_API_KEY");
+  const bingKey = envKey("BING_SEARCH_KEY", "BING_API_KEY");
+  const serperKey = envKey("SERPER_API_KEY");
+  const googleKey = envKey("GOOGLE_SEARCH_KEY", "GOOGLE_API_KEY");
+  const googleCx = envKey("GOOGLE_SEARCH_CX", "GOOGLE_CSE_CX");
   const localAllowed = settings?.localFallback !== false;
 
   const runProvider = async (provider: WebSearchProvider): Promise<WebSearchHit[]> => {
@@ -212,6 +328,31 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
       const payload = await postJson("https://api.deepseek.com/v1/tools/search", deepSeekKey, { query: trimmed, count: capped });
       return hitsFromDeepSeek(payload);
     }
+    if (provider === "tavily") {
+      if (!tavilyKey) throw new Error("未配置 TAVILY_API_KEY");
+      const payload = await postJson("https://api.tavily.com/search", tavilyKey, { api_key: tavilyKey, query: trimmed, max_results: capped, search_depth: "basic", include_answer: false, include_raw_content: false });
+      return hitsFromTavily(payload);
+    }
+    if (provider === "brave") {
+      if (!braveKey) throw new Error("未配置 BRAVE_SEARCH_API_KEY");
+      const payload = await requestJson(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(trimmed)}&count=${capped}`, { headers: { "X-Subscription-Token": braveKey } });
+      return hitsFromBrave(payload);
+    }
+    if (provider === "bing") {
+      if (!bingKey) throw new Error("未配置 BING_SEARCH_KEY");
+      const payload = await requestJson(`https://api.bing.microsoft.com/v7.0/search?q=${encodeURIComponent(trimmed)}&count=${capped}&mkt=zh-CN`, { headers: { "Ocp-Apim-Subscription-Key": bingKey } });
+      return hitsFromBing(payload);
+    }
+    if (provider === "serper") {
+      if (!serperKey) throw new Error("未配置 SERPER_API_KEY");
+      const payload = await requestJson("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": serperKey }, body: { q: trimmed, num: capped } });
+      return hitsFromSerper(payload);
+    }
+    if (provider === "google") {
+      if (!googleKey || !googleCx) throw new Error("未配置 GOOGLE_SEARCH_KEY / GOOGLE_SEARCH_CX");
+      const payload = await requestJson(`https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(googleKey)}&cx=${encodeURIComponent(googleCx)}&q=${encodeURIComponent(trimmed)}&num=${capped}`);
+      return hitsFromGoogle(payload);
+    }
     if (provider === "local") {
       if (!localAllowed) throw new Error("本地网页抓取兜底已在设置中关闭");
       return await localBingSearch(trimmed, capped);
@@ -219,11 +360,16 @@ export async function runWebSearch(query: string, count = 6, settings?: WebSearc
     throw new Error(`未知搜索服务：${provider}`);
   };
 
-  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "local"];
+  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "tavily", "brave", "bing", "serper", "google", "local"];
   const configured = new Set<WebSearchProvider>();
   if (officialToken && officialBase) configured.add("official");
   if (bigModelKey) configured.add("bigmodel");
   if (deepSeekKey) configured.add("deepseek");
+  if (tavilyKey) configured.add("tavily");
+  if (braveKey) configured.add("brave");
+  if (bingKey) configured.add("bing");
+  if (serperKey) configured.add("serper");
+  if (googleKey && googleCx) configured.add("google");
   if (localAllowed) configured.add("local");
 
   const selected = settings?.provider && settings.provider !== "auto" ? settings.provider : undefined;
