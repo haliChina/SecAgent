@@ -77,12 +77,13 @@ function writeVault(workspace: string, vault: SecretVault): void {
 
 function envPath(workspace: string): string { return path.join(workspace, ".env"); }
 
-/** 从 .env 移除一个键（保留注释、空行与其他配置）。 */
+/** 从 .env 移除一个键（保留注释、空行与其他配置）。名字按字面匹配（防注入式元字符）。 */
 function removeEnvEntry(workspace: string, name: string): void {
   const file = envPath(workspace);
   if (!fs.existsSync(file)) return;
   const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
-  const next = lines.filter((line) => !new RegExp(`^\\s*${name}\\s*=`).test(line));
+  const literal = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const next = lines.filter((line) => !new RegExp(`^\\s*${literal}\\s*=`).test(line));
   if (next.length === lines.length) return;
   writeFileAtomic(file, `${next.join("\n").replace(/\n*$/, "\n")}`);
 }

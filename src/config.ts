@@ -700,7 +700,9 @@ export function writeWorkspaceEnv(workspace: string, name: string, value: string
   const file = path.join(workspace, ".env");
   const lines = fs.existsSync(file) ? fs.readFileSync(file, "utf8").split(/\r?\n/) : [];
   const next = `${name}=${value}`;
-  const index = lines.findIndex((line) => line.match(new RegExp(`^\\s*${name}\\s*=`)));
+  /* 名字按字面匹配：防正则元字符（入口已校验 [A-Za-z_][A-Za-z0-9_]*，此处兜底）。 */
+  const literal = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const index = lines.findIndex((line) => line.match(new RegExp(`^\\s*${literal}\\s*=`)));
   if (index >= 0) lines[index] = next;
   else lines.push(next);
   writeFileAtomic(file, `${lines.filter((line, item) => item !== lines.length - 1 || line).join("\n").replace(/\n*$/, "\n")}`);
