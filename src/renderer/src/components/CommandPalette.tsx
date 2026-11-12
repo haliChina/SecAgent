@@ -65,17 +65,18 @@ export function CommandPalette({
     };
   }, [open]);
 
+  const modChar = platform === "darwin" ? "⌘" : "Ctrl+";
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const actions = useMemo<PaletteEntry[]>(() => {
     const list: PaletteEntry[] = [
-      { id: "action-new", label: "新建会话", hint: "⌘N", icon: Plus, run: onNewSession },
-      { id: "action-focus", label: "聚焦输入框", hint: "⌘K", icon: CornerDownLeft, run: onFocusComposer },
+      { id: "action-new", label: "新建会话", hint: `${modChar}N`, icon: Plus, run: onNewSession },
+      { id: "action-focus", label: "聚焦输入框", hint: `${modChar}K`, icon: CornerDownLeft, run: onFocusComposer },
       { id: "action-settings", label: "打开设置", hint: "账户 · 模型 · 语音", icon: Settings, run: onOpenSettings },
       { id: "action-archived", label: "已归档会话", hint: "恢复或清理", icon: Archive, run: onOpenArchived }
     ];
     if (!normalizedQuery) return list;
     return list.filter((entry) => `${entry.label} ${entry.hint || ""}`.toLocaleLowerCase().includes(normalizedQuery));
-  }, [normalizedQuery, onNewSession, onOpenSettings, onOpenArchived, onFocusComposer]);
+  }, [modChar, normalizedQuery, onNewSession, onOpenSettings, onOpenArchived, onFocusComposer]);
 
   const matchedSessions = useMemo(() => {
     const matched = filterActiveSessions(sessions, query);

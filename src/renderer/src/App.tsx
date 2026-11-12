@@ -1390,6 +1390,9 @@ export function App() {
             setSessions((current) => current.map((meta) => meta.id === id ? updated.meta : meta));
           })} onNew={() => runSessionAction(createSession)} onOpenSettings={() => runSessionAction(() => bridge.openSettings())} onOpenArchived={() => runSessionAction(() => bridge.openSettings("settings-sessions"))} />
       <section className="conversation" aria-label="当前会话">
+        {/* R95：极光此前挂在空状态卡片里，被裁成小方框（issue #26）。改挂到
+            会话区顶层，作为全幅背景层；只在空会话且非流畅模式渲染。 */}
+        {!lowPower && session?.messages.length === 0 && <div className="conversation-aurora" aria-hidden="true"><AuroraBackdrop /></div>}
         {scrollSections.length > 1 && <ScrollProgress containerRef={messagesRef} sections={scrollSections} className="bottom-[132px]!" style={{ bottom: 132 }} />}
         <div className="messages" ref={messagesRef} onWheel={handleMessagesWheel} onScroll={handleMessagesScroll}>
           {initializationError ? <AuiErrorState title="无法加载会话" detail={initializationError} onRetry={() => { setInitializationError(""); setInitializationAttempt((attempt) => attempt + 1); }} /> : !session && <div className="chat-skeleton" role="status">
@@ -1400,7 +1403,6 @@ export function App() {
             <span className="skeleton-bubble skeleton-assistant skeleton-short" />
           </div>}
           {session?.messages.length === 0 && <div className="empty-state">
-            {!lowPower && <AuroraBackdrop />}
             <BloubMorph className="bloub-morph" size={132} state={botState} follow={!lowPower} entrance lowPower={lowPower} />
             <p className="empty-state-eyebrow">SECAGENT · 课堂助手</p>
             <h2>今天想做什么？</h2>
@@ -1430,11 +1432,12 @@ export function App() {
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
           {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
-            {responseTipsEnabled && <p className="response-tip">小提示：{responseTipsList[tipIndex % responseTipsList.length]}</p>}
             {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
               {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
               {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}
-            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : <span className="stream-placeholder"><span className="stream-dots" aria-hidden><i /><i /><i /></span>正在准备回复…</span>}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}</div></article>}
+            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : <span className="stream-placeholder"><span className="stream-dots" aria-hidden><i /><i /><i /></span>正在准备回复…</span>}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}
+            {/* R95：小提示从回答上方移到下方（issue #26），不再抢占正文起始位置。 */}
+            {responseTipsEnabled && <p className="response-tip">小提示：{responseTipsList[tipIndex % responseTipsList.length]}</p>}</div></article>}
           <div />
         </div>
         {showJumpToLatest && session && session.messages.length > 0 && <button className="jump-to-latest" type="button" aria-label="回到最新消息" title="回到最新消息" onClick={scrollMessagesToBottom}><ArrowDown size={16} aria-hidden /></button>}

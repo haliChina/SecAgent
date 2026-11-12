@@ -7,7 +7,7 @@
  * R65 操作重做（用户点名）：删除/归档收进行尾「⋯ 更多」菜单——
  *  - 菜单 position: fixed + getBoundingClientRect 定位（R62 版绝对定位
  *    在滚动容器内被裁剪/遮盖内容的教训）；
- *  - 删除 = FuseButton commitOn:"fuseEnd"（烧完才真删，4 秒反悔窗，
+ *  - 删除 = FuseButton commitOn:"fuseEnd"（烧完才真删，1.2 秒反悔窗，
  *    react-bits Micro/FuseButton 移植），Undo 直接取消；
  *  - 归档立即提交，统一从设置页的已归档列表恢复；
  *  - 已归档会话从底部「已归档」入口进入设置管理，可恢复。
@@ -189,7 +189,7 @@ export function SessionSidebar({ sessions, activeId, onSwitch, onDelete, onArchi
           <button className="sidebar-menu-rename" type="button" onClick={() => { onArchive(menu.id, true); closeMenu(); searchRef.current?.focus(); }}><Archive size={15} aria-hidden /> 归档会话</button>
         </div>
         <div className="sidebar-menu-row">
-          <FuseButton className="sidebar-menu-fuse danger" label="删除会话" undoLabel="反悔（保留）" doneLabel="已删除" fuse="outline" fuseColor="var(--danger)" commitOn="fuseEnd" settle="stay" onFuseEnd={() => { onDelete(menu.id); closeMenu(); searchRef.current?.focus(); }} onUndo={() => {}} />
+          <FuseButton className="sidebar-menu-fuse danger" label="删除会话" undoLabel="反悔（保留）" doneLabel="已删除" fuse="outline" fuseColor="var(--danger)" commitOn="fuseEnd" settle="stay" undoWindow={1200} pauseOnHover={false} onFuseEnd={() => { onDelete(menu.id); closeMenu(); searchRef.current?.focus(); }} onUndo={() => {}} />
         </div>
         <p className="sidebar-menu-hint">删除在引线烧完（约 4 秒）才执行，期间可反悔；归档后可在设置中恢复。</p>
       </div>
