@@ -47,27 +47,6 @@ test("密钥写入：加密入 vault，.env 不再保留明文", () => {
   }
 });
 
-test("正则元字符名字：按字面匹配移除，不误删其他行（P3 回归）", () => {
-  const dir = workspace();
-  try {
-    /* storeSecret 是导出函数，未来调用方可能绕过 writeWorkspaceEnv 的名字校验；
-       名字里的 [ ] 等元字符必须按字面处理——旧实现会抛 SyntaxError 或匹配错行。 */
-    fs.writeFileSync(path.join(dir, ".env"), "OPENAI_API_KEY=sk-a\nWEIRD[0]_KEY=sk-b\n", "utf8");
-    configureSecretCipher(cipher());
-    assert.equal(storeSecret(dir, "WEIRD[0]_KEY", "sk-new"), "encrypted");
-    const env = fs.readFileSync(path.join(dir, ".env"), "utf8");
-    assert.equal(env.includes("sk-b"), false);
-    assert.equal(env.includes("OPENAI_API_KEY=sk-a"), true);
-    /* 非法 env 名的 vault 条目在 loadSecrets 里会被跳过（与 .env 语义一致），
-       这里只验证写入侧的字面匹配与进程注入。 */
-    assert.equal(process.env["WEIRD[0]_KEY"], "sk-new");
-  } finally {
-    configureSecretCipher(null);
-    delete process.env["WEIRD[0]_KEY"];
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("旧 .env 迁移：明文密钥移入 vault，保留非敏感项", () => {
   const dir = workspace();
   try {

@@ -19,8 +19,9 @@ export function WindowControls() {
     void bridge.windowControl("state").then((state: { isMaximized?: boolean; custom?: boolean }) => {
       if (!alive) return;
       setMaximized(Boolean(state?.isMaximized));
-      setCustom(state?.custom !== false);
-    }).catch(() => { if (alive) setCustom(true); });
+      /* 只有主进程明确回 true 才渲染；undefined/false 都按原生处理，避免假按钮 */
+      setCustom(state?.custom === true);
+    }).catch(() => { /* 主进程未就绪/未注册时保持隐藏，避免出现「点了没反应」的假按钮 */ if (alive) setCustom(false); });
     const off = bridge.onWindowMaximized((value: boolean) => { if (alive) setMaximized(value); });
     const onDoubleClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
@@ -38,7 +39,7 @@ export function WindowControls() {
     <button type="button" className="window-control-button" aria-label="最小化" title="最小化" onClick={() => { void bridge.windowControl("minimize"); }}>
       <Minus size={16} strokeWidth={1.8} aria-hidden />
     </button>
-    <button type="button" className="window-control-button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onClick={() => { void bridge.windowControl("toggle-maximize"); }}>
+    <button type="button" className="window-control-button" aria-label={maximized ? "还原" : "最大化"} title={maximized ? "还原" : "最大化"} onClick={() => { void bridge.windowControl("toggle-maximize").then((state) => setMaximized(Boolean(state?.isMaximized))).catch(() => undefined); }}>
       {maximized ? <Minimize2 size={14} strokeWidth={1.8} aria-hidden /> : <Square size={13} strokeWidth={1.8} aria-hidden />}
     </button>
     <button type="button" className="window-control-button window-control-close" aria-label="关闭" title="关闭" onClick={() => { void bridge.windowControl("close"); }}>

@@ -1,0 +1,194 @@
+import fs from "node:fs";
+import path from "node:path";
+import { writeFileAtomic } from "./atomic-write.js";
+export const DEFAULT_RESILIENCE = {
+    autoRetry: true,
+    fallbackEnabled: true,
+    rememberFailures: true,
+    cooldownBaseMinutes: 5,
+    quotaCooldownMinutes: 60
+};
+export function normalizeResilienceSettings(raw) {
+    const input = (raw && typeof raw === "object" ? raw : {});
+    const clampNumber = (value, fallback, min, max) => {
+        const parsed = typeof value === "number" && Number.isFinite(value) ? value : Number(value);
+        if (!Number.isFinite(parsed) || parsed <= 0)
+            return fallback;
+        return Math.min(max, Math.max(min, Math.round(parsed)));
+    };
+    return {
+        autoRetry: input.autoRetry !== false,
+        fallbackEnabled: input.fallbackEnabled !== false,
+        ...(Array.isArray(input.fallbackModelIds)
+            ? { fallbackModelIds: input.fallbackModelIds.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim()).slice(0, 20) }
+            : {}),
+        rememberFailures: input.rememberFailures !== false,
+        cooldownBaseMinutes: clampNumber(input.cooldownBaseMinutes, DEFAULT_RESILIENCE.cooldownBaseMinutes, 1, 720),
+        quotaCooldownMinutes: clampNumber(input.quotaCooldownMinutes, DEFAULT_RESILIENCE.quotaCooldownMinutes, 1, 10080)
+    };
+}
+const MAX_RECORDED_FAILURES = 5;
+/** Map a provider error to a failure category. `aborted` is user-initiated and never falls back. */
+export function classifyFailure(error) {
+    if (error instanceof Error && error.name === "AbortError")
+        return "aborted";
+    const text = `${error instanceof Error ? `${error.message} ${error.name}` : String(error)}`.toLowerCase();
+    if (/(abort|用户中止|已停止)/.test(text))
+        return "aborted";
+    if (/(quota|billing|arrears|insufficient[_ ]balance|balance.*insufficient|欠费|余额不足|资源包.*用完|免费额度|402)/.test(text))
+        return "quota";
+    if (/(invalid[_ ]api[_ ]key|authentication|unauthorized|api key|401|403|forbidden)/.test(text))
+        return "auth";
+    if (/(rate[_ ]?limit|too many requests|429|throttl|请求过于频繁|频率)/.test(text))
+        return "rate_limit";
+    if (/(timeout|etimedout|econnreset|econnrefused|enotfound|eai_again|fetch failed|network|暂时无法|unreachable|502|503|504)/.test(text))
+        return "network";
+    if (/(internal[_ ]?server|500|bad[_ ]?gateway|server error|服务(器)?(错误|繁忙))/.test(text))
+        return "server";
+    return "unknown";
+}
+/** Whether a failure kind should trigger fallback to another model. */
+export function isFallbackable(kind) {
+    return kind !== "aborted";
+}
+export class ModelHealthStore {
+    file;
+    state = new Map();
+    constructor(file) {
+        this.file = file;
+    }
+    static load(workspace) {
+        if (!workspace)
+            return new ModelHealthStore(undefined);
+        const file = path.join(workspace, ".model-health.json");
+        const store = new ModelHealthStore(file);
+        try {
+            if (fs.existsSync(file)) {
+                const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+                // Accept both the canonical {version, models} envelope and a bare map.
+                const source = parsed && typeof parsed === "object" && "models" in parsed && parsed.models && typeof parsed.models === "object"
+                    ? parsed.models
+                    : parsed;
+                for (const [id, health] of Object.entries(source || {})) {
+                    if (health && Array.isArray(health.failures))
+                        store.state.set(id, health);
+                }
+            }
+        }
+        catch { /* corrupt file — start fresh */ }
+        return store;
+    }
+    persist() {
+        if (!this.file)
+            return;
+        try {
+            const entries = [...this.state.entries()].filter(([, health]) => health.failures.length > 0);
+            const payload = {};
+            for (const [id, health] of entries.slice(-64))
+                payload[id] = health;
+            writeFileAtomic(this.file, JSON.stringify({ version: 1, models: payload }, null, 2));
+        }
+        catch { /* persistence is best-effort */ }
+    }
+    entry(id) {
+        let health = this.state.get(id);
+        if (!health) {
+            health = { failures: [], consecutiveFailures: 0, disabledUntil: undefined, lastKind: undefined };
+            this.state.set(id, health);
+        }
+        return health;
+    }
+    reportFailure(id, kind, message, settings) {
+        const health = this.entry(id);
+        health.failures.push({ at: new Date().toISOString(), kind, message: message.slice(0, 300) });
+        if (health.failures.length > MAX_RECORDED_FAILURES)
+            health.failures.shift();
+        health.consecutiveFailures += 1;
+        health.lastKind = kind;
+        let cooldownMinutes;
+        if (kind === "quota") {
+            // Bailian-style exhausted trial package: retrying sooner is pointless.
+            cooldownMinutes = settings.quotaCooldownMinutes * Math.min(4, health.consecutiveFailures);
+        }
+        else if (kind === "auth") {
+            // A wrong key does not heal within one session; long cooldown.
+            cooldownMinutes = 24 * 60;
+        }
+        else if (kind === "rate_limit") {
+            cooldownMinutes = Math.min(15, settings.cooldownBaseMinutes * health.consecutiveFailures);
+        }
+        else {
+            cooldownMinutes = Math.min(60, settings.cooldownBaseMinutes * 2 ** (health.consecutiveFailures - 1));
+        }
+        health.disabledUntil = new Date(Date.now() + cooldownMinutes * 60_000).toISOString();
+        this.persist();
+        return { cooldownMinutes };
+    }
+    reportSuccess(id) {
+        const health = this.state.get(id);
+        if (!health)
+            return;
+        health.failures = [];
+        health.consecutiveFailures = 0;
+        health.disabledUntil = undefined;
+        health.lastKind = undefined;
+        this.persist();
+    }
+    isCoolingDown(id, settings) {
+        if (!settings.rememberFailures)
+            return false;
+        const health = this.state.get(id);
+        if (!health?.disabledUntil)
+            return false;
+        return new Date(health.disabledUntil).getTime() > Date.now();
+    }
+    summary() {
+        const result = {};
+        for (const [id, health] of this.state) {
+            result[id] = {
+                coolingDown: Boolean(health.disabledUntil && new Date(health.disabledUntil).getTime() > Date.now()),
+                consecutiveFailures: health.consecutiveFailures,
+                lastKind: health.lastKind,
+                disabledUntil: health.disabledUntil
+            };
+        }
+        return result;
+    }
+    clear(id) {
+        if (id)
+            this.state.delete(id);
+        else
+            this.state.clear();
+        this.persist();
+    }
+}
+/**
+ * Order the model chain for a run: the requested model first (unless it is
+ * cooling down and other options exist), then every other enabled model with
+ * cooling-down ones pushed to the end. Returns [] when there is no option.
+ */
+export function planModelChain(requested, candidates, idOf, settings, health) {
+    // 用户自定义回退链（例：A 遇错 → C → D）：严格按给定顺序，缺号跳过。
+    const custom = settings.fallbackModelIds?.filter(Boolean) ?? [];
+    if (custom.length) {
+        const byId = new Map(candidates.map((model) => [idOf(model), model]));
+        const ordered = custom.map((id) => byId.get(id)).filter((model) => Boolean(model));
+        if (ordered.length) {
+            const ready = ordered.filter((model) => !health.isCoolingDown(idOf(model), settings));
+            const cooling = ordered.filter((model) => health.isCoolingDown(idOf(model), settings));
+            return [...ready, ...cooling];
+        }
+    }
+    const pool = [...candidates];
+    if (requested !== undefined) {
+        const index = pool.findIndex((model) => idOf(model) === idOf(requested));
+        if (index >= 0)
+            pool.splice(index, 1);
+        pool.unshift(requested);
+    }
+    if (!settings.fallbackEnabled)
+        return pool.slice(0, 1);
+    const ready = pool.filter((model) => !health.isCoolingDown(idOf(model), settings));
+    const cooling = pool.filter((model) => health.isCoolingDown(idOf(model), settings));
+    return [...ready, ...cooling];
+}

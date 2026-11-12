@@ -336,3 +336,18 @@ test("resolveVisionAgentConfig does not fall back in custom model mode", () => {
     else process.env.SECTL_OFFICIAL_TOKEN = previous;
   }
 });
+
+test("window controls default to the native frame and keep an explicit custom mode", () => {
+  const workspace = temporaryWorkspace();
+  try {
+    initializeWorkspace(workspace);
+    assert.equal(readSettings(workspace).windowControls, "native");
+    const saved = saveSettings(workspace, { ...readSettings(workspace), windowControls: "custom" });
+    assert.equal(saved.windowControls, "custom");
+    assert.equal(readSettings(workspace).windowControls, "custom");
+    saveSettings(workspace, { ...readSettings(workspace), windowControls: "native" });
+    assert.equal(readSettings(workspace).windowControls, "native");
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});

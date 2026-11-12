@@ -15,6 +15,7 @@ import { logMain } from "./main-log.js";
 import { getTelemetry, initializeSentry, recordTelemetryFailure, setSentryTelemetryEnabled } from "./main-telemetry.js";
 import { configureSpeech } from "./speech.js";
 import { configureTts } from "./tts.js";
+import { refreshWindowControlsMode } from "./windows.js";
 import { closeVoiceWakeWindow, getActiveWakeShortcut, openWakeWindow, setActiveWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import type { WindowsUpdateManager } from "./update-manager.js";
 
@@ -72,6 +73,7 @@ export function applySettings(payload: SettingsPayload, deps: SettingsApplyDeps)
   configureTts(saved.tts);
   deps.sendToAppWindows("settings:changed", saved);
   deps.getUpdateManager()?.setPreferences(saved.updates);
+  refreshWindowControlsMode();
   closeVoiceWakeWindow();
   if (saved.wake.voiceEnabled) void startConfiguredVoiceWake().catch((error) => {
     logMain("voice-wake.start.failed", { error: String(error) });

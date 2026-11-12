@@ -465,7 +465,7 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
       <SettingsAccountPage
         theme={settings.theme || "light"}
         performance={settings.performance || "auto"}
-        windowControls={settings.windowControls || "custom"}
+        windowControls={settings.windowControls || "native"}
         onWindowControlsChange={(windowControls) => setSettings((current) => current && { ...current, windowControls })}
         onPerformanceChange={(performance) => {
           applyPerformanceMode(performance, document.documentElement.dataset.display === "big-touch");
