@@ -17,8 +17,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { AsrEventSink, AsrProvider, AsrSession, AsrTestResult } from "./types.js";
-import { loadSherpaOnnx } from "./sherpa-loader.js";
-import { mergeSamples } from "./wav.js";
+import { LocalAsrWorker } from "./local-asr-worker.js";
 
 const PACK_DIR = "sense-voice";
 const MODEL_FILES = ["model.int8.onnx", "tokens.txt"] as const;
@@ -56,16 +55,11 @@ function resolveSenseVoicePack(options: LocalSenseVoiceOptions = {}): string | u
   return undefined;
 }
 
-interface SenseVoiceRecognizerLike {
-  createStream(): { acceptWaveform(sampleRate: number, samples: Float32Array): void };
-  decode(stream: unknown): void;
-  getResult(stream: unknown): { text: string };
-}
-
 export class LocalSenseVoiceProvider implements AsrProvider {
   readonly id = "local-pro";
   readonly label = "本地增强（SenseVoice 附加包）";
   private readonly options: LocalSenseVoiceOptions;
+  private worker: LocalAsrWorker | undefined;
 
   constructor(options: LocalSenseVoiceOptions = {}) { this.options = options; }
 
@@ -76,89 +70,20 @@ export class LocalSenseVoiceProvider implements AsrProvider {
   async test(): Promise<AsrTestResult> {
     const dir = resolveSenseVoicePack(this.options);
     if (!dir) return { ok: false, message: "未安装附加包：在设备上运行 scripts/fetch-sensevoice-pack.mjs 下载（约 230 MB，含 model.int8.onnx 与 tokens.txt）" };
-    return { ok: true, message: `SenseVoice 附加包已就绪（${dir}；整句离线识别，嘈杂环境准确率显著高于默认小模型）` };
+    return { ok: true, message: `SenseVoice 附加包已就绪（${dir}；整句离线识别，Worker 解码）` };
   }
 
   async start(sink: AsrEventSink): Promise<AsrSession> {
     const dir = resolveSenseVoicePack(this.options);
     if (!dir) throw new Error("SenseVoice 附加包未安装：请先运行 scripts/fetch-sensevoice-pack.mjs");
-    const sherpa = await loadSherpaOnnx();
-    // sherpa-onnx 的类型声明未覆盖 OfflineRecognizer（SenseVoice），运行时存在。
-    const OfflineRecognizer = (sherpa as unknown as { OfflineRecognizer: new (config: unknown) => unknown }).OfflineRecognizer;
-    const recognizer = new OfflineRecognizer({
-      modelConfig: {
-        senseVoice: { model: path.join(dir, "model.int8.onnx"), useInverseTextNormalization: 1 },
-        tokens: path.join(dir, "tokens.txt"),
-        numThreads: this.options.numThreads ?? 2,
-        debug: 0,
-        provider: "cpu"
-      }
-    }) as unknown as SenseVoiceRecognizerLike;
-    this.options.log?.("[asr:local-pro] sensevoice ready");
-    sink({ type: "ready", provider: "local-pro" });
-    return new SenseVoiceSession(recognizer, sink, this.options);
-  }
-}
-
-class SenseVoiceSession implements AsrSession {
-  readonly providerId = "local-pro";
-  private readonly recognizer: SenseVoiceRecognizerLike;
-  private readonly sink: AsrEventSink;
-  private readonly options: LocalSenseVoiceOptions;
-  private readonly buffers: Float32Array[] = [];
-  private timer: NodeJS.Timeout | undefined;
-  private stopped = false;
-
-  constructor(recognizer: SenseVoiceRecognizerLike, sink: AsrEventSink, options: LocalSenseVoiceOptions) {
-    this.recognizer = recognizer;
-    this.sink = sink;
-    this.options = options;
-    const interval = options.partialIntervalMs ?? 3500;
-    if (interval > 0) this.timer = setInterval(() => this.decode(false), interval);
-  }
-
-  /* R75（审计 P2-29）：buffers 旧实现只 push 从不清，且周期 decode 每次
-     mergeSamples(全部) 全量重解码——听写 5 分钟即 O(n²) 解码量+全部音频常驻
-     内存。上限 120s（partial 语义是「到目前为止的转写」，全量重解码保留；
-     超过 120s 丢头部——2 分钟还说不完一句话的听写场景头部已无意义），
-     final 解码后清空。 */
-  private static readonly MAX_BUFFERED_SAMPLES = 16000 * 120;
-
-  push(samples: Float32Array): void {
-    if (this.stopped) return;
-    this.buffers.push(samples);
-    let total = this.buffers.reduce((sum, buffer) => sum + buffer.length, 0);
-    while (total > SenseVoiceSession.MAX_BUFFERED_SAMPLES && this.buffers.length > 1) {
-      total -= this.buffers[0].length;
-      this.buffers.shift();
-    }
-  }
-
-  private decode(final: boolean): void {
-    const merged = mergeSamples(this.buffers);
-    if (!merged.length) return;
-    if (!final && merged.length < 16000) return; // wait for ≥1s of audio for interim decodes
-    try {
-      const stream = this.recognizer.createStream();
-      stream.acceptWaveform(16000, merged);
-      this.recognizer.decode(stream);
-      const text = (this.recognizer.getResult(stream).text || "").trim();
-      if (text) this.sink({ type: final ? "final" : "partial", text, provider: "local-pro" });
-      if (final) this.buffers.length = 0;
-    } catch (error) {
-      this.sink({ type: "log", message: `[asr:local-pro] decode 失败：${error instanceof Error ? error.message : String(error)}` });
-    }
-  }
-
-  async stop(): Promise<void> {
-    if (this.stopped) return;
-    this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
-    this.decode(true);
-  }
-
-  cancel(): void {
-    this.stopped = true;
-    if (this.timer) clearInterval(this.timer);
+    this.worker ??= new LocalAsrWorker({ mode: "sensevoice", root: dir, numThreads: this.options.numThreads ?? 2, log: this.options.log });
+    const worker = this.worker;
+    await worker.start(sink);
+    return {
+      providerId: this.id,
+      push: (samples: Float32Array): void => worker.push(samples),
+      stop: async (): Promise<void> => { await worker.stop(); },
+      cancel: (): void => worker.cancel()
+    };
   }
 }

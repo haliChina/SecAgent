@@ -28,6 +28,8 @@ let trayPanelHiddenAt = 0;
 let trayPanelShownAt = 0;
 let trayPanelTheme: "light" | "dark" | "" = "";
 let trayIpcInstalled = false;
+/** R94：窗口按钮模式缓存。IPC 与建窗都读它，避免每次调用都 loadConfig。 */
+let customWindowControlsEnabled = false;
 const TRAY_PANEL_SIZE = { width: 256, height: 226 };
 let isQuitting = false;
 let onboardingCompletionRequested = false;
@@ -81,14 +83,44 @@ export async function ensureMacDockVisible(): Promise<void> {
   await app.dock?.show();
 }
 
+/**
+ * R94：窗口按钮模式（custom 自绘 / native 系统 WCO）。
+ *
+ * 默认 native：frameless 自绘一旦出问题，用户会连关闭/最小化都点不动；
+ * 自绘改为显式开启。值在启动与设置保存时刷新，窗口 frame 本身需要重启生效。
+ */
+export function isCustomWindowControls(): boolean {
+  return customWindowControlsEnabled;
+}
+
+export function refreshWindowControlsMode(): boolean {
+  try {
+    customWindowControlsEnabled = readSettings(DEFAULT_WORKSPACE).windowControls === "custom";
+  } catch {
+    customWindowControlsEnabled = false;
+  }
+  return customWindowControlsEnabled;
+}
+
 function windowChromeOptions(overlayColor = "#F1F4F9"): Electron.BrowserWindowConstructorOptions {
   if (process.platform === "darwin") {
     return { titleBarStyle: "hidden", trafficLightPosition: { x: 16, y: 21 } };
   }
-  // Windows and Linux share the Window Controls Overlay. A native frame on
-  // Linux would stack the system title bar on top of the in-app draggable topbar.
-  // R57：overlay 底色默认取 topbar 浅色实色（不再是刺眼的白色）；
-  // 渲染端换肤后经 window:chrome-sync 动态改写（暗色主题同步为 --bg-1 暗色）。
+  if (process.platform === "win32") {
+    /* R89：Windows 可选无边框 + 自绘三键；R90 增加原生 WCO 回退。
+       原生 WCO 保留 Windows 11 Snap Layouts，但不能改图标/顺序；
+       自绘适合触控/大屏，代价是没有最大化悬停 Snap Layouts 弹层。
+       设置项重启窗口后生效（frame 不能在运行时切换）。 */
+    refreshWindowControlsMode();
+    if (customWindowControlsEnabled) return { frame: false, thickFrame: true, autoHideMenuBar: true };
+    return {
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: overlayColor, symbolColor: "#475569", height: 57 },
+      autoHideMenuBar: true
+    };
+  }
+  // Linux keeps the Window Controls Overlay; a native frame would stack the
+  // system title bar on top of the in-app draggable topbar.
   return {
     titleBarStyle: "hidden",
     titleBarOverlay: { color: overlayColor, symbolColor: "#475569", height: 57 },
@@ -101,6 +133,11 @@ function configureWindowChrome(window: BrowserWindow): void {
   // Keep the application menu alive for its fallback shortcuts while hiding its UI.
   window.setAutoHideMenuBar(true);
   window.setMenuBarVisibility(false);
+  /* 自绘最大化按钮需要拿到状态；窗口最大化/还原时通知渲染层。 */
+  window.on("maximize", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", true); });
+  window.on("unmaximize", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", false); });
+  window.on("enter-full-screen", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", true); });
+  window.on("leave-full-screen", () => { if (!window.isDestroyed()) window.webContents.send("window:maximized-changed", false); });
 }
 
 function isOpenSettingsShortcut(input: Electron.Input): boolean {
@@ -822,7 +859,9 @@ function installTrayIpc(): void {
 }
 
 function toggleTrayPanel(): void {
-  if (!tray || tray.isDestroyed() || trayPanelBroken) return;
+  logMain("tray.click", { broken: trayPanelBroken, visible: Boolean(trayPanel && !trayPanel.isDestroyed() && trayPanel.isVisible()) });
+  if (!tray || tray.isDestroyed()) return;
+  if (trayPanelBroken) { tray.popUpContextMenu(buildNativeTrayMenu()); return; }
   if (trayPanel && !trayPanel.isDestroyed() && trayPanel.isVisible()) {
     hideTrayPanel();
     return;
@@ -850,6 +889,14 @@ function toggleTrayPanel(): void {
     trayPanelShownAt = Date.now();
     panel.show();
     panel.focus();
+    /* R94：极少数 Windows 组合下透明面板 show() 后仍不可见（历史反馈：
+       点托盘左右键都没菜单）。1 秒后复查，仍不可见就降级成原生菜单。 */
+    setTimeout(() => {
+      if (panel.isDestroyed() || panel.isVisible()) return;
+      logMain("tray.panel.invisible-fallback");
+      trayPanelBroken = true;
+      if (tray && !tray.isDestroyed()) tray.setContextMenu(buildNativeTrayMenu());
+    }, 1000);
   };
   if (panel.webContents.isLoading()) {
     // ready-to-show 在个别透明窗口/Renderer 组合下可能不触发，

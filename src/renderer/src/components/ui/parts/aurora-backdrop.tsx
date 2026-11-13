@@ -31,8 +31,8 @@ const cn = clsx;
 /* AuroraBackdrop (reactbits Aurora · lightMode 移植) — 空状态极光衬底  */
 /* ------------------------------------------------------------------ */
 /**
- * 深底极光（Canvas 2D 零依赖移植，配色从 accent 蓝 #2563EB 派生）：四个漂移的低
- * 透明度光斑 lighter 叠加，底部整幅渐隐到页面底色 --bg-0——标题与输入区域始终近底色。
+ * 深底极光（Canvas 2D 零依赖移植，配色从 accent 蓝 #2563EB 派生）：四个漂移的
+ * 半透明光斑 lighter 叠加，整幅铺在会话区（R95），让动效不局限在空状态小框内。
  * prefers-reduced-motion 静态一帧、document.hidden 停 rAF（不空烧 GPU）。
  * 矮屏（max-height:760px）由 CSS 压缩球尺寸，光带随容器等比收缩。
  */
@@ -53,7 +53,7 @@ export function AuroraBackdrop() {
     let dpr = 1;
     const resize = (): void => {
       const rect = container.getBoundingClientRect();
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = Math.min(window.devicePixelRatio || 1, 1.5);
       cssWidth = rect.width;
       cssHeight = rect.height;
       canvas.width = Math.max(1, Math.round(rect.width * dpr));
@@ -82,8 +82,8 @@ export function AuroraBackdrop() {
         const y = cssHeight * (blob.y + 0.07 * Math.sin(time * blob.speed * 1.6 + blob.phase * 2));
         const r = Math.max(8, base * blob.scale);
         const gradient = ctx.createRadialGradient(x, y, 0, x, y, r);
-        gradient.addColorStop(0, `rgba(${blob.rgb},0.11)`);
-        gradient.addColorStop(0.6, `rgba(${blob.rgb},0.04)`);
+        gradient.addColorStop(0, `rgba(${blob.rgb},0.22)`);
+        gradient.addColorStop(0.6, `rgba(${blob.rgb},0.09)`);
         gradient.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = gradient;
         ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -93,8 +93,14 @@ export function AuroraBackdrop() {
       // 不在画布写死白色，因此主题切换和 reduced-motion 静态帧也保持一致。
     };
 
+    /* R85：极光是慢速背景，30fps 足够；再高只会增加核显填充率。 */
+    const paintInterval = 1000 / 30;
+    let lastPaint = -Infinity;
     const loop = (time: number): void => {
-      draw(time);
+      if (time - lastPaint >= paintInterval) {
+        lastPaint = time;
+        draw(time);
+      }
       if (!document.hidden) raf = requestAnimationFrame(loop);
     };
     if (reducedMotion) draw(0);

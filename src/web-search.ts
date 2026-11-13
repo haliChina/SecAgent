@@ -1,15 +1,16 @@
 /**
  * 联网搜索工具（R62）——Pi 内置 `web_search` 的后端。
  *
- * API 兼容两家（按参考文档逐字段实现，载荷归一化后统一返回）：
- *  - 智谱 BigModel 工具 API：POST https://open.bigmodel.cn/api/paas/v4/web_search
- *    body { search_query, search_engine: "search_std", search_intent: false, count }
- *    响应 { search_result: [{ title, content, link, media, icon, refer, publish_date }] }
- *    （docs.bigmodel.cn → 工具 API → 网络搜索）
- *  - DeepSeek 网页搜索：POST https://api.deepseek.com/v1/tools/search
- *    body { query, count, need_content: false }
- *    响应 { results: [{ title, url, snippet, summary, content, site_name, site_icon, date }] }
- *    （api-docs.deepseek.com/zh-cn/api/search）
+ * R92 起按文档核对接入多家（载荷归一化后统一返回）：
+ *  - 官方中继：POST {SECTL_OFFICIAL_API_URL}/v1/tools/search（登录用户）
+ *  - 智谱 BigModel：POST https://open.bigmodel.cn/api/paas/v4/web_search
+ *  - DeepSeek：POST https://api.deepseek.com/v1/tools/search
+ *  - Tavily：POST https://api.tavily.com/search，Bearer tvly-…（docs.tavily.com）
+ *  - Brave：GET https://api.search.brave.com/res/v1/web/search，X-Subscription-Token
+ *  - Serper：POST https://google.serper.dev/search，X-API-KEY
+ *  - Google CSE：GET https://www.googleapis.com/customsearch/v1?key&cx&q&num
+ *  - 本地兜底：Bing 结果页抓取（反爬/ToS 风险，设置中可关）
+ * 微软 Bing Web Search API 已于 2025-08 退役，不再作为可选接口。
  *
  * R63 增补：web_fetch（DeepSeek /v1/tools/fetch，返回 Markdown 正文）——
  * 第六轮 review 建议项；web_search 只给摘要，模型要读全文时用 fetch。
@@ -29,8 +30,10 @@ interface WebSearchHit {
   publishDate: string | null;
 }
 
+import type { WebSearchProvider, WebSearchSettings } from "./types.js";
+
 interface WebSearchOutcome {
-  provider: "official" | "bigmodel" | "deepseek" | "local";
+  provider: "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "serper" | "google" | "local";
   query: string;
   hits: WebSearchHit[];
 }
@@ -66,6 +69,100 @@ async function postJson(url: string, token: string, body: Record<string, unknown
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** R92：支持自定义 method/headers 的通用 JSON 请求（Brave/Bing/Serper/Google 用）。 */
+async function requestJson(url: string, init: { method?: string; headers?: Record<string, string>; body?: unknown } = {}): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const headers: Record<string, string> = { Accept: "application/json", ...(init.headers || {}) };
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  try {
+    const response = await fetch(url, {
+      method: init.method || "GET",
+      headers,
+      body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+      signal: controller.signal
+    });
+    const text = await response.text();
+    if (!response.ok) throw new Error(`HTTP ${response.status}：${text.slice(0, 300)}`);
+    try {
+      return JSON.parse(text) as unknown;
+    } catch {
+      throw new Error(`响应不是合法 JSON：${text.slice(0, 200)}`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function siteNameOf(url: string): string | null {
+  try { return new URL(url).hostname; } catch { return null; }
+}
+
+function hitsFromTavily(payload: unknown): WebSearchHit[] {
+  const list = (payload as { results?: unknown } | null)?.results;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.url ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.content === "string" ? item.content.slice(0, 300) : "",
+      siteName: siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.published_date === "string" ? item.published_date : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromBrave(payload: unknown): WebSearchHit[] {
+  const list = (payload as { web?: { results?: unknown } } | null)?.web?.results;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.url ?? "");
+    const profile = item.profile && typeof item.profile === "object" ? item.profile as Record<string, unknown> : null;
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.description === "string" ? item.description.slice(0, 300) : "",
+      siteName: profile && typeof profile.name === "string" ? profile.name : siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.age === "string" ? item.age : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromSerper(payload: unknown): WebSearchHit[] {
+  const list = (payload as { organic?: unknown } | null)?.organic;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.link ?? item.url ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
+      siteName: siteNameOf(url),
+      siteIcon: null,
+      publishDate: typeof item.date === "string" ? item.date : null
+    };
+  }).filter((hit) => hit.url);
+}
+
+function hitsFromGoogle(payload: unknown): WebSearchHit[] {
+  const list = (payload as { items?: unknown } | null)?.items;
+  if (!Array.isArray(list)) return [];
+  return list.filter((item): item is Record<string, unknown> => !!item && typeof item === "object").map((item) => {
+    const url = String(item.link ?? "");
+    return {
+      title: String(item.title ?? "无标题"),
+      url,
+      snippet: typeof item.snippet === "string" ? item.snippet.slice(0, 300) : "",
+      siteName: typeof item.displayLink === "string" ? item.displayLink : siteNameOf(url),
+      siteIcon: null,
+      publishDate: null
+    };
+  }).filter((hit) => hit.url);
 }
 
 /** BigModel 载荷 → 归一化命中列表。 */
@@ -174,67 +271,114 @@ async function localBingSearch(query: string, count: number): Promise<WebSearchH
   }
 }
 
-/** 执行一次联网搜索；提供方可用的按 官方中继 → BigModel → DeepSeek 顺序。 */
-export async function runWebSearch(query: string, count = 6): Promise<WebSearchOutcome> {
+/** 执行一次联网搜索。R91：设置可选择供应商/回退/条数；默认保持原有自动链。 */
+export async function runWebSearch(query: string, count = 6, settings?: WebSearchSettings): Promise<WebSearchOutcome> {
+  if (settings?.enabled === false) throw new Error("联网搜索已在设置中关闭。");
   const trimmed = query.trim();
   if (!trimmed || trimmed.length > 128) throw new Error("搜索词须为 1～128 个字符。");
-  const capped = Math.max(1, Math.min(MAX_COUNT, Math.round(count) || 6));
+  const requested = Math.max(1, Math.min(MAX_COUNT, Math.round(count) || 6));
+  const capped = Math.max(1, Math.min(requested, settings?.maxResults ?? MAX_COUNT));
 
   const officialToken = envKey("SECTL_OFFICIAL_TOKEN");
   const officialBase = envKey("SECTL_OFFICIAL_API_URL");
-  if (officialToken && officialBase) {
-    try {
+  const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
+  const deepSeekKey = envKey("DEEPSEEK_API_KEY");
+  const tavilyKey = envKey("TAVILY_API_KEY");
+  const braveKey = envKey("BRAVE_SEARCH_API_KEY");
+  const serperKey = envKey("SERPER_API_KEY");
+  const googleKey = envKey("GOOGLE_SEARCH_KEY", "GOOGLE_API_KEY");
+  const googleCx = envKey("GOOGLE_SEARCH_CX", "GOOGLE_CSE_CX");
+  const localAllowed = settings?.localFallback !== false;
+
+  const runProvider = async (provider: WebSearchProvider): Promise<WebSearchHit[]> => {
+    if (provider === "official") {
+      if (!officialToken || !officialBase) throw new Error("官方中继未登录或未配置搜索地址");
       const base = officialBase.replace(/\/+$/, "");
       const payload = await postJson(`${base}/v1/tools/search`, officialToken, { query: trimmed, count: capped });
-      const hits = hitsFromDeepSeek(payload);
-      if (hits.length) return { provider: "official", query: trimmed, hits };
-    } catch {
-      /* 官方中继失败（未开通搜索/网络）→ 落到直连 API。 */
+      return hitsFromDeepSeek(payload);
     }
-  }
-
-  const bigModelKey = envKey("ZAI_API_KEY", "BIGMODEL_API_KEY", "GLM_API_KEY", "ZHIPU_API_KEY");
-  if (bigModelKey) {
-    try {
+    if (provider === "bigmodel") {
+      if (!bigModelKey) throw new Error("未配置智谱 BigModel API Key");
       const payload = await postJson("https://open.bigmodel.cn/api/paas/v4/web_search", bigModelKey, {
         search_query: trimmed,
         search_engine: "search_std",
         search_intent: false,
         count: capped
       });
-      const hits = hitsFromBigModel(payload);
-      if (hits.length) return { provider: "bigmodel", query: trimmed, hits };
-    } catch {
-      /* BigModel 失败（401/网络/解析）→ 继续下一层，不直接上抛。 */
+      return hitsFromBigModel(payload);
     }
-  }
-
-  const deepSeekKey = envKey("DEEPSEEK_API_KEY");
-  if (deepSeekKey) {
-    try {
+    if (provider === "deepseek") {
+      if (!deepSeekKey) throw new Error("未配置 DeepSeek API Key");
       const payload = await postJson("https://api.deepseek.com/v1/tools/search", deepSeekKey, { query: trimmed, count: capped });
-      const hits = hitsFromDeepSeek(payload);
-      if (hits.length) return { provider: "deepseek", query: trimmed, hits };
-    } catch {
-      /* DeepSeek 失败 → 继续下一层，不直接上抛。 */
+      return hitsFromDeepSeek(payload);
+    }
+    if (provider === "tavily") {
+      if (!tavilyKey) throw new Error("未配置 TAVILY_API_KEY");
+      const payload = await postJson("https://api.tavily.com/search", tavilyKey, { query: trimmed, max_results: capped, search_depth: "basic", include_answer: false, include_raw_content: false, include_published_date: true });
+      return hitsFromTavily(payload);
+    }
+    if (provider === "brave") {
+      if (!braveKey) throw new Error("未配置 BRAVE_SEARCH_API_KEY");
+      const payload = await requestJson(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(trimmed)}&count=${capped}`, { headers: { "X-Subscription-Token": braveKey } });
+      return hitsFromBrave(payload);
+    }
+    if (provider === "serper") {
+      if (!serperKey) throw new Error("未配置 SERPER_API_KEY");
+      const payload = await requestJson("https://google.serper.dev/search", { method: "POST", headers: { "X-API-KEY": serperKey }, body: { q: trimmed, num: capped } });
+      return hitsFromSerper(payload);
+    }
+    if (provider === "google") {
+      if (!googleKey || !googleCx) throw new Error("未配置 GOOGLE_SEARCH_KEY / GOOGLE_SEARCH_CX");
+      const payload = await requestJson(`https://www.googleapis.com/customsearch/v1?key=${encodeURIComponent(googleKey)}&cx=${encodeURIComponent(googleCx)}&q=${encodeURIComponent(trimmed)}&num=${capped}`);
+      return hitsFromGoogle(payload);
+    }
+    if (provider === "local") {
+      if (!localAllowed) throw new Error("本地网页抓取兜底已在设置中关闭");
+      return await localBingSearch(trimmed, capped);
+    }
+    throw new Error(`未知搜索服务：${provider}`);
+  };
+
+  const defaultOrder: WebSearchProvider[] = ["official", "bigmodel", "deepseek", "tavily", "brave", "serper", "google", "local"];
+  const configured = new Set<WebSearchProvider>();
+  if (officialToken && officialBase) configured.add("official");
+  if (bigModelKey) configured.add("bigmodel");
+  if (deepSeekKey) configured.add("deepseek");
+  if (tavilyKey) configured.add("tavily");
+  if (braveKey) configured.add("brave");
+  if (serperKey) configured.add("serper");
+  if (googleKey && googleCx) configured.add("google");
+  if (localAllowed) configured.add("local");
+
+  const selected = settings?.provider && settings.provider !== "auto" ? settings.provider : undefined;
+  const chain: WebSearchProvider[] = selected
+    ? [selected, ...(settings?.fallback !== false ? defaultOrder.filter((id) => id !== selected) : [])]
+    : defaultOrder;
+
+  const attempted: string[] = [];
+  for (const provider of chain) {
+    if (provider === "auto") continue;
+    if (!configured.has(provider)) {
+      attempted.push(`${provider}（未配置）`);
+      continue;
+    }
+    attempted.push(provider);
+    try {
+      const hits = await runProvider(provider);
+      if (hits.length) return { provider, query: trimmed, hits };
+      attempted[attempted.length - 1] = `${provider}（空结果）`;
+    } catch (error) {
+      attempted[attempted.length - 1] = `${provider}（${error instanceof Error ? error.message : String(error)}）`;
     }
   }
 
-  /* 自研兜底：零密钥时（以及所有配置层失败时）本地抓取 Bing 结果页。
-     失败则抛聚合的可读错误。 */
-  try {
-    const hits = await localBingSearch(trimmed, capped);
-    if (hits.length) return { provider: "local", query: trimmed, hits };
-  } catch {
-    /* 本地抓取失败 → 统一错误。 */
+  if (selected && settings?.fallback === false) {
+    throw new Error(`${selected} 搜索失败：${attempted[attempted.length - 1] || "未配置"}。可打开“失败时自动换下一个服务”。`);
   }
-
-  const configured = [officialToken && "官方中继", bigModelKey && "BigModel", deepSeekKey && "DeepSeek"].filter(Boolean);
-  throw new Error(
-    configured.length
-      ? "各搜索服务均未返回结果（额度耗尽或网络受限），已尝试本地抓取也未命中；可稍后重试。"
-      : "搜索失败：本地抓取未命中。要更稳定的结果，可在 .env 配置 ZAI_API_KEY（智谱）或 DEEPSEEK_API_KEY 后重启。"
-  );
+  if (!configured.size) {
+    throw new Error("没有可用的联网搜索服务：请登录官方服务、在设置中填写 BigModel/DeepSeek Key，或打开“本地网页抓取兜底”。");
+  }
+  throw new Error(`联网搜索未返回结果，已尝试：${attempted.join(" → ")}。`);
 }
 
 interface WebFetchOutcome {

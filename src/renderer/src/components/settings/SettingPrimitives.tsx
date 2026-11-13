@@ -37,6 +37,25 @@ export function SettingsLinkRow({ title, desc, value, onSelect, disabled }: {
   </button>;
 }
 
+/** 下拉选择行：整行可读，右侧原生 select（键盘/触屏都稳）。 */
+export function SettingsSelectRow({ title, desc, value, options, onChange }: {
+  title: string;
+  desc?: string;
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  onChange: (next: string) => void;
+}) {
+  return <label className="set-row">
+    <span className="set-row-main">
+      <span className="set-row-title">{title}</span>
+      {desc ? <span className="set-row-desc">{desc}</span> : null}
+    </span>
+    <select className="set-select" value={value} onChange={(event) => onChange(event.target.value)}>
+      {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+    </select>
+  </label>;
+}
+
 /** 开关行：整行即点击热区（≥52px），右侧 iOS 风格开关。 */
 export function SettingsSwitchRow({ title, desc, checked, onChange, disabled }: {
   title: string;

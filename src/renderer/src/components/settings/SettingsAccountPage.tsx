@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { CircleHelp, Info, LogOut, MoreHorizontal, RefreshCw, Search } from "lucide-react";
 import { formatOfficialPoints } from "../../official-balance.js";
 import { formatUpdateBytes } from "../SettingsFields.js";
-import { SettingsConfirmDialog, SettingsGroup, SettingsInfoRow, SettingsLinkRow, SettingsSwitchRow, SettingsUserCard } from "./SettingPrimitives.js";
+import { SettingsConfirmDialog, SettingsGroup, SettingsInfoRow, SettingsLinkRow, SettingsSelectRow, SettingsSwitchRow, SettingsUserCard } from "./SettingPrimitives.js";
 
 const PRIVACY_URL = "https://github.com/haliChina/SecAgent/blob/master/docs/privacy-policy.zh-CN.md";
 const FEEDBACK_URL = "https://github.com/haliChina/SecAgent/issues";
@@ -23,6 +23,10 @@ const THEME_STORAGE_KEY = "secagent-theme";
 type AccountPageProps = {
   theme: "light" | "dark" | "system";
   onThemeChange: (theme: "light" | "dark") => void;
+  performance: "auto" | "smooth" | "quality";
+  onPerformanceChange: (mode: "auto" | "smooth" | "quality") => void;
+  windowControls: "custom" | "native";
+  onWindowControlsChange: (mode: "custom" | "native") => void;
   version?: string;
   officialLoggedIn: boolean;
   officialEmail: string;
@@ -134,6 +138,7 @@ export function SettingsAccountPage(props: AccountPageProps) {
   type RowDefinition =
     | { kind: "link"; title: string; desc?: string; value?: string; onSelect: () => void; disabled?: boolean }
     | { kind: "switch"; title: string; desc?: string; checked: boolean; onChange: (next: boolean) => void }
+    | { kind: "select"; title: string; desc?: string; value: string; options: Array<{ value: string; label: string }>; onChange: (next: string) => void }
     | { kind: "info"; title: string; desc?: string; value?: string };
 
   const groups: Array<{ label: string; rows: RowDefinition[] }> = [
@@ -141,7 +146,9 @@ export function SettingsAccountPage(props: AccountPageProps) {
       label: "账号与偏好",
       rows: [
         { kind: "link", title: "账号与安全", desc: "登录状态与账号凭据", value: props.officialLoggedIn ? "已登录" : "未登录", onSelect: () => props.onNavigate("settings-models") },
-        { kind: "switch", title: "深色模式", checked: darkActive, onChange: (next) => props.onThemeChange(next ? "dark" : "light") }
+        { kind: "switch", title: "深色模式", checked: darkActive, onChange: (next) => props.onThemeChange(next ? "dark" : "light") },
+        { kind: "select", title: "性能模式", desc: "自动：大屏/触控优先流畅；流畅：关闭极光、毛玻璃与 3D 常驻渲染；画质：保留全部效果。", value: props.performance, options: [{ value: "auto", label: "自动" }, { value: "smooth", label: "流畅" }, { value: "quality", label: "画质" }], onChange: (next) => props.onPerformanceChange(next as "auto" | "smooth" | "quality") },
+        { kind: "select", title: "窗口按钮", desc: "重启应用后生效。系统原生保留 Windows 11 Snap Layouts 且最稳；自绘适合触控/大屏，但窗口会变成无边框。", value: props.windowControls, options: [{ value: "native", label: "系统原生" }, { value: "custom", label: "自绘" }], onChange: (next) => props.onWindowControlsChange(next as "custom" | "native") }
       ]
     },
     {
@@ -209,6 +216,9 @@ export function SettingsAccountPage(props: AccountPageProps) {
       {group.rows.map((row) => {
         if (row.kind === "switch") {
           return <SettingsSwitchRow key={row.title} title={row.title} desc={row.desc} checked={row.checked} onChange={row.onChange} />;
+        }
+        if (row.kind === "select") {
+          return <SettingsSelectRow key={row.title} title={row.title} desc={row.desc} value={row.value} options={row.options} onChange={row.onChange} />;
         }
         if (row.kind === "info") {
           return <SettingsInfoRow key={row.title} title={row.title} desc={row.desc} value={row.value} />;

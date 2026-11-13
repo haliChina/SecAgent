@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, screen, session, shell, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, Notification, safeStorage, screen, session, shell, Tray } from "electron";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
@@ -17,6 +17,7 @@ import { SecAgentRuntime, type TraceEvent } from "../runtime.js";
 import type { ConversationMessage } from "../model-provider.js";
 import { SessionStore, type AssistantActivity, type SessionData, type ToolCallRecord } from "../session-store.js";
 import { closeAllSessionDbs } from "../session-db.js";
+import { configureSecretCipher, migratePlaintextSecrets } from "../secret-store.js";
 import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
@@ -28,7 +29,7 @@ import { registerSpeechIpc } from "./ipc-speech.js";
 import { registerSettingsIpc } from "./ipc-settings.js";
 import { closeVoiceWakeWindow, closeWakeWindow, getVoiceWakeWindow, getWakeWindow, openWakeWindow, registerWakeIpc, registerWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import { registerSessionsIpc } from "./ipc-sessions.js";
-import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, openPluginOverlay, openPluginSvgPreview, openSettings, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge } from "./windows.js";
+import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, isCustomWindowControls, openPluginOverlay, openPluginSvgPreview, openSettings, refreshWindowControlsMode, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge } from "./windows.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentryAfterMigration, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARG, AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
@@ -157,11 +158,34 @@ ipcMain.handle("window:chrome-sync", (_event, colors: { background?: string; sym
         symbolColor: typeof colors.symbol === "string" ? colors.symbol : "#475569",
         height: 57
       });
+
     } catch {
       // Not every window uses the overlay.
     }
   }
   return { ok: true };
+});
+
+/**
+ * R89：自绘窗口三键。close 仍走 BrowserWindow.close()，保留主窗“关到托盘”的既有行为。
+ *
+ * R94：此前这段被插进 window:chrome-sync 的 for/try 里——只有换肤时才顺带注册，
+ * 而且第二次注册会抛错（被外层 catch 吞掉）。结果就是自绘三键点了没反应。
+ * 现在改为模块加载时注册一次，并缓存设置读取结果，避免 IPC 路径上反复读配置。
+ */
+ipcMain.handle("window:control", (event, action: unknown) => {
+  if (process.platform !== "win32") return { isMaximized: false, custom: false };
+  const target = BrowserWindow.fromWebContents(event.sender);
+  if (!target || target.isDestroyed()) return { isMaximized: false, custom: isCustomWindowControls() };
+  try {
+    if (action === "minimize") target.minimize();
+    else if (action === "toggle-maximize") { if (target.isMaximized()) target.unmaximize(); else target.maximize(); }
+    else if (action === "close") target.close();
+  } catch (error) {
+    logMain("window.control.failed", { action: String(action), error: error instanceof Error ? error.message : String(error) });
+    return { isMaximized: false, custom: isCustomWindowControls(), error: error instanceof Error ? error.message : String(error) };
+  }
+  return { isMaximized: target.isMaximized(), custom: isCustomWindowControls() };
 });
 
 ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openWorkspaceFilePreview(relativePath));
@@ -193,9 +217,28 @@ app.on("second-instance", (_event, argv) => {
 });
 app.whenReady().then(async () => {
   if (!app.hasSingleInstanceLock()) return;
+  /* R93：密钥加密必须在 initializeWorkspace/readSettings 之前配置；
+     safeStorage 只在 app ready 后可用。不可用时保持旧明文 .env，不静默降级。 */
+  try {
+    configureSecretCipher({
+      available: safeStorage.isEncryptionAvailable(),
+      encrypt: (value: string) => safeStorage.encryptString(value).toString("base64"),
+      decrypt: (payload: string) => safeStorage.decryptString(Buffer.from(payload, "base64"))
+    });
+  } catch (error) {
+    configureSecretCipher(null);
+    logMain("secrets.cipher.unavailable", { error: error instanceof Error ? error.message : String(error) });
+  }
   const needsOnboarding = !fs.existsSync(configPath(DEFAULT_WORKSPACE)) || !isOnboardingComplete(DEFAULT_WORKSPACE);
   initializeWorkspace(DEFAULT_WORKSPACE);
+  try {
+    const migrated = migratePlaintextSecrets(DEFAULT_WORKSPACE);
+    if (migrated) logMain("secrets.migrated", { count: migrated });
+  } catch (error) {
+    logMain("secrets.migrate.failed", { error: error instanceof Error ? error.message : String(error) });
+  }
   const initialSettings = readSettings(DEFAULT_WORKSPACE);
+  refreshWindowControlsMode();
   /* 自动归档：启动时扫描一次；读取或写库失败都不应阻塞应用启动。 */
   const archivePolicy = initialSettings.archive;
   if (archivePolicy?.auto) {

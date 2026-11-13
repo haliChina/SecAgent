@@ -3,7 +3,7 @@
  * 来源：github.com/DavidHDev/react-bits src/ts-default/Micro/FuseButton（MIT）
  * 直译适配：hugeicons → lucide-react；'use client' 去除。
  * 语义：press → armed（fuse 动画倒计时）→ undo 可反悔 / fuse 烧尽 → settled。
- * commitOn="fuseEnd" 把提交推迟到烧完（删除会话用它：4 秒反悔窗，天然可撤销）。
+ * commitOn="fuseEnd" 把提交推迟到烧完（删除会话用它：默认 1.2 秒反悔窗，天然可撤销）。
  */
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Archive, Check, Undo2 } from "lucide-react";

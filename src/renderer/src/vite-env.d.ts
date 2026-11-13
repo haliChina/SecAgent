@@ -29,9 +29,10 @@ interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
 interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number; contextTokens: number }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system";
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system"; performance?: "auto" | "smooth" | "quality"; windowControls?: "custom" | "native";
     /** R64：联网搜索工具密钥（载流字段：保存时写工作区 .env，不落 config.yaml）。 */
-    webSearch?: { bigmodelKey?: string; deepseekKey?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean } }
+    secrets?: "encrypted" | "unavailable" | "legacy";
+    webSearch?: { enabled?: boolean; provider?: "auto" | "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "serper" | "google" | "local"; fallback?: boolean; localFallback?: boolean; fetchEnabled?: boolean; maxResults?: number; bigmodelKey?: string; deepseekKey?: string; tavilyKey?: string; braveKey?: string; serperKey?: string; googleKey?: string; googleCx?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean; tavilyKeyConfigured?: boolean; braveKeyConfigured?: boolean; serperKeyConfigured?: boolean; googleKeyConfigured?: boolean; googleCxConfigured?: boolean } }
 interface SkillSummary { name: string; description: string; path: string; enabled?: boolean }
 interface CustomCommand { name: string; description?: string; prompt: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
@@ -112,10 +113,13 @@ interface Window {
     createSession(): Promise<SessionData>;
     /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
     syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
+    windowControl(action: "minimize" | "toggle-maximize" | "close" | "state"): Promise<{ isMaximized: boolean; custom?: boolean }>;
+    onWindowMaximized(callback: (maximized: boolean) => void): () => void;
     deleteSession(id: string): Promise<SessionMeta[]>;
     archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;
     renameSession(id: string, title: string): Promise<SessionData>;
     getSession(id: string): Promise<SessionData>;
+    loadAttachment(sessionId: string, messageId: string, attachmentId: string): Promise<string>;
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;

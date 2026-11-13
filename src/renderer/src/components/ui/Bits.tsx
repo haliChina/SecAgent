@@ -2,8 +2,7 @@
    本文件仅作 barrel，维持 App/SettingsApp/MessageActivities 既有导入路径。
    P1 步骤 2 已删除 _dead-* 死组件（15 个，约 2000 行）。审计见 UI-REWRITE-PLAN.md。 */
 export * from "./parts/scroll-progress.js";
-export * from "./parts/matrix-orb.js";
-export * from "./parts/fluid-orb.js";
+export * from "./parts/bloub-morph.js";
 export * from "./parts/ai-status.js";
 export * from "./parts/web-search.js";
 export * from "./parts/aurora-backdrop.js";
