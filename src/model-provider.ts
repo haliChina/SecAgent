@@ -3,6 +3,7 @@ import type { ChatAttachment, ReasoningEffort, SecAgentConfig } from "./types.js
 import { TOOL_RESULT_TRUNCATED_PREFIX, toolResultParts, toolResultText } from "./tool-content.js";
 import { budgetStopMessage, normalizeModelBudgetSettings, pruneImageHistory, WRAP_UP_NOTICE, type ModelBudgetSettings } from "./model-budget.js";
 import { estimateConversationTokens, estimateTokens, resolvePromptBudget, trimConversationToBudget } from "./context-budget.js";
+import { createToolProgressGuard, stallNoticeFor } from "./tool-progress.js";
 import { anthropicThinkingConfig, googleThinkingConfig, reasoningFieldsForChat, reasoningFieldsForResponses } from "./reasoning.js";
 
 const WORKSPACE_FILE_OUTPUT_PROMPT = `
@@ -212,10 +213,21 @@ export class ModelToolAgent {
     if (!key) throw new Error(`未配置模型密钥环境变量 ${this.agent.apiKeyEnv}。请设置后重试；密钥不要写入 secagent.yaml。`);
     const systemPrompt = await this.resolveSystemPrompt();
     const history = this.contextWindow(conversation, systemPrompt);
-    if (this.agent.provider === "anthropic") return this.runAnthropic(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
-    if (this.agent.provider === "google") return this.runGoogle(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
-    if (this.agent.provider === "openai-responses") return this.runOpenAIResponses(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
-    return this.runOpenAICompatible(instruction, tools, key, execute, reasoningEffort, systemPrompt, history, signal);
+    /* R97 无进展熔断：execute 外包观察器——连续 3 次完全相同的调用不再执行，
+       返回「请改变方法」提示把模型拉回正轨（真实动作与 token 双省）。 */
+    const progressGuard = createToolProgressGuard();
+    const guardedExecute: ExecuteTool = async (name, args) => {
+      const verdict = progressGuard.observe(name, args);
+      if (verdict.blocked) {
+        this.trace?.("tool.progress.stalled", { tool: name, repeat: verdict.repeat });
+        return stallNoticeFor(name);
+      }
+      return await execute(name, args);
+    };
+    if (this.agent.provider === "anthropic") return this.runAnthropic(instruction, tools, key, guardedExecute, reasoningEffort, systemPrompt, history, signal);
+    if (this.agent.provider === "google") return this.runGoogle(instruction, tools, key, guardedExecute, reasoningEffort, systemPrompt, history, signal);
+    if (this.agent.provider === "openai-responses") return this.runOpenAIResponses(instruction, tools, key, guardedExecute, reasoningEffort, systemPrompt, history, signal);
+    return this.runOpenAICompatible(instruction, tools, key, guardedExecute, reasoningEffort, systemPrompt, history, signal);
   }
   /** 每次请求前从插件收集提示词并拼接到系统提示词最后；无插件提示词时原样返回。
    * 另注入当前日期（模型无实时时钟，"今天/明天/本周"类表述以此为准）。 */
