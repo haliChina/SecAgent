@@ -73,7 +73,10 @@
     deleteSession: read('deleteSession', id => { const index = sessions.findIndex(item => item.meta.id === id); if (index >= 0) sessions.splice(index, 1); return sessions.map(item => item.meta); }),
     listModels: read('listModels', () => models),
     listProviders: read('listProviders', () => []),
-    listPlugins: read('listPlugins', () => options.scenario === 'panels' ? [{ id: 'fixture', name: '本地测试插件', version: '0.0.0', enabled: true, state: 'ready', settingsPages: [{ id: 'service', title: '隔离服务面板' }] }] : []),
+    listPlugins: read('listPlugins', () => options.scenario === 'panels' ? [
+      { id: 'fixture', name: '本地测试插件', version: '0.0.0', enabled: true, state: 'ready', settingsPages: [{ id: 'service', title: '隔离服务面板' }] },
+      { id: 'fixture-error', name: '错误状态示例', version: '0.0.0', enabled: true, state: 'error', message: '仅用于验证页签状态回退', settingsPages: [] }
+    ] : []),
     callPluginSettings: read('callPluginSettings', (pluginId, pageId, action) => {
       if (pluginId !== 'fixture' || pageId !== 'service') return block('unknown-plugin')();
       record('panel:' + action);

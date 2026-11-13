@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import mermaid from "mermaid";
 import { mermaidThemeFor, mermaidThemeVariables } from "../mermaid-theme.js";
+import { createMermaidRenderQueue } from "../mermaid-render-queue.js";
 
 let mermaidId = 0;
+const enqueueRender = createMermaidRenderQueue();
 
 function currentTheme() {
   return mermaidThemeFor(document.documentElement.dataset.theme === "dark");
@@ -17,6 +19,7 @@ export function MermaidBlock({ chart }: { chart: string }) {
   useEffect(() => {
     const observer = new MutationObserver(() => setTheme(currentTheme()));
     observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    setTheme(currentTheme());
     return () => observer.disconnect();
   }, []);
 
@@ -27,8 +30,10 @@ export function MermaidBlock({ chart }: { chart: string }) {
 
     container.textContent = "正在渲染图表…";
     container.classList.remove("mermaid-error");
-    mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, themeVariables: mermaidThemeVariables(theme) });
-    void mermaid.render(idRef.current, chart).then(({ svg, bindFunctions }) => {
+    void enqueueRender(async () => {
+      if (cancelled) return;
+      mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme, themeVariables: mermaidThemeVariables(theme) });
+      const { svg, bindFunctions } = await mermaid.render(idRef.current, chart);
       if (cancelled || !containerRef.current) return;
       containerRef.current.innerHTML = svg;
       bindFunctions?.(containerRef.current);

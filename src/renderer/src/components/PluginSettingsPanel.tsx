@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState, type KeyboardEvent } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { CircleAlert, CircleArrowUp, CircleCheck, Download, ExternalLink, MoreHorizontal, PackageOpen, Power, RefreshCw, Search, Trash2 } from "lucide-react";
 import { pluginStateLabel } from "../utils.js";
+import { pluginNavigationIndex } from "../plugin-navigation.js";
 
 function latestMarketVersion(plugin?: MarketplacePlugin): MarketplaceVersion | undefined {
   return plugin?.latest;
@@ -24,6 +25,20 @@ export function PluginSettingsPanel({
   setMarketError: (message: string) => void;
 }) {
   const bridge = window.secagent;
+  const categoryId = useId();
+  const detailId = useId();
+  const navigate = (event: KeyboardEvent<HTMLDivElement>, role: "tab" | "option", orientation: "horizontal" | "vertical") => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(`button[role="${role}"]:not(:disabled)`)];
+    const current = items.indexOf(event.target as HTMLButtonElement);
+    if (current < 0) return;
+    const next = pluginNavigationIndex(event.key, current, items.length, orientation);
+    if (next === null) return;
+    event.preventDefault();
+    items[next].focus({ preventScroll: true });
+    items[next].click();
+    items[next].scrollIntoView({ block: "nearest", inline: "nearest" });
+  };
   const [category, setCategory] = useState<"installed" | "market">("installed");
   const [selectedId, setSelectedId] = useState("");
   const [filter, setFilter] = useState("");
@@ -51,7 +66,7 @@ export function PluginSettingsPanel({
     if (!selectedId || !source.some((plugin) => plugin.id === selectedId)) setSelectedId(source[0]?.id || "");
     setDetailTab("readme");
   }, [category, plugins, marketPlugins]);
-  useEffect(() => { setUpdateNotice(""); }, [selectedId, category]);
+  useEffect(() => { setUpdateNotice(""); setDetailTab("readme"); }, [selectedId, category]);
 
   const visiblePlugins = useMemo(() => {
     const keyword = filter.trim().toLocaleLowerCase();
@@ -60,6 +75,7 @@ export function PluginSettingsPanel({
     return source.filter((plugin) => `${plugin.name} ${plugin.id} ${plugin.description}`.toLocaleLowerCase().includes(keyword));
   }, [category, filter, marketPlugins, plugins]);
   const installed = plugins.find((plugin) => plugin.id === selectedId);
+  const activeDetailTab = detailTab === "error" && installed?.state !== "error" ? "readme" : detailTab;
   const market = marketPlugins.find((plugin) => plugin.id === selectedId);
   const selected = category === "installed" ? installed : market;
   const selectedVersion = latestMarketVersion(market);
@@ -127,24 +143,26 @@ export function PluginSettingsPanel({
     <div className="plugin-catalog-workspace">
       <aside className="plugin-catalog-sidebar">
         <div className="plugin-search"><Search size={16} /><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="搜索插件…" aria-label="搜索插件" /></div>
-        <div className="plugin-category-tabs" role="tablist" aria-label="插件分类">
-          <button type="button" role="tab" aria-selected={category === "installed"} className={category === "installed" ? "active" : ""} onClick={() => setCategory("installed")}>已安装 <span>{plugins.length}</span></button>
-          <button type="button" role="tab" aria-selected={category === "market"} className={category === "market" ? "active" : ""} onClick={() => setCategory("market")}>市场 <span>{marketPlugins.length}</span></button>
+        <div className="plugin-category-tabs" role="tablist" aria-label="插件分类" onKeyDown={(event) => navigate(event, "tab", "horizontal")}>
+          <button type="button" role="tab" id={`${categoryId}-installed`} aria-controls={`${categoryId}-panel`} tabIndex={category === "installed" ? 0 : -1} aria-selected={category === "installed"} className={category === "installed" ? "active" : ""} onClick={() => setCategory("installed")}>已安装 <span>{plugins.length}</span></button>
+          <button type="button" role="tab" id={`${categoryId}-market`} aria-controls={`${categoryId}-panel`} tabIndex={category === "market" ? 0 : -1} aria-selected={category === "market"} className={category === "market" ? "active" : ""} onClick={() => setCategory("market")}>市场 <span>{marketPlugins.length}</span></button>
         </div>
-        <div className="plugin-list" role={visiblePlugins.length ? "listbox" : undefined} aria-label={category === "installed" ? "已安装插件" : "插件市场"}>
-          {visiblePlugins.map((plugin) => {
+        <div id={`${categoryId}-panel`} role="tabpanel" aria-labelledby={`${categoryId}-${category}`} className="plugin-category-panel" tabIndex={visiblePlugins.length ? -1 : 0}>
+        <div className="plugin-list" role={visiblePlugins.length ? "listbox" : undefined} aria-label={visiblePlugins.length ? (category === "installed" ? "已安装插件" : "插件市场") : undefined} onKeyDown={(event) => navigate(event, "option", "vertical")}>
+          {visiblePlugins.map((plugin, index) => {
             const local = plugins.find((item) => item.id === plugin.id);
             const marketPlugin = category === "market" ? plugin as MarketplacePlugin : undefined;
             const installedPlugin = category === "installed" ? plugin as PluginStatus : undefined;
             const version = marketPlugin?.latest?.version || installedPlugin?.version;
             const state = local ? pluginStateLabel(local) : marketPlugin?.releaseError ? "暂不可用" : version ? `v${version}` : "未安装";
-            return <button type="button" role="option" aria-selected={selectedId === plugin.id} className={`plugin-list-item ${selectedId === plugin.id ? "selected" : ""}`} key={plugin.id} onClick={() => setSelectedId(plugin.id)}>
+            return <button type="button" role="option" tabIndex={selectedId === plugin.id || (index === 0 && !visiblePlugins.some((item) => item.id === selectedId)) ? 0 : -1} aria-selected={selectedId === plugin.id} className={`plugin-list-item ${selectedId === plugin.id ? "selected" : ""}`} key={plugin.id} onClick={() => setSelectedId(plugin.id)}>
               <span className="plugin-list-icon">{plugin.icon ? <img src={plugin.icon} alt="" /> : plugin.name.slice(0, 1).toUpperCase()}</span>
               <span className="plugin-list-copy"><strong>{plugin.name}</strong><small>{plugin.description || plugin.id}</small></span>
               <span className={`plugin-list-state ${local?.state || "market"}`}>{state}</span>
             </button>;
           })}
-          {!visiblePlugins.length && <div className="plugin-list-empty" role="status"><PackageOpen size={26} /><span>{category === "installed" ? "还没有安装插件" : marketLoading ? "正在加载市场…" : "没有找到匹配的插件"}</span></div>}
+          {!visiblePlugins.length && <div className="plugin-list-empty" role="status"><PackageOpen size={26} /><span>{filter.trim() ? "没有找到匹配的插件" : category === "installed" ? "还没有安装插件" : marketLoading ? "正在加载市场…" : "没有找到匹配的插件"}</span></div>}
+        </div>
         </div>
       </aside>
       <section className="plugin-detail" aria-label="插件详情">
@@ -164,15 +182,15 @@ export function PluginSettingsPanel({
           {updateNotice && <div className="plugin-detail-message success"><CircleCheck size={16} />{updateNotice}</div>}
           {market?.releaseError && <div className="plugin-detail-message error"><CircleAlert size={16} />暂不可用：{market.releaseError}</div>}
           {installed?.message && <div className={`plugin-detail-message ${installed.state}`}><CircleAlert size={16} />{installed.message}</div>}
-          <div className="plugin-detail-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={detailTab === "readme"} className={detailTab === "readme" ? "active" : ""} onClick={() => setDetailTab("readme")}>概览</button>
-            {installed?.state === "error" && <button type="button" role="tab" aria-selected={detailTab === "error"} className={detailTab === "error" ? "active" : ""} onClick={() => setDetailTab("error")}>错误信息</button>}
-            <button type="button" role="tab" aria-selected={detailTab === "details"} className={detailTab === "details" ? "active" : ""} onClick={() => setDetailTab("details")}>权限与设置</button>
+          <div className="plugin-detail-tabs" role="tablist" aria-label="插件详情页签" onKeyDown={(event) => navigate(event, "tab", "horizontal")}>
+            <button type="button" role="tab" id={`${detailId}-readme`} aria-controls={`${detailId}-panel`} tabIndex={activeDetailTab === "readme" ? 0 : -1} aria-selected={activeDetailTab === "readme"} className={activeDetailTab === "readme" ? "active" : ""} onClick={() => setDetailTab("readme")}>概览</button>
+            {installed?.state === "error" && <button type="button" role="tab" id={`${detailId}-error`} aria-controls={`${detailId}-panel`} tabIndex={activeDetailTab === "error" ? 0 : -1} aria-selected={activeDetailTab === "error"} className={activeDetailTab === "error" ? "active" : ""} onClick={() => setDetailTab("error")}>错误信息</button>}
+            <button type="button" role="tab" id={`${detailId}-details`} aria-controls={`${detailId}-panel`} tabIndex={activeDetailTab === "details" ? 0 : -1} aria-selected={activeDetailTab === "details"} className={activeDetailTab === "details" ? "active" : ""} onClick={() => setDetailTab("details")}>权限与设置</button>
           </div>
-          <div className="plugin-detail-content" role="tabpanel">
-            {detailTab === "readme" && <div className="plugin-readme"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedReadme || "暂无 README。"}</ReactMarkdown></div>}
-            {detailTab === "error" && <div className="plugin-error-panel"><CircleAlert size={20} /><p>{installed?.message || "插件加载时没有报告错误。"}</p></div>}
-            {detailTab === "details" && <div className="plugin-info-grid"><div><small>插件 ID</small><strong>{selected.id}</strong></div><div><small>格式</small><strong>{selected.format === "agent" || installed?.format === "agent" ? "Agent Plugins" : "SecAgent"}</strong></div><div><small>版本</small><strong>v{installed?.version || selectedVersion?.version || "—"}</strong></div><div><small>权限</small><strong>{(installed?.permissions || selectedVersion?.permissions || []).length ? (installed?.permissions || selectedVersion?.permissions || []).join("、") : "未声明权限"}</strong></div><div><small>设置页面</small><strong>{installed?.settingsPages.length ? installed.settingsPages.map((page) => page.title).join("、") : "无"}</strong></div></div>}
+          <div className="plugin-detail-content" role="tabpanel" id={`${detailId}-panel`} aria-labelledby={`${detailId}-${activeDetailTab}`} tabIndex={0}>
+            {activeDetailTab === "readme" && <div className="plugin-readme"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedReadme || "暂无 README。"}</ReactMarkdown></div>}
+            {activeDetailTab === "error" && <div className="plugin-error-panel"><CircleAlert size={20} /><p>{installed?.message || "插件加载时没有报告错误。"}</p></div>}
+            {activeDetailTab === "details" && <div className="plugin-info-grid"><div><small>插件 ID</small><strong>{selected.id}</strong></div><div><small>格式</small><strong>{selected.format === "agent" || installed?.format === "agent" ? "Agent Plugins" : "SecAgent"}</strong></div><div><small>版本</small><strong>v{installed?.version || selectedVersion?.version || "—"}</strong></div><div><small>权限</small><strong>{(installed?.permissions || selectedVersion?.permissions || []).length ? (installed?.permissions || selectedVersion?.permissions || []).join("、") : "未声明权限"}</strong></div><div><small>设置页面</small><strong>{installed?.settingsPages.length ? installed.settingsPages.map((page) => page.title).join("、") : "无"}</strong></div></div>}
           </div>
         </>}
       </section>

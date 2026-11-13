@@ -31,6 +31,7 @@ function token(name: string, dark: boolean): string {
     const hit = new RegExp(`--${name}:\\s*(#[0-9A-Fa-f]{6})`).exec(rule.body);
     if (hit) return hit[1];
   }
+  if (dark) return token(name, false);
   assert.fail(`token --${name} missing (dark=${dark})`);
 }
 
@@ -44,6 +45,26 @@ test("危险/成功文字令牌在各自面板背景上达到 AA", () => {
     const panel = token("bg-1", dark);
     assert.ok(contrast(token("danger", dark), panel) >= 4.5, `danger on bg-1 (dark=${dark})`);
     assert.ok(contrast(token("success", dark), panel) >= 4.5, `success on bg-1 (dark=${dark})`);
+  }
+});
+
+test("红底确认按钮不继承深色 on-accent，默认与悬停均达标", () => {
+  for (const selector of ["set-danger-button", "archived-delete-final"]) {
+    const rule = styles.match(new RegExp(`\\.${selector} \\{([^}]*)\\}`))?.[1] || "";
+    assert.match(rule, /color:\s*#FFFFFF/i);
+    assert.match(rule, /background:\s*#DC2626/i);
+  }
+  assert.ok(contrast("#FFFFFF", "#DC2626") >= 4.5);
+  assert.ok(contrast("#F0F0F0", "#CF2424") >= 4.5);
+});
+
+test("唤醒错误在固定深色半透明底上保持浅色前景", () => {
+  const rule = styles.match(/\.wake-error \{([^}]*)\}/)?.[1] || "";
+  assert.match(rule, /color:\s*var\(--on-dark-danger\)/);
+  assert.match(rule, /background:\s*rgba\(61,22,22,\.92\)/);
+  // 合成到全黑与全白桌面，覆盖该固定背景的亮度两端。
+  for (const background of ["#381414", "#4D2929"]) {
+    for (const dark of [false, true]) assert.ok(contrast(token("on-dark-danger", dark), background) >= 4.5);
   }
 });
 
