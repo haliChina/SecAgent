@@ -9,7 +9,7 @@
  * 打开前的元素。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Archive, CornerDownLeft, MessageSquare, Plus, Search, Settings, X, type LucideIcon } from "lucide-react";
+import { Archive, Bot, CornerDownLeft, MessageSquare, Plus, Search, Settings, Square, X, type LucideIcon } from "lucide-react";
 import { filterActiveSessions } from "../session-navigation.js";
 
 type PaletteEntry = {
@@ -34,7 +34,13 @@ export function CommandPalette({
   onNewSession,
   onOpenSettings,
   onOpenArchived,
-  onFocusComposer
+  onFocusComposer,
+  onStopReply,
+  onReadAloud,
+  onStopReading,
+  onCustomCommand,
+  running,
+  customCommands
 }: {
   open: boolean;
   onClose: () => void;
@@ -46,6 +52,13 @@ export function CommandPalette({
   onOpenSettings: () => void;
   onOpenArchived: () => void;
   onFocusComposer: () => void;
+  /* issue #26 合并项：原 PromptBar「/」命令并入本面板——统一一个功能列表入口。 */
+  onStopReply: () => void;
+  onReadAloud: () => void;
+  onStopReading: () => void;
+  onCustomCommand: (command: { name: string; prompt: string; description?: string }) => void;
+  running?: boolean;
+  customCommands: Array<{ name: string; prompt: string; description?: string }>;
 }) {
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -70,13 +83,28 @@ export function CommandPalette({
   const actions = useMemo<PaletteEntry[]>(() => {
     const list: PaletteEntry[] = [
       { id: "action-new", label: "新建会话", hint: `${modChar}N`, icon: Plus, run: onNewSession },
-      { id: "action-focus", label: "聚焦输入框", hint: `${modChar}K`, icon: CornerDownLeft, run: onFocusComposer },
-      { id: "action-settings", label: "打开设置", hint: "账户 · 模型 · 语音", icon: Settings, run: onOpenSettings },
-      { id: "action-archived", label: "已归档会话", hint: "恢复或清理", icon: Archive, run: onOpenArchived }
+      { id: "action-focus", label: "聚焦输入框", hint: `${modChar}K`, icon: CornerDownLeft, run: onFocusComposer }
     ];
+    if (running) list.push({ id: "action-stop", label: "停止当前回复", icon: Square, run: onStopReply });
+    list.push(
+      { id: "action-read", label: "朗读最后一条回复", icon: Bot, run: onReadAloud },
+      { id: "action-stop-read", label: "停止朗读", icon: Square, run: onStopReading },
+      { id: "action-settings", label: "打开设置", hint: "账户 · 模型 · 语音", icon: Settings, run: onOpenSettings },
+      { id: "action-archived", label: "已归档会话", hint: "恢复或清理", icon: Archive, run: onOpenArchived },
+      /* 自定义命令沿用原「/」菜单语义：填入输入框，可补充参数后发送。 */
+      ...customCommands
+        .filter((command) => command.name.trim() && command.prompt.trim())
+        .map((command) => ({
+          id: `custom-${command.name}`,
+          label: `/${command.name}`,
+          hint: command.description || "自定义命令",
+          icon: Bot,
+          run: () => onCustomCommand(command)
+        }))
+    );
     if (!normalizedQuery) return list;
     return list.filter((entry) => `${entry.label} ${entry.hint || ""}`.toLocaleLowerCase().includes(normalizedQuery));
-  }, [modChar, normalizedQuery, onNewSession, onOpenSettings, onOpenArchived, onFocusComposer]);
+  }, [modChar, normalizedQuery, onNewSession, onOpenSettings, onOpenArchived, onFocusComposer, onStopReply, onReadAloud, onStopReading, running, customCommands, onCustomCommand]);
 
   const matchedSessions = useMemo(() => {
     const matched = filterActiveSessions(sessions, query);

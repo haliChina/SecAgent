@@ -1093,15 +1093,18 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 
 /* ===== R65 审批卡（assistant-ui approval-card 风格重做）===== */
 .tool-confirmation-overlay { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg-0) 55%, transparent); backdrop-filter: blur(6px); }
-.tool-confirmation-card { display: grid; gap: 0; width: min(520px, 100%); overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1); box-shadow: 0 24px 64px -16px rgba(15, 23, 42, .35); }
+/* R96：max-height 保证按钮永远在视口内；overflow:auto 兜底超长内容滚动而不是顶出框。 */
+.tool-confirmation-card { display: grid; gap: 0; width: min(520px, 100%); max-height: calc(100dvh - 48px); overflow: auto; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1); box-shadow: 0 24px 64px -16px rgba(15, 23, 42, .35); }
 .tool-confirmation-card:focus { outline: none; }
 .tool-confirmation-card h3 { margin: 0; padding: 18px 20px 0; font-size: 15px; font-weight: 700; }
 .tool-confirmation-reason { margin: 6px 20px 0; color: var(--text-2); font-size: 13px; line-height: 1.55; }
 /* 「为什么危险」：红色弱底提示，和上面的「命中规则」形成两层信息。 */
 .tool-confirmation-impact { margin: 8px 20px 0; padding: 8px 11px; border-left: 3px solid #DC2626; border-radius: 0 8px 8px 0; background: color-mix(in srgb, #DC2626 6%, transparent); color: color-mix(in srgb, #DC2626 55%, var(--text-1)); font-size: 12.5px; line-height: 1.55; }
-.tool-confirmation-detail { margin: 14px 20px 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.tool-confirmation-detail { margin: 14px 20px 0; min-width: 0; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
 .tool-confirmation-detail strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--accent-text); }
-.tool-confirmation-detail pre { max-height: 200px; overflow: auto; margin: 8px 0 0; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); }
+/* R96：折行回归——R65 重做时丢了 pre-wrap/break-all，超长 shell 一行命令把卡片
+   撑出视口、按钮被顶出确认框（issue 反馈）。折行 + max-height 双保险。 */
+.tool-confirmation-detail pre { max-height: 200px; overflow: auto; margin: 8px 0 0; font: 11.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-2); white-space: pre-wrap; word-break: break-all; }
 .tool-confirmation-card .settings-help { margin: 12px 20px 0; font-size: 12px; }
 .tool-confirmation-keys { margin: 0 20px; color: var(--text-3); font-size: 11px; text-align: center; letter-spacing: .01em; }
 .tool-confirmation-actions { display: flex; gap: 10px; padding: 16px 20px 18px; margin-top: 12px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg-2) 55%, transparent); }

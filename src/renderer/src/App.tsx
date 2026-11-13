@@ -121,6 +121,35 @@ export function App() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
+  /* R96 草稿持久化（学习 ZCode 三连修的教训）：切换/新建会话时草稿
+     不再丢失——按会话 id 存 localStorage，回到会话恢复。发送成功或
+     会话删除时清掉对应条目。 */
+  const draftSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = session?.meta.id ?? null;
+    const previous = draftSessionRef.current;
+    if (previous === id) return;
+    if (previous) {
+      try { draft ? window.localStorage.setItem(`secagent.draft.${previous}`, draft) : window.localStorage.removeItem(`secagent.draft.${previous}`); } catch { /* 隐私模式等场景静默跳过 */ }
+    }
+    draftSessionRef.current = id;
+    if (id) {
+      let saved = "";
+      try { saved = window.localStorage.getItem(`secagent.draft.${id}`) ?? ""; } catch { /* 同上 */ }
+      setDraft(saved);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.meta?.id]);
+  /* 离开/关闭应用前把当前草稿落盘。 */
+  useEffect(() => {
+    const flush = () => {
+      const id = draftSessionRef.current;
+      if (!id) return;
+      try { draft ? window.localStorage.setItem(`secagent.draft.${id}`, draft) : window.localStorage.removeItem(`secagent.draft.${id}`); } catch { /* 同上 */ }
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => { window.removeEventListener("beforeunload", flush); flush(); };
+  }, [draft]);
   const [sendShortcut, setSendShortcut] = useState<"enter" | "modEnter">("enter");
   const [responseTipsEnabled, setResponseTipsEnabled] = useState(true);
   const [classroomAudio, setClassroomAudio] = useState(false);
@@ -486,9 +515,24 @@ export function App() {
         setModelFallback((current) => current && current.sessionId === item.sessionId ? { ...current, failed: [], current: undefined } : current);
       } else if (item.stage === "assistant.response" || item.stage === "runtime.stopped" || item.stage === "runtime.error") {
         setModelFallback((current) => current && current.sessionId === item.sessionId ? null : current);
+        /* R96 未读角标：回复完成时窗口不在前台（最小化/切走/托盘）→ 未读 +1。
+           触达即清：回到本窗（focus/可见）统一清零。 */
+        if (item.stage === "assistant.response" && (document.hidden || !document.hasFocus())) {
+          setUnread((count) => count + 1);
+        }
       }
     });
   }, [bridge]);
+
+  /* R96 未读角标：focus/可见即清零；数量变化同步主进程画角标。 */
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    const clear = () => { if (document.hasFocus() && !document.hidden) setUnread(0); };
+    window.addEventListener("focus", clear);
+    document.addEventListener("visibilitychange", clear);
+    return () => { window.removeEventListener("focus", clear); document.removeEventListener("visibilitychange", clear); };
+  }, []);
+  useEffect(() => { void bridge?.setUnreadCount(unread).catch(() => undefined); }, [unread, bridge]);
 
   // Sensitive tool calls pause here until the user approves, rejects, or the
   // 5-minute main-process timeout fires.
@@ -1373,6 +1417,17 @@ export function App() {
       onOpenSettings={() => runSessionAction(() => bridge.openSettings())}
       onOpenArchived={() => runSessionAction(() => bridge.openSettings("settings-sessions"))}
       onFocusComposer={() => { requestAnimationFrame(() => { const input = textareaRef.current; input?.focus({ preventScroll: true }); const end = input?.value.length ?? 0; input?.setSelectionRange(end, end); }); }}
+      /* issue #26：原「/」斜杠命令并入快速跳转面板（统一功能列表入口）。 */
+      running={sessionRunning}
+      onStopReply={() => { if (sessionRunning) void stop(); }}
+      onReadAloud={() => {
+        const target = session?.messages.filter((message) => message.role === "assistant" && message.content && !message.content.startsWith("执行失败：")).at(-1);
+        if (target) void readMessage(target.id, target.content);
+        else flashSpeechStatus("还没有可朗读的回复");
+      }}
+      onStopReading={() => stopReading()}
+      onCustomCommand={(command) => { setDraft(`${command.prompt.trim()} `); requestAnimationFrame(() => textareaRef.current?.focus()); }}
+      customCommands={customCommands}
     />
 
     {messageMenu && <div className="message-context-menu" role="menu" style={{ left: messageMenu.x, top: messageMenu.y }} onPointerDown={(event) => event.stopPropagation()}>
@@ -1422,13 +1477,13 @@ export function App() {
             const isErrorNotice = message.role === "assistant" && message.content.startsWith("执行失败：");
             // R57：纯图片用户消息（无文本）气泡给占位提示，不再渲染空白气泡。
             const imageOnly = message.role === "user" && !message.content.trim() && (message.attachments?.length ?? 0) > 0;
-            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} sessionId={session?.meta.id} messageId={message.id} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent.replace(/^执行失败：/, "")}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{message.role === "assistant" && <WorkspaceFileStrip content={message.content} />}{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions
+            return <Fragment key={message.id}>{(!previous || daySeparatorLabel(previous.createdAt) !== dayLabel) && <DaySeparator label={dayLabel} id={daySeparatorId(message.createdAt)} />}<article className={`message ${message.role}`}><div className="message-content"><div className="message-meta">{message.role === "user" ? "教师" : "SecAgent"} · {new Date(message.createdAt).toLocaleTimeString()}</div>{message.role === "assistant" && <MessageActivities activities={activities} elapsedSeconds={message.id === latestAssistantId ? executionSeconds : undefined} stopped={message.stopped || (message.id === latestAssistantId && manuallyStopped)} isExecuting={sessionFinishing && message.id === latestAssistantId} activeStepKind={message.id === latestAssistantId ? activeStepKind : undefined} summaryRef={sessionFinishing && message.id === latestAssistantId ? executionSummaryRef : undefined} />}{message.role === "user" && message.attachments?.length ? <AttachmentStrip attachments={message.attachments} sessionId={session?.meta.id} messageId={message.id} onOpen={setPreviewAttachment} /> : null}<div className="bubble-row"><div className="avatar">{message.role === "user" ? "你" : <img src="/icon.svg" alt="SecAgent" />}</div><div ref={message.role === "assistant" && message.id === latestAssistantId ? answerContentRef : undefined} className={`bubble ${message.role === "assistant" ? "markdown-bubble" : ""} ${isErrorNotice ? "error" : ""}`} onContextMenu={(event) => { event.preventDefault(); const selection = selectionInElement(event.currentTarget); setMessageMenu({ x: Math.min(event.clientX, window.innerWidth - 180), y: Math.min(event.clientY, window.innerHeight - 176), messageId: message.id, text: message.content, role: message.role, selection }); }}>{isErrorNotice ? <div className="error-notice" role="alert"><span className="error-notice-title">模型请求失败</span><MarkdownContent>{visibleContent.replace(/^执行失败：/, "")}</MarkdownContent></div> : message.role === "assistant" ? <MarkdownContent>{citationify(visibleContent, webSearchSourcesFor(message.toolCalls))}</MarkdownContent> : imageOnly ? <span className="image-only-hint">[图片]</span> : <UserQuotedContent content={message.content} />}</div>{reading && (readingStatus === "loading" ? <LoaderCircle className="reading-icon loading" aria-label="正在生成语音" /> : <Volume2 className="reading-icon" aria-label="正在朗读" />)}</div><AuiMessageActions
                   className={`chat-message-actions ${message.id === latestAssistantId ? "pinned" : ""}`}
                   onCopy={() => void copyText(message.content)}
                   onSpeak={message.role === "assistant" ? () => { if (speakingMessageId === message.id) stopReading(); else void readMessage(message.id, message.content); } : undefined}
                   speaking={speakingMessageId === message.id}
                   onQuote={() => { setQuotedText(quoteSnippet(message.content)); requestAnimationFrame(() => textareaRef.current?.focus()); }}
-                />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+                />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} onPreview={(path) => { void window.secagent.previewWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} onReveal={(path) => { void window.secagent.revealWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
           {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
@@ -1450,14 +1505,8 @@ export function App() {
             className="app-promptbar"
             placeholder="输入文字，长按输入框说话，或点麦克风"
             sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
-            commands={[
-              { key: "new-session", name: "/new", description: "新建会话", group: "会话" },
-              { key: "stop", name: "/stop", description: "停止当前回复", group: "生成" },
-              { key: "read", name: "/read", description: "朗读最后一条回复", group: "阅读" },
-              { key: "stop-read", name: "/stop-read", description: "停止朗读", group: "阅读" },
-              { key: "settings", name: "/settings", description: "打开设置", group: "应用" },
-              ...customCommands.filter((command) => command.name.trim() && command.prompt.trim()).map((command) => ({ key: `custom:${command.name}`, name: `/${command.name}`, description: command.description || "自定义命令", group: "自定义" }))
-            ]}
+            /* issue #26 合并项：「/」命令并入 ⌘P 快速跳转面板——这里不再重复一份。 */
+            commands={[]}
             onCommandPick={(key) => {
               /* 自定义命令只把提示词填入输入框，用户可继续补充参数后再发送。 */
               if (key.startsWith("custom:")) {

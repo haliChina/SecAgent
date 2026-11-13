@@ -32,6 +32,7 @@ export function PluginSettingsPanel({
   const [operationId, setOperationId] = useState("");
   const [panelError, setPanelError] = useState("");
   const [updateNotice, setUpdateNotice] = useState("");
+  const [updatingAll, setUpdatingAll] = useState(false);
 
   const refreshMarket = async () => {
     setMarketLoading(true);
@@ -66,6 +67,24 @@ export function PluginSettingsPanel({
   const selectedReadme = installed?.readme || market?.readme || (market ? `# ${market.name}\n\n${market.description}\n\n该插件的完整 README 请前往项目主页查看。` : "");
 
   const reportError = (reason: unknown) => setPanelError(reason instanceof Error ? reason.message : String(reason));
+  /* R96：一键全部更新（学习 ZCode 3.17.2）——手动触发后台更新循环。 */
+  const updateAll = async () => {
+    setUpdatingAll(true);
+    setUpdateNotice("");
+    try {
+      const result = await bridge.updateAllPlugins();
+      setUpdateNotice(result.updates.length
+        ? `已更新 ${result.updates.length} 个插件：${result.updates.map((item) => `${item.id} ${item.from} → ${item.to}`).join("、")}`
+        : "所有插件都已是最新版本");
+      if (result.errors.length) setPanelError(result.errors.map((item) => `${item.id}：${item.error}`).join("；"));
+      setPlugins(await bridge.listPlugins());
+    } catch (reason) {
+      setPanelError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setUpdatingAll(false);
+    }
+  };
+
   const installLocal = async () => {
     setPanelError("");
     try { setPlugins(await bridge.installPlugin()); setCategory("installed"); }
@@ -120,6 +139,7 @@ export function PluginSettingsPanel({
       </div>
       <div className="plugin-toolbar-actions">
         <button className="secondary-button" type="button" onClick={() => void installLocal()}><PackageOpen size={15} />本地安装</button>
+        <button className="secondary-button" type="button" onClick={() => void updateAll()} disabled={updatingAll} title="检查并更新所有已安装插件"><RefreshCw size={15} className={updatingAll ? "spin" : ""} />{updatingAll ? "正在更新…" : "全部更新"}</button>
         <button className="icon-button settings-icon-button" type="button" title="刷新市场" onClick={() => void refreshMarket()} disabled={marketLoading}><RefreshCw size={16} className={marketLoading ? "spin" : ""} /></button>
       </div>
     </div>
