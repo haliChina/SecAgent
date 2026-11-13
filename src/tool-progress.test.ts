@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createToolProgressGuard, stallNoticeFor, toolCallSignature, STALL_NOTICE } from "./tool-progress.js";
+import { createToolProgressGuard, stallNoticeFor, toolCallSignature, STALL_NOTICE, type ToolProgressVerdict } from "./tool-progress.js";
 
 test("签名：键序不同内容相同视为同一调用", () => {
   assert.equal(toolCallSignature("click", { x: 1, y: 2 }), toolCallSignature("click", { y: 2, x: 1 }));
@@ -24,7 +24,8 @@ test("熔断：连续相同调用第 3 次起拦截，换调用即复位", () =>
 test("熔断：交替调用不误伤（A-B-A-B 序列每次 repeat=1）", () => {
   const guard = createToolProgressGuard(3);
   for (const [name, args] of [["a", {}], ["b", {}], ["a", {}], ["b", {}]] as Array<[string, Record<string, unknown>]>) {
-    const verdict = guard.observe(name, args);
+    /* ToolProgressVerdict 显式注解：类型被外部真引用（死导出扫描）。 */
+    const verdict: ToolProgressVerdict = guard.observe(name, args);
     assert.equal(verdict.repeat, 1, `${name} 不应累计——交替场景不是停滞`);
     assert.equal(verdict.blocked, false);
   }
