@@ -189,6 +189,23 @@ export function App() {
   const [speechStatus, setSpeechStatus] = useState("");
   const [messageMenu, setMessageMenu] = useState<{ x: number; y: number; messageId: string; text: string; role: SessionMessage["role"]; selection: string } | null>(null);
   const [quotedText, setQuotedText] = useState("");
+
+  /* R97 @ 引用菜单（学习 Trae）：@ 触发的来源列表加「历史会话」——
+     选中后取该会话最近若干条消息拼成引用块（复用 quotedText 机制，
+     模型在下一轮直接看到这段历史上下文）。 */
+  const referenceSession = async (meta: { id: string; title: string }) => {
+    try {
+      const data = await bridge.getSession(meta.id);
+      const tail = data.messages
+        .slice(-6)
+        .map((message) => `${message.role === "user" ? "教师" : "助手"}：${(message.content || "").replace(/\s+/g, " ").slice(0, 280)}`)
+        .filter((line) => line.length > 4)
+        .join("\n");
+      setQuotedText(tail ? `历史会话「${meta.title || "未命名"}」的最近内容：\n${tail}` : "该会话没有可引用的消息。");
+    } catch (error) {
+      setQuotedText(`引用会话「${meta.title}」失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [readingStatus, setReadingStatus] = useState<"loading" | "playing" | null>(null);
   // Codex-style sensitive tool-call confirmation, pending user decision.
@@ -1504,7 +1521,18 @@ export function App() {
           </div> : <PromptBar
             className="app-promptbar"
             placeholder="输入文字，长按输入框说话，或点麦克风"
-            sources={[{ key: "images", name: "图片上传", description: "从本机选择图片", attach: true }]}
+            sources={[
+              { key: "images", name: "图片上传", description: "从本机选择图片", attach: true },
+              ...sessions
+                .filter((item) => !item.archived && item.id !== session?.meta.id)
+                .slice(0, 5)
+                .map((item) => ({
+                  key: `session-${item.id}`,
+                  name: item.title || "未命名会话",
+                  description: `引用历史会话${item.preview ? ` · ${item.preview.slice(0, 20)}` : ""}`,
+                  onPick: () => { void referenceSession(item); }
+                }))
+            ]}
             /* issue #26 合并项：「/」命令并入 ⌘P 快速跳转面板——这里不再重复一份。 */
             commands={[]}
             onCommandPick={(key) => {

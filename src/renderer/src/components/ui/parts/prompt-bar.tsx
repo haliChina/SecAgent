@@ -41,6 +41,8 @@ export interface PromptBarSource {
   description?: string;
   icon?: ReactNode | LucideIcon;
   attach?: boolean;
+  /* R97：自定义拾取（历史会话引用等）——设置后选中即触发，不插文本。 */
+  onPick?: () => void;
 }
 
 export interface PromptBarCommand {
@@ -124,6 +126,8 @@ type Row = {
   icon?: ReactNode | LucideIcon;
   attach?: boolean;
   group?: string;
+  /* R97：来源行可带自定义拾取（历史会话引用）；命令/模型行不设。 */
+  onPick?: () => void;
 };
 type Token = { kind: 'at' | 'slash'; query: string; start: number };
 type Latest = Pick<PromptBarProps, 'onSend' | 'onStop' | 'onAttach' | 'onDictate' | 'onEffortChange' | 'onDraftChange' | 'onModelChange' | 'onAttachRemove' | 'onDictateCancel' | 'onCommandPick'>;
@@ -697,6 +701,15 @@ export const PromptBar = ({
       setDismissed(false);
       closeMenus();
       latest.current.onCommandPick(row.key);
+      focusInput();
+      return;
+    }
+    if (row.onPick) {
+      setDraft(head);
+      setPlusOpen(false);
+      setDismissed(false);
+      closeMenus();
+      row.onPick();
       focusInput();
       return;
     }
