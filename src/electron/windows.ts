@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, Menu, nativeTheme, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
+import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import { readSettings } from "../config.js";
 import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle, FlashMarkerKind, FlashHandler, AgentActivityHandler } from "../plugin-manager.js";
@@ -36,6 +36,25 @@ let onboardingCompletionRequested = false;
 
 export function getMainWindow(): BrowserWindow | undefined { return windowRef; }
 export function getSettingsWindow(): BrowserWindow | undefined { return settingsWindow; }
+
+/* R96 未读角标（学习 ZCode 3.16.2）：后台到消息时任务栏图标角标。
+ * Windows 走 setOverlayIcon（右下角小徽章），macOS 走 dock badge。
+ * count>0 显示数字（9+ 封顶），0 清除。主窗不存在时静默。 */
+export function setUnreadCount(count: number): void {
+  const safe = Math.max(0, Math.floor(Number(count) || 0));
+  const win = getMainWindow();
+  if (process.platform === "win32") {
+    if (!win || win.isDestroyed()) return;
+    if (safe > 0) {
+      const label = safe > 9 ? "9+" : String(safe);
+      const px = 16;
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${px * 2}" height="${px * 2}" viewBox="0 0 ${px * 2} ${px * 2}"><circle cx="${px}" cy="${px}" r="${px}" fill="#DC2626"/><text x="${px}" y="${px + 5}" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="${label.length > 1 ? 15 : 19}" font-weight="700" fill="#fff">${label}</text></svg>`;
+      win.setOverlayIcon(nativeImage.createFromDataURL(`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`), `有 ${safe} 条未读消息`);
+    } else win.setOverlayIcon(null, "");
+  } else if (process.platform === "darwin") {
+    void app.dock?.setBadge(safe > 0 ? (safe > 9 ? "9+" : String(safe)) : "");
+  }
+}
 export function getIsQuitting(): boolean { return isQuitting; }
 export function setOnboardingCompletionRequested(value: boolean): void { onboardingCompletionRequested = value; }
 export function setIsQuitting(): void { isQuitting = true; }

@@ -21,7 +21,7 @@ import { configureSecretCipher, migratePlaintextSecrets } from "../secret-store.
 import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
-import { openWorkspaceFilePreview } from "./workspace-preview.js";
+import { openWorkspaceFilePreview, revealWorkspaceFile } from "./workspace-preview.js";
 import { registerCompanionIpc } from "./ipc-companions.js";
 import { registerPluginIpc } from "./ipc-plugins.js";
 import { officialProvider, registerOfficialIpc, runSectlOAuthLogin } from "./ipc-official.js";
@@ -29,7 +29,7 @@ import { registerSpeechIpc } from "./ipc-speech.js";
 import { registerSettingsIpc } from "./ipc-settings.js";
 import { closeVoiceWakeWindow, closeWakeWindow, getVoiceWakeWindow, getWakeWindow, openWakeWindow, registerWakeIpc, registerWakeShortcut, startConfiguredVoiceWake } from "./wake.js";
 import { registerSessionsIpc } from "./ipc-sessions.js";
-import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, isCustomWindowControls, openPluginOverlay, openPluginSvgPreview, openSettings, refreshWindowControlsMode, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge } from "./windows.js";
+import { appIconPath, createApplicationMenu, createTray, createWindow, ensureMacDockVisible, getMainWindow, getSettingsWindow, installFileRendererAssetFallback, installWindowDiagnostics, isCustomWindowControls, openPluginOverlay, openPluginSvgPreview, openSettings, refreshWindowControlsMode, registerOverlayIpcOnce, rendererPath, restartApplication, setOnboardingCompletionRequested, setIsQuitting, setNotifyWakeHotkey, showMainWindow, showPluginFlash, agentActivityBadge, setUnreadCount } from "./windows.js";
 import { SENTRY_DSN, Sentry, getTelemetry, initializeSentryAfterMigration, recordTelemetryFailure, setSentryTelemetryEnabled, setTelemetry } from "./main-telemetry.js";
 import { AUTO_START_ARG, AUTO_START_ARGS, isAutostartLaunch, readAutostart, writeAutostart } from "./autostart.js";
 import type { ChatAttachment, ReasoningEffort, UpdateState } from "../types.js";
@@ -189,6 +189,12 @@ ipcMain.handle("window:control", (event, action: unknown) => {
 });
 
 ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openWorkspaceFilePreview(relativePath));
+
+/* R96：交付卡「在资源管理器中打开并定位」——路径校验与预览同源。 */
+ipcMain.handle("workspace:reveal-file", (_event, relativePath: string) => revealWorkspaceFile(relativePath));
+
+/* R96 未读角标：渲染层只报数（含 0 清除），画法留在主进程（平台差异隔离）。 */
+ipcMain.handle("ui:set-unread", (_event, count: unknown) => { setUnreadCount(Number(count) || 0); return { ok: true }; });
 
 ipcMain.handle("oobe:progress:get", () => readOobeProgress(DEFAULT_WORKSPACE));
 ipcMain.handle("oobe:progress:save", (_event, progress: OobeProgress) => {

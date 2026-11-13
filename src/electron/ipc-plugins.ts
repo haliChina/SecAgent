@@ -73,6 +73,14 @@ export function registerPluginIpc(deps: {
     try { await getMarketplace().install(pluginManager, version); return pluginManager.list(); }
     catch (error) { recordTelemetryFailure({ type: "plugin.start.failed", error, context: { phase: "marketplace-install", version: version.version } }); throw error; }
   });
+  /* R96（学习 ZCode 3.17.2）：一键全部更新——后台静默自动更新已有，
+     这里给用户一个手动触发口（不等下个周期）。返回更新清单供提示。 */
+  ipcMain.handle("plugins:update-all", async () => {
+    const pluginManager = getPluginManager();
+    if (!pluginManager) throw new Error("插件管理器尚未启动");
+    try { return await getMarketplace().installUpdates(pluginManager); }
+    catch (error) { recordTelemetryFailure({ type: "plugin.start.failed", error, context: { phase: "marketplace-update-all" } }); throw error; }
+  });
   ipcMain.handle("plugins:update", async (_event, id: string) => {
     const pluginManager = getPluginManager();
     if (!pluginManager) throw new Error("插件管理器尚未启动");

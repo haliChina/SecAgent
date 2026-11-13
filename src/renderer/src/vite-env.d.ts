@@ -123,6 +123,9 @@ interface Window {
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
+    revealWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
+    setUnreadCount(count: number): Promise<{ ok: true }>;
+    updateAllPlugins(): Promise<{ updates: Array<{ id: string; from: string; to: string }>; errors: Array<{ id: string; error: string }> }>;
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;
     stopMessage(id: string): Promise<{ ok: true; stopped: boolean }>;
     onRuntimeEvent(listener: (event: unknown) => void): () => void;

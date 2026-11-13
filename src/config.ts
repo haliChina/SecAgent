@@ -196,7 +196,22 @@ export function loadConfig(workspaceInput: string): { workspace: string; config:
   const envFile = path.join(workspace, ".env");
   if (fs.existsSync(envFile)) loadWorkspaceEnv(envFile);
   loadSecrets(workspace);
-  const raw = YAML.parse(fs.readFileSync(file, "utf8")) as SecAgentConfig;
+  /* R96（学习 ZCode 3.17.2 教训）：配置损坏不再被静默覆盖——先把坏文件
+     改名备份 config.yaml.corrupt-<时间戳>，再写入全新模板配置，日志指明
+     备份位置。用户的旧配置永远可以手工找回，而不是被下一次保存冲掉。 */
+  let raw: SecAgentConfig;
+  try {
+    raw = YAML.parse(fs.readFileSync(file, "utf8")) as SecAgentConfig;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("配置根节点不是对象");
+  } catch (error) {
+    const backup = `${file}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+    try { fs.renameSync(file, backup); } catch { /* 改名失败（占用/权限）：保留原文件让用户手工处理 */ }
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(`[config] 配置文件无法解析（${message}），已备份到 ${backup}，将生成全新配置。`);
+    const fresh = template(workspace);
+    writeFileAtomic(file, `${YAML.stringify(fresh)}\n`);
+    raw = fresh;
+  }
   return { workspace, config: normalizeAndValidate(raw, workspace) };
 }
 

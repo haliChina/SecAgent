@@ -12,14 +12,20 @@ import { BrowserWindow, shell } from "electron";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 
 function workspaceFilePath(relativePath: string): string {
+  const filePath = resolveWorkspaceFile(relativePath);
+  const extension = path.extname(filePath).toLowerCase();
+  if (![".html", ".htm", ".svg", ".md", ".markdown"].includes(extension)) throw new Error("只支持预览 HTML、SVG 和 Markdown 文件");
+  return filePath;
+}
+
+/** 解析并校验工作区相对路径（防目录逃逸），不限制文件类型。 */
+function resolveWorkspaceFile(relativePath: string): string {
   const normalized = relativePath.replaceAll("\\", "/");
   if (!normalized || normalized.startsWith("/") || normalized.split("/").includes("..")) throw new Error("预览文件路径必须是工作区内的相对路径");
   const root = path.resolve(DEFAULT_WORKSPACE);
   const filePath = path.resolve(root, normalized);
   if (filePath !== root && !filePath.startsWith(`${root}${path.sep}`)) throw new Error("预览文件必须位于当前工作区内");
   if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) throw new Error(`找不到工作区文件：${normalized}`);
-  const extension = path.extname(filePath).toLowerCase();
-  if (![".html", ".htm", ".svg", ".md", ".markdown"].includes(extension)) throw new Error("只支持预览 HTML、SVG 和 Markdown 文件");
   return filePath;
 }
 
@@ -77,4 +83,15 @@ export async function openWorkspaceFilePreview(relativePath: string): Promise<{ 
     if (!previewWindow.isDestroyed()) previewWindow.close();
     throw error;
   }
+}
+
+/**
+ * R96（学习 ZCode 3.17.2）：在系统资源管理器中打开并定位工作区文件。
+ * 路径校验与预览同源（workspaceFilePath）；showItemInFolder 由 Electron
+ * 保证只定位不执行。任意文件类型都可定位（预览限 html/svg/md）。
+ */
+export function revealWorkspaceFile(relativePath: string): { ok: true } {
+  const filePath = resolveWorkspaceFile(relativePath);
+  void shell.showItemInFolder(filePath);
+  return { ok: true };
 }
