@@ -99,9 +99,10 @@
     getRuntimeEvents: read('getRuntimeEvents', () => []),
     officialStatus: read('officialStatus', () => ({ loggedIn: false, email: '' })),
     getUpdateState: read('getUpdateState', () => ({ currentVersion: '0.0.0-smoke', channel: 'stable', status: 'unsupported', downloadedBytes: 0, supportReason: 'Isolated UI fixture' })),
-    // These two calls are UI effects only; no Electron IPC or wake execution exists.
+    // These calls record UI effects only; no Electron IPC or wake execution exists.
     syncWindowChrome: read('syncWindowChrome', () => ({ ok: false })),
     setWakeContext: () => record('setWakeContext:discarded'),
+    setUnreadCount: read('setUnreadCount:discarded', () => ({ ok: true })),
     saveSettings: async payload => {
       record('saveSettings');
       const next = copy(payload), before = copy(settings);
