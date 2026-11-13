@@ -28,7 +28,7 @@ class Handler(BaseHTTPRequestHandler):
             path = path[len('/baseline'):]
         if path == '/fixture-config.js':
             data, mime = config.encode(), 'text/javascript'
-        elif path in ('/bridge-mock.js', '/native-checks.js', '/integration-checks.js', '/fix-checks.js'):
+        elif path in ('/bridge-mock.js', '/native-checks.js', '/integration-checks.js', '/fix-checks.js', '/round2-checks.js'):
             data, mime = (HERE / path.lstrip('/')).read_bytes(), 'text/javascript'
         elif path == '/axe.js' and args.axe:
             data, mime = args.axe.read_bytes(), 'text/javascript'
@@ -41,7 +41,7 @@ class Handler(BaseHTTPRequestHandler):
             mime = mimetypes.guess_type(str(target))[0] or 'application/octet-stream'
             if target.name == 'index.html':
                 # Served HTML only: the production build remains byte-for-byte unchanged.
-                data = data.replace(b'<head>', b'<head><script src="/fixture-config.js?v=7"></script><script src="/bridge-mock.js?v=7"></script>')
+                data = data.replace(b'<head>', b'<head><script src="/fixture-config.js?v=round2"></script><script src="/bridge-mock.js?v=round2"></script>')
         self.send_response(200)
         self.send_header('Content-Type', mime)
         self.send_header('Content-Length', str(len(data)))

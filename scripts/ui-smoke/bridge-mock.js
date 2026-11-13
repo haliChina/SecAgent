@@ -32,7 +32,7 @@
   const sessions = [
     { meta: { id: 'smoke-empty', title: '隔离冒烟会话', createdAt: date, updatedAt: date }, messages: options.scenario === 'messages' ? [
       { id: 'fixture-user', role: 'user', content: '请整理本周课堂计划。', createdAt: date, attachments: [{ id: 'fixture-image', name: '课堂示意图', mimeType: 'image/svg+xml', size: 100, dataUrl: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="240"><rect width="400" height="240" fill="#1d4ed8"/><text x="40" y="130" fill="white" font-size="36">UI preview fixture</text></svg>') }] },
-      { id: 'fixture-assistant', role: 'assistant', content: '## 本周课堂计划\n\n这是仅用于界面验证的本地假数据，不会执行任何工具。\n\n```mathdiagram\n<CylinderVolumeProof radius="2" height="5" showCorrespondence="true" />\n```\n\n```mafs\n{"viewBox":{"x":[-2,2],"y":[-1,2],"padding":8},"plots":[{"type":"circle","x":0,"y":0,"radius":1}]}\n```\n\n```mermaid\ngraph LR\n A[阅读] --> B[讨论]\n```', createdAt: date },
+      { id: 'fixture-assistant', role: 'assistant', content: '## 本周课堂计划\n\n这是仅用于界面验证的本地假数据，不会执行任何工具。\n\n```mathdiagram\n<CylinderVolumeProof radius="2" height="5" showCorrespondence="true" />\n```\n\n```mafs\n{"viewBox":{"x":[-2,2],"y":[-1,2],"padding":8},"plots":[{"type":"circle","x":0,"y":0,"radius":1}]}\n```\n\n```mermaid\ngraph LR\n A[阅读] -->|已完成| B[讨论]\n```', createdAt: date },
       { id: 'fixture-composer-pending', role: 'user', content: '', createdAt: date, attachments: [{ id: 'fixture-pending-image', name: '隔离测试图片', mimeType: 'image/png', size: 100, dataUrl: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20" fill="#16a34a"/></svg>') }] }
     ] : [] },
     { meta: { id: 'smoke-second', title: '课堂计划 React', preview: '阅读与键盘焦点', createdAt: date, updatedAt: date }, messages: [] },
@@ -73,7 +73,10 @@
     deleteSession: read('deleteSession', id => { const index = sessions.findIndex(item => item.meta.id === id); if (index >= 0) sessions.splice(index, 1); return sessions.map(item => item.meta); }),
     listModels: read('listModels', () => models),
     listProviders: read('listProviders', () => []),
-    listPlugins: read('listPlugins', () => options.scenario === 'panels' ? [{ id: 'fixture', name: '本地测试插件', version: '0.0.0', enabled: true, state: 'ready', settingsPages: [{ id: 'service', title: '隔离服务面板' }] }] : []),
+    listPlugins: read('listPlugins', () => options.scenario === 'panels' ? [
+      { id: 'fixture', name: '本地测试插件', version: '0.0.0', enabled: true, state: 'ready', settingsPages: [{ id: 'service', title: '隔离服务面板' }] },
+      { id: 'fixture-error', name: '错误状态示例', version: '0.0.0', enabled: true, state: 'error', message: '仅用于验证页签状态回退', settingsPages: [] }
+    ] : []),
     callPluginSettings: read('callPluginSettings', (pluginId, pageId, action) => {
       if (pluginId !== 'fixture' || pageId !== 'service') return block('unknown-plugin')();
       record('panel:' + action);
@@ -96,9 +99,10 @@
     getRuntimeEvents: read('getRuntimeEvents', () => []),
     officialStatus: read('officialStatus', () => ({ loggedIn: false, email: '' })),
     getUpdateState: read('getUpdateState', () => ({ currentVersion: '0.0.0-smoke', channel: 'stable', status: 'unsupported', downloadedBytes: 0, supportReason: 'Isolated UI fixture' })),
-    // These two calls are UI effects only; no Electron IPC or wake execution exists.
+    // These calls record UI effects only; no Electron IPC or wake execution exists.
     syncWindowChrome: read('syncWindowChrome', () => ({ ok: false })),
     setWakeContext: () => record('setWakeContext:discarded'),
+    setUnreadCount: read('setUnreadCount:discarded', () => ({ ok: true })),
     saveSettings: async payload => {
       record('saveSettings');
       const next = copy(payload), before = copy(settings);

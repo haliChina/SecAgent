@@ -21,6 +21,8 @@ Use a fresh page for each run. To run checks with browser automation, append a s
 
 `integration-checks.js`: empty prompts, Ctrl+K, custom command insertion, context chip, both send-shortcut modes, plugin-panel status, failure/success feedback and confirmation cancellation.
 
+`round2-checks.js`: use `?settings=1&scenario=panels` in both themes to test category/detail arrow keys, Home/End, roving tab stops, panel naming, empty filters, error-plugin selection recovery and computed normal/danger-button contrast. Use `?scenario=messages` to check Mermaid light/dark round-trips and rapid theme changes without remounting. Read `window.__round2Checks` (promise) or `window.__round2Result` after completion. Only mock settings/theme changes and confirmation cancellation occur; no install, enable, remove or real service action runs. Unrelated production data-font CSP denials are retained in the fixture audit and are not reported as successful service calls.
+
 For accessibility checks, optionally pass `--axe /absolute/path/to/axe.min.js`; it is then served at `/axe.js`. The default preview has no axe dependency. The server preserves the production bundle and injects the fake bridge only into served HTML.
 
 ## Optional desktop Playwright smoke
