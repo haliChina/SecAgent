@@ -222,7 +222,7 @@ export class SessionStore {
     const payload = payloadOf(message);
     withImmediateTransaction(this.db, () => {
       updateMessagePayload(this.db, messageId, payload);
-      updateSessionMeta(this.db, sessionId, { updatedAt: new Date().toISOString(), preview: previewOfSession(session) });
+      updateSessionMeta(this.db, sessionId, { title: session.meta.title, updatedAt: new Date().toISOString(), preview: previewOfSession(session) });
     });
     return this.get(sessionId);
   }

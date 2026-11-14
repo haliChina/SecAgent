@@ -25,7 +25,7 @@ function entryToJson(zip: AdmZip, name: string): Record<string, unknown> {
   const entry = zip.getEntry(name);
   if (!entry) throw new Error(`归档缺少 ${name}`);
   try {
-    const parsed = JSON.parse(zip.readAsText(entry)) as unknown;
+    const parsed = JSON.parse(entry.getData().toString("utf8")) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("不是对象");
     return parsed as Record<string, unknown>;
   } catch (error) {

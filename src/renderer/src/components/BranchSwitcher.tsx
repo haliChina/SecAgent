@@ -6,8 +6,8 @@
  * 单版本组不渲染任何东西。
  */
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { messageVersions, type MessageVersions } from "../../session-branches.js";
-import type { SessionMessage } from "../../session-store.js";
+import { messageVersions, type MessageVersions } from "../../../session-branches.js";
+import type { SessionMessage } from "../../../session-store.js";
 
 export function BranchSwitcher({ messages, message, onSwitch }: {
   messages: SessionMessage[];
