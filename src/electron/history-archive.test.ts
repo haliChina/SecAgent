@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import AdmZip from "adm-zip";
 import { SessionStore } from "../session-store.js";
+import { closeSessionDb } from "../session-db.js";
 import { exportHistoryArchive, readHistoryArchive, HISTORY_EXPORT_VERSION, type HistoryArchiveStats } from "./history-archive.js";
 
 function tempStore(): { store: SessionStore; dir: string } {
@@ -43,7 +44,7 @@ test("导出→导入往返：会话与消息（含分支字段）完整迁移",
     const restoredSession = restoredStore.get(back[0].id)!;
     assert.equal(restoredSession.messages.length, 3);
     assert.equal(restoredSession.messages[2].variantOf, originalId);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { closeSessionDb(dir); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("导入拒绝错误版本与坏索引（原数据不动）", () => {
@@ -58,7 +59,7 @@ test("导入拒绝错误版本与坏索引（原数据不动）", () => {
     assert.throws(() => readHistoryArchive(zipPath), /不支持的归档版本/);
     /* 原数据仍在。 */
     assert.equal(store.list().length, 1);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { closeSessionDb(dir); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("宽容解析：坏消息行丢弃不阻断，容器字段坏整包失败", () => {
@@ -88,5 +89,5 @@ test("宽容解析：坏消息行丢弃不阻断，容器字段坏整包失败",
     zip2.addFile("sessions/s2.json", Buffer.from(JSON.stringify({ meta: { id: "s2", createdAt: "x" }, messages: [] }), "utf8"));
     zip2.writeZip(zipPath2);
     assert.throws(() => readHistoryArchive(zipPath2), /元数据无效/);
-  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  } finally { closeSessionDb(dir); fs.rmSync(dir, { recursive: true, force: true }); }
 });
