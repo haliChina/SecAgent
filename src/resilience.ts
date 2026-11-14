@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { writeFileAtomic } from "./atomic-write.js";
 
 /**
  * Resilience layer for model requests.
@@ -121,7 +122,7 @@ export class ModelHealthStore {
       const entries = [...this.state.entries()].filter(([, health]) => health.failures.length > 0);
       const payload: Record<string, ModelHealth> = {};
       for (const [id, health] of entries.slice(-64)) payload[id] = health;
-      fs.writeFileSync(this.file, JSON.stringify({ version: 1, models: payload }, null, 2), "utf8");
+      writeFileAtomic(this.file, JSON.stringify({ version: 1, models: payload }, null, 2));
     } catch { /* persistence is best-effort */ }
   }
 

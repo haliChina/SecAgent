@@ -28,7 +28,8 @@ function skillMetadata(content: string, file: string): { name?: string; descript
   return { name: metadata?.name?.trim() || undefined, description: metadata?.description?.trim() || "未提供描述。" };
 }
 
-export function loadEnabledSkills(config: SecAgentConfig, additionalFiles: string[] = []): LoadedSkill[] {
+/** Discover and parse every skill, ignoring the user's enabled/disabled choices. */
+export function loadSkills(config: SecAgentConfig, additionalFiles: string[] = []): LoadedSkill[] {
   const files = [...discoverSkillFiles(config.workspace), ...BUILTIN_SKILL_FILES, ...additionalFiles].filter((file, index, all) => fs.existsSync(file) && all.indexOf(file) === index);
   const names = new Map<string, string>();
   return files.map((file) => {
@@ -40,6 +41,14 @@ export function loadEnabledSkills(config: SecAgentConfig, additionalFiles: strin
     names.set(name, file);
     return { name, description: metadata.description, path: file, relativePath: path.relative(config.workspace, file).replace(/\\/g, "/"), content, ...(file === BUILTIN_SKILL_FILES[0] ? { autoLoadPattern: MATH_VISUALIZATION_AUTO_LOAD_PATTERN } : {}) };
   });
+}
+
+/** Skills that may run: discovered skills minus the ones disabled in settings. */
+export function loadEnabledSkills(config: SecAgentConfig, additionalFiles: string[] = []): LoadedSkill[] {
+  const all = loadSkills(config, additionalFiles);
+  const disabled = new Set((config.skills?.disabled || []).map((name) => name.trim()).filter(Boolean));
+  if (!disabled.size) return all;
+  return all.filter((skill) => !disabled.has(skill.name) && !(skill.relativePath && disabled.has(skill.relativePath)));
 }
 
 /** Discover SKILL.md files in the workspace and its first three directory levels. */

@@ -16,10 +16,18 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { preload: "src/electron/preload.ts", "overlay-preload": "src/electron/overlay-preload.ts" },
+        input: { preload: "src/electron/preload.ts", "overlay-preload": "src/electron/overlay-preload.ts", "tray-preload": "src/electron/tray-preload.ts" },
         output: { format: "cjs", entryFileNames: "[name].cjs" }
       }
     }
   },
-  renderer: { root: "src/renderer", plugins: [react()] }
+  renderer: {
+    root: "src/renderer",
+    plugins: [react()],
+    build: {
+      rollupOptions: {
+        input: { index: "src/renderer/index.html", tray: "src/renderer/tray.html" }
+      }
+    }
+  }
 });

@@ -6,16 +6,36 @@ export function VoiceWakeListener() {
     let context: AudioContext | undefined;
     let stream: MediaStream | undefined;
     let source: MediaStreamAudioSourceNode | undefined;
-    let processor: ScriptProcessorNode | undefined;
+    let workletNode: AudioWorkletNode | undefined;
     let stopped = false;
     const phrase = new URLSearchParams(window.location.search).get("phrase") || "小泽同学";
     let audioFrames = 0;
     let lastHeartbeatAt = 0;
+    let lastFrameAt = 0;
+    let lastLevelLogAt = 0;
     const log = (stage: string, data: Record<string, unknown> = {}) => {
       const payload = { stage, ...data };
       console.info("[voice-wake] renderer", payload);
       window.secagent.logVoiceWake(payload);
     };
+    /* R74：ScriptProcessorNode（已废弃 API、跑渲染主线程）→ AudioWorklet
+       （独立实时音频线程）。用户实测「喊不动」在高负载/大屏场景集中爆发：
+       1×1 隐藏窗的渲染进程被 Chromium 降优先级节流后 onaudioprocess 掉帧，
+       KWS 前端特征序列断流，等效失聪。worklet 线程不受渲染节流影响。
+       每 2048 样本（128ms）聚合一批再 postMessage，保持主进程 feed 节奏。 */
+    const WORKLET_SRC = `class WakeCaptureProcessor extends AudioWorkletProcessor {
+  constructor() { super(); this._buf = new Float32Array(2048); this._n = 0; }
+  process(inputs) {
+    const channel = inputs[0] && inputs[0][0];
+    if (!channel) return true;
+    for (let i = 0; i < channel.length; i++) {
+      this._buf[this._n++] = channel[i];
+      if (this._n >= this._buf.length) { this.port.postMessage(this._buf); this._buf = new Float32Array(2048); this._n = 0; }
+    }
+    return true;
+  }
+}
+registerProcessor("wake-capture", WakeCaptureProcessor);`;
     const removeResume = window.secagent.onVoiceWakeResume(() => {
       void (async () => {
         log("resume.received", { contextState: context?.state || "uninitialized", liveTracks: stream?.getAudioTracks().filter((track) => track.readyState === "live").length || 0 });
@@ -32,35 +52,68 @@ export function VoiceWakeListener() {
       try {
         log("capture.starting", { phrase });
         await window.secagent.startVoiceWake(phrase);
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        /* R84：唤醒窗此前固定用系统默认输入，用户在设置里选了阵列麦/耳麦也无效——
+           大屏上默认设备常是摄像头麦或 HDMI，直接导致「喊不醒」。这里复用
+           speech.audio.input；精确设备不可用时回退默认并在日志里写明。 */
+        const savedSettings = await window.secagent.getSettings().catch(() => null);
+        const selectedInput = savedSettings?.speech?.audio?.input;
+        const requestedDevice = selectedInput && selectedInput !== "auto" && selectedInput !== "default" ? selectedInput : undefined;
+        const baseAudio = { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ audio: requestedDevice ? { ...baseAudio, deviceId: { exact: requestedDevice } } : baseAudio });
+        } catch (error) {
+          if (!requestedDevice) throw error;
+          log("capture.device-fallback", { requested: requestedDevice, error: error instanceof Error ? error.message : String(error) });
+          stream = await navigator.mediaDevices.getUserMedia({ audio: baseAudio });
+        }
+        log("capture.device", { requested: selectedInput || "default", label: stream.getAudioTracks()[0]?.label || "" });
         if (stopped) return;
         context = new AudioContext({ sampleRate: 16000 });
         context.onstatechange = () => log("audio-context.state", { state: context?.state || "closed" });
         if (context.state !== "running") await context.resume();
+        const moduleUrl = URL.createObjectURL(new Blob([WORKLET_SRC], { type: "application/javascript" }));
+        await context.audioWorklet.addModule(moduleUrl);
+        URL.revokeObjectURL(moduleUrl);
         source = context.createMediaStreamSource(stream);
-        processor = context.createScriptProcessor(2048, 1, 1);
-        processor.onaudioprocess = (event) => {
+        workletNode = new AudioWorkletNode(context, "wake-capture", { numberOfInputs: 1, numberOfOutputs: 0 });
+        workletNode.port.onmessage = (event: MessageEvent<Float32Array>) => {
           audioFrames += 1;
           const now = Date.now();
-          if (audioFrames === 1 || now - lastHeartbeatAt >= 15000) {
+          lastFrameAt = now;
+          if (audioFrames === 1 || now - lastHeartbeatAt >= 15000 || now - lastLevelLogAt >= 2500) {
             lastHeartbeatAt = now;
-            log("audio.frames", { count: audioFrames, contextState: context?.state || "closed" });
+            lastLevelLogAt = now;
+            const samples = event.data;
+            let energy = 0;
+            let peak = 0;
+            for (const sample of samples) { energy += sample * sample; peak = Math.max(peak, Math.abs(sample)); }
+            log("audio.level", { count: audioFrames, rms: Math.sqrt(energy / Math.max(1, samples.length)), peak, contextState: context?.state || "closed" });
           }
-          window.secagent.sendVoiceWakeAudio(new Float32Array(event.inputBuffer.getChannelData(0)));
+          window.secagent.sendVoiceWakeAudio(event.data);
         };
-        source.connect(processor);
-        processor.connect(context.destination);
+        source.connect(workletNode);
         stream.getAudioTracks().forEach((track) => track.addEventListener("ended", () => log("audio-track.ended", { label: track.label })));
-        log("capture.ready", { contextState: context.state, tracks: stream.getAudioTracks().length, phrase });
+        log("capture.ready", { contextState: context.state, tracks: stream.getAudioTracks().length, phrase, capture: "audio-worklet" });
       } catch (error) {
         log("capture.failed", { error: error instanceof Error ? error.message : String(error) });
         await window.secagent.stopVoiceWake();
       }
     })();
+    const watchdog = window.setInterval(() => {
+      if (stopped) return;
+      if (context && context.state !== "running") {
+        log("audio-context.stalled", { state: context.state });
+        void context.resume().catch(() => undefined);
+      }
+      if (lastFrameAt && Date.now() - lastFrameAt > 5000) {
+        log("audio.stalled", { sinceMs: Date.now() - lastFrameAt, contextState: context?.state || "uninitialized" });
+      }
+    }, 4000);
     return () => {
       stopped = true;
+      window.clearInterval(watchdog);
       log("capture.stopping", { audioFrames, contextState: context?.state || "uninitialized" });
-      processor?.disconnect();
+      workletNode?.disconnect();
       source?.disconnect();
       stream?.getTracks().forEach((track) => track.stop());
       void context?.close();

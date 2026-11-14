@@ -11,7 +11,7 @@ const CONNECT_TIMEOUT_MS = 8_000;
 /** Cap buffered audio while the socket is still connecting (~1s at 16 kHz). */
 const MAX_PENDING_CHUNKS = 32;
 
-export interface RelayAsrOptions {
+interface RelayAsrOptions {
   getToken?: () => string;
   getApiBaseUrl?: () => string;
   log?: (message: string) => void;

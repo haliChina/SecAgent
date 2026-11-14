@@ -45,7 +45,7 @@ type WsLike = Pick<WebSocket, "readyState" | "send" | "close" | "binaryType"> & 
 /** Node's WebSocket accepts handshake headers through a non-standard option bag. */
 export type BailianWsConstructor = new (url: string, options?: { headers?: Record<string, string> }) => WebSocket;
 
-export interface BailianWsAsrOptions {
+interface BailianWsAsrOptions {
   /** Current 百炼 settings (re-read on each start). */
   getSettings: () => BailianAsrSettings | undefined;
   /** Resolves the API key for an env var name (usually process.env). */

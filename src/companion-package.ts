@@ -201,36 +201,6 @@ function installDirectPackage(destinationPath: string, bytes: Buffer, spec: Comp
   }
 }
 
-function writeDirect(filePath: string, bytes: Buffer, platform: SupportedPlatform, logger?: CompanionLogger): string {
-  const api = pathApi(platform);
-  const directory = api.dirname(filePath);
-  writeLog(logger, "package.write.direct.begin", { filePath, bytes: bytes.length });
-  fs.mkdirSync(directory, { recursive: true });
-  const temporary = api.join(directory, `.${api.basename(filePath)}.${crypto.randomUUID()}.tmp`);
-  try {
-    fs.writeFileSync(temporary, bytes, { flag: "wx" });
-    try {
-      fs.rmSync(filePath, { force: true });
-      fs.renameSync(temporary, filePath);
-      writeLog(logger, "package.write.direct.success", { filePath });
-      return filePath;
-    } catch (error) {
-      // ICC-CE and SecRandom both scan every package with the expected extension.
-      // If an older package is still held by an antivirus/plugin process, leave it
-      // alone and submit a second package instead of losing the new download.
-      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-      if (!(["EBUSY", "EPERM", "EACCES"].includes(code))) throw error;
-      const extension = api.extname(filePath);
-      const fallback = api.join(directory, `${api.basename(filePath, extension)}.${crypto.randomUUID()}${extension}`);
-      fs.copyFileSync(temporary, fallback);
-      writeLog(logger, "package.write.fallback", { filePath, fallback, errorCode: code });
-      return fallback;
-    }
-  } finally {
-    fs.rmSync(temporary, { force: true });
-  }
-}
-
 /**
  * Shared PowerShell body that collects host processes into $matched. A process
  * matches when its executable lives under one of $roots (installation root,
@@ -858,47 +828,6 @@ export async function closeHostProcesses(options: CloseHostProcessesOptions): Pr
   return { closedPids: [...closedPids], remaining, failed, rounds };
 }
 
-async function writeWithWindowsUac(filePath: string, bytes: Buffer, logger?: CompanionLogger): Promise<string> {
-  writeLog(logger, "package.write.uac.begin", { filePath, bytes: bytes.length });
-  const executor = new WindowsCompanionExecutor(logger);
-  try {
-    const actualPath = await executor.writePackage(filePath, bytes, logger);
-    writeLog(logger, "package.write.uac.success", { filePath, actualPath });
-    return actualPath;
-  } catch (error) {
-    const message = compactProcessError(error);
-    writeLog(logger, "package.write.uac.failed", { filePath, error: message });
-    throw new Error(`需要管理员权限写入对方软件插件目录；如果取消 UAC，请重试：${message}`);
-  } finally {
-    await executor.close();
-  }
-}
-
-/**
- * Places a package where a companion host will discover it. Protected Windows
- * installation directories are written through a RunAs helper, which produces
- * the normal UAC prompt. A locked old package is retained and a second package
- * with the same extension is submitted for the host's package scanner.
- */
-export async function writeCompanionPackage(filePath: string, bytes: Buffer, platform: SupportedPlatform = process.platform, logger?: CompanionLogger): Promise<string> {
-  writeLog(logger, "package.write.begin", { filePath, bytes: bytes.length, platform });
-  if (platform === "win32" && likelyProtectedWindowsPath(filePath)) {
-    if (await isWindowsProcessElevated(logger)) return writeDirect(filePath, bytes, platform, logger);
-    return writeWithWindowsUac(filePath, bytes, logger);
-  }
-
-  try {
-    return writeDirect(filePath, bytes, platform, logger);
-  } catch (error) {
-    const errorCode = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-    writeLog(logger, "package.write.failed", { filePath, errorCode, error: error instanceof Error ? error.message : String(error) });
-    if (platform !== "win32" || !["EACCES", "EPERM"].includes(errorCode))
-      throw error;
-    if (await isWindowsProcessElevated(logger)) return writeDirect(filePath, bytes, platform, logger);
-    return writeWithWindowsUac(filePath, bytes, logger);
-  }
-}
-
 /**
  * Validates a companion package and installs its extracted contents into the
  * host's final plugin directory. Protected Windows directories use the single
@@ -998,9 +927,6 @@ export async function startCompanionProcessWithSameElevation(executablePath: str
     });
   });
 }
-
-/** @deprecated Kept for callers compiled against alpha.10; the implementation now preserves elevation. */
-export const startCompanionProcessUnelevated = startCompanionProcessWithSameElevation;
 
 function quoteWindowsArgument(value: string): string {
   if (!value.length) return '""';

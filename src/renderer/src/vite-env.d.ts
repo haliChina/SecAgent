@@ -1,8 +1,8 @@
-interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string }
+interface SessionMeta { id: string; title: string; createdAt: string; updatedAt: string; preview?: string; archived?: boolean }
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }
-interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean }
+interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> }; fallbackNotice?: string; variantOf?: string; selectedVariant?: string }
 interface SessionData { meta: SessionMeta; messages: SessionMessage[] }
 interface SessionRuntimeEvent { sessionId: string; sequence: number; at: string; stage: string; data: unknown }
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -12,26 +12,29 @@ interface UpdatePreferences { channel: UpdateChannel; autoCheck: boolean; autoDo
 interface UpdateRelease { version: string; tag: string; releaseType?: "alpha" | "beta"; channel: UpdateChannel; htmlUrl: string; body: string; publishedAt?: string; assetName: string; assetUrl: string; checksumUrl?: string; sha256?: string; size?: number }
 interface UpdateRequestAttempt { phase: "metadata" | "release-api" | "checksum" | "asset"; route: "proxy" | "direct"; url: string; ok: boolean; status?: number; contentType?: string; responseBytes?: number; durationMs: number; error?: string }
 interface UpdateState { currentVersion: string; channel: UpdateChannel; status: UpdateStatus; release?: UpdateRelease; downloadedVersion?: string; downloadedBytes: number; totalBytes?: number; checkedAt?: string; error?: string; operationId?: string; attempts?: UpdateRequestAttempt[]; supportReason?: string }
-interface ModelOption { id: string; name: string; model: string; provider: string; virtual?: boolean; providerLabel?: string; vision?: boolean }
-interface ModelProfile { id: string; name?: string; enabled?: boolean; provider: "openai-compatible" | "openai-responses" | "anthropic" | "google"; model: string; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number }
+interface ModelOption { id: string; name: string; model: string; provider: string; virtual?: boolean; providerLabel?: string; vision?: boolean }interface ModelProfile { id: string; name?: string; enabled?: boolean; provider: "openai-compatible" | "openai-responses" | "anthropic" | "google"; model: string; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number }
 interface McpServerConfig { transport: "stdio" | "http"; command?: string; args?: string[]; url?: string; enabled: boolean }
 interface ProviderModel { id: string; name?: string; enabled?: boolean }
 interface ProviderConfig { id: string; name: string; preset?: string; provider: ModelProfile["provider"]; apiKeyEnv: string; apiKey?: string; apiKeyConfigured?: boolean; baseUrl: string; endpoint?: string; anthropicVersion?: string; maxTokens?: number; models: ProviderModel[] }
 interface ProviderPreset { id: string; name: string; env: string[]; api: string; models: ProviderModel[] }
 interface TelemetrySettings { enabled: boolean }
 type AsrProviderKind = "auto" | "official" | "openai" | "local" | "bailian" | "bailian-ws" | "mimo" | "local-pro";
-interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
+interface OpenAiAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; prompt?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface BailianAsrSettings { name?: string; apiKeyEnv: string; baseUrl: string; wsUrl: string; model: string; streamModel: string; language?: string; enableItn?: boolean; apiKey?: string; apiKeyConfigured?: boolean }
 interface MimoAsrSettings { name?: string; baseUrl: string; apiKeyEnv: string; model: string; language?: string; apiKey?: string; apiKeyConfigured?: boolean }
 interface AsrNoiseSettings { profile?: "standard" | "classroom" | "custom"; speechNoiseThreshold?: number; vadModel?: "near_meeting_16k" | "far_field_meeting_16k"; hotwords?: string[] }
 interface AsrAudioDeviceSettings { input?: string; output?: string }
 interface SpeechAsrSettings { betterRecognition?: boolean; provider?: AsrProviderKind; openai?: OpenAiAsrSettings; bailian?: BailianAsrSettings; mimo?: MimoAsrSettings; chain?: string[]; noise?: AsrNoiseSettings; audio?: AsrAudioDeviceSettings }
-interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian"; chain?: Array<"edge" | "windows" | "mimo" | "bailian">; voice: string; rate: string; windows?: { voice?: string }; mimo?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; voiceDescription?: string; apiKey?: string; apiKeyConfigured?: boolean }; bailian?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; apiKey?: string; apiKeyConfigured?: boolean } }
+interface TtsProviderSettings { provider: "edge" | "windows" | "mimo" | "bailian"; chain?: Array<"edge" | "windows" | "mimo" | "bailian">; voice: string; rate: string; readCodeBlocks?: boolean; windows?: { voice?: string }; mimo?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; voiceDescription?: string; apiKey?: string; apiKeyConfigured?: boolean }; bailian?: { apiKeyEnv?: string; baseUrl?: string; model?: string; voice?: string; format?: string; apiKey?: string; apiKeyConfigured?: boolean } }
 interface ResilienceSettings { autoRetry: boolean; fallbackEnabled: boolean; fallbackModelIds?: string[]; rememberFailures: boolean; cooldownBaseMinutes: number; quotaCooldownMinutes: number }
 interface ToolGuardSettings { enabled: boolean; approved: string[] }
-interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number }
-interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean }
-interface SkillSummary { name: string; description: string; path: string }
+interface ModelBudgetSettings { maxToolTurns: number; keepRecentImages: number; contextTokens: number }
+interface SettingsPayload { providers: ProviderConfig[]; models: ModelProfile[]; tts: TtsProviderSettings; wake: { hotkey: string; modelId?: string; voiceEnabled?: boolean; voicePhrase?: string }; speech: SpeechAsrSettings; updates: UpdatePreferences; telemetry: TelemetrySettings; mcp: { servers: Record<string, McpServerConfig> }; defaultModelId?: string; defaultReasoningEffort?: ReasoningEffort; visionModelId?: string; autostart?: boolean; autostartHidden?: boolean; customModelMode?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; skills?: { disabled: string[] }; responseTips?: boolean; commands?: CustomCommand[]; rules?: { enabled: boolean; text: string }; archive?: { auto: boolean; retentionDays: number }; resilience?: ResilienceSettings; guard?: ToolGuardSettings; budget?: ModelBudgetSettings; hallucinationEnabled?: boolean; theme?: "light" | "dark" | "system"; performance?: "auto" | "smooth" | "quality"; windowControls?: "custom" | "native";
+    /** R64：联网搜索工具密钥（载流字段：保存时写工作区 .env，不落 config.yaml）。 */
+    secrets?: "encrypted" | "unavailable" | "legacy";
+    webSearch?: { enabled?: boolean; provider?: "auto" | "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "serper" | "google" | "local"; fallback?: boolean; localFallback?: boolean; fetchEnabled?: boolean; maxResults?: number; bigmodelKey?: string; deepseekKey?: string; tavilyKey?: string; braveKey?: string; serperKey?: string; googleKey?: string; googleCx?: string; bigmodelKeyConfigured?: boolean; deepseekKeyConfigured?: boolean; tavilyKeyConfigured?: boolean; braveKeyConfigured?: boolean; serperKeyConfigured?: boolean; googleKeyConfigured?: boolean; googleCxConfigured?: boolean } }
+interface SkillSummary { name: string; description: string; path: string; enabled?: boolean }
+interface CustomCommand { name: string; description?: string; prompt: string }
 interface PluginStatus { id: string; format?: "secagent" | "agent"; name: string; version: string; icon?: string; enabled: boolean; state: "inactive" | "starting" | "error" | "ready"; message?: string; description?: string; author?: string; repository?: string; permissions?: string[]; readme?: string; settingsPages: Array<{ id: string; title: string; description?: string }> }
 interface MarketplaceVersion { version: string; minHostApiVersion: number; assetUrl: string; sha256: string; permissions: string[]; platforms: string[] }
 interface MarketplacePlugin { id: string; format?: "secagent" | "agent"; name: string; description: string; repository: string; icon?: string; readme?: string; latest?: MarketplaceVersion; releaseError?: string }
@@ -55,10 +58,12 @@ interface Window {
     platform: NodeJS.Platform;
   telemetryConfig: { sentryDsn?: string; enabled: boolean };
     listSessions(): Promise<SessionMeta[]>;
+    onSettingsNavigate(callback: (page: string) => void): () => void;
     listModels(): Promise<ModelOption[]>;
     listProviders(): Promise<ProviderPreset[]>;
     getSettings(): Promise<SettingsPayload>;
-    openSettings(): Promise<{ ok: true }>;
+    openSettings(page?: string): Promise<{ ok: true }>;
+    onSettingsNavigate(callback: (page: string) => void): () => void;
     getUpdateState(): Promise<UpdateState>;
     checkForUpdate(): Promise<UpdateState>;
     downloadUpdate(): Promise<UpdateState>;
@@ -75,6 +80,7 @@ interface Window {
     openSkillsDirectory(): Promise<string>;
     listPlugins(): Promise<PluginStatus[]>;
     callPluginSettings(pluginId: string, pageId: string, action: string, args?: unknown): Promise<any>;
+    pickPluginPath(kind?: "file" | "directory"): Promise<string | null>;
     setPluginEnabled(id: string, enabled: boolean): Promise<PluginStatus[]>;
     reloadPlugin(id: string): Promise<PluginStatus[]>;
     uninstallPlugin(id: string): Promise<PluginStatus[]>;
@@ -105,12 +111,26 @@ interface Window {
     openExternal(url: string): Promise<{ ok: true }>;
     completeOnboarding(): Promise<{ ok: true }>;
     createSession(): Promise<SessionData>;
+    /** R57：Windows 标题栏三键（WCO）配色随主题同步。 */
+    syncWindowChrome(colors: { background: string; symbol: string }): Promise<{ ok: boolean }>;
+    windowControl(action: "minimize" | "toggle-maximize" | "close" | "state"): Promise<{ isMaximized: boolean; custom?: boolean }>;
+    onWindowMaximized(callback: (maximized: boolean) => void): () => void;
     deleteSession(id: string): Promise<SessionMeta[]>;
+    archiveSession(id: string, archived: boolean): Promise<{ ok: boolean }>;
+    renameSession(id: string, title: string): Promise<SessionData>;
     getSession(id: string): Promise<SessionData>;
+    loadAttachment(sessionId: string, messageId: string, attachmentId: string): Promise<string>;
     getRuntimeEvents(id: string): Promise<SessionRuntimeEvent[]>;
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
+    revealWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
+    setUnreadCount(count: number): Promise<{ ok: true }>;
+    updateAllPlugins(): Promise<{ updates: Array<{ id: string; from: string; to: string }>; errors: Array<{ id: string; error: string }> }>;
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;
+    regenerateMessage(id: string, messageId: string, modelId?: string, reasoningEffort?: string): Promise<SessionData | undefined>;
+    selectVariant(id: string, groupId: string, targetId?: string): Promise<SessionData | undefined>;
+    exportHistory(): Promise<{ canceled: true } | { canceled: false; sessions: number; messages: number }>;
+    importHistory(): Promise<{ canceled: true } | { canceled: false; sessions: number; messages: number }>;
     stopMessage(id: string): Promise<{ ok: true; stopped: boolean }>;
     onRuntimeEvent(listener: (event: unknown) => void): () => void;
     startSpeech(hotwords?: string[]): Promise<{ ok: true; remote?: boolean; provider?: string; fallbacks?: string[] }>;
@@ -139,6 +159,13 @@ interface Window {
     onUpdateState(listener: (state: UpdateState) => void): () => void;
     onPluginsChanged(listener: (plugins: PluginStatus[]) => void): () => void;
     respondToolConfirmation(payload: { confirmationId: string; approved: boolean; always?: boolean; signature?: string }): Promise<{ ok: boolean; error?: string }>;
-    onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string }) => void): () => void;
+    onToolConfirmation(listener: (payload: { confirmationId: string; sessionId: string; tool: string; arguments: Record<string, unknown>; reason: string; impact?: string }) => void): () => void;
+  };
+  /** 托盘气泡专用桥（tray-preload 只暴露这三项）。 */
+  secagentTray: {
+    platform: string;
+    state(): Promise<{ mainVisible: boolean }>;
+    run(action: "show-main" | "hide-main" | "open-settings" | "restart" | "quit"): Promise<{ ok: boolean }>;
+    close(): void;
   };
 }

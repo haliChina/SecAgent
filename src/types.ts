@@ -1,11 +1,33 @@
 import type { SpeechAsrSettings } from "./asr/settings.js";
 
+/** 联网搜索设置：工具开关、供应商选择与回退策略（R91）。 */
+export type WebSearchProvider = "auto" | "official" | "bigmodel" | "deepseek" | "tavily" | "brave" | "serper" | "google" | "local";
+export interface WebSearchSettings {
+  enabled?: boolean;
+  provider?: WebSearchProvider;
+  /** 选中服务失败时是否继续尝试其他服务。 */
+  fallback?: boolean;
+  /** 是否允许 Bing 网页抓取兜底（反爬/ToS 风险，默认开以保持零配置）。 */
+  localFallback?: boolean;
+  /** 是否向模型暴露 web_fetch。 */
+  fetchEnabled?: boolean;
+  /** 每次搜索最多返回条数（1-10）。 */
+  maxResults?: number;
+}
+
 export interface McpServerConfig {
   transport: "stdio" | "http";
   command?: string;
   args?: string[];
   url?: string;
   enabled: boolean;
+}
+
+/** 用户保存的提示词命令：在输入框用 /名称 快速调用。 */
+export interface CustomCommand {
+  name: string;
+  description?: string;
+  prompt: string;
 }
 
 export interface ModelProfile {
@@ -130,7 +152,15 @@ export interface SecAgentConfig {
   updates?: UpdatePreferences;
   telemetry?: TelemetrySettings;
   mcp: { servers: Record<string, McpServerConfig> };
-  defaults?: { modelId?: string; reasoningEffort?: ReasoningEffort; customModelMode?: boolean; autostart?: boolean; autostartHidden?: boolean; visionModelId?: string };
+  defaults?: { modelId?: string; reasoningEffort?: ReasoningEffort; customModelMode?: boolean; autostart?: boolean; autostartHidden?: boolean; closeWindowAction?: "tray" | "quit"; sendShortcut?: "enter" | "modEnter"; visionModelId?: string; responseTips?: boolean };
+  /** 技能开关：disabled 里的技能名/相对路径不会被加载进运行时。 */
+  skills?: { disabled?: string[] };
+  /** 自定义命令：items 由设置页维护，输入框用 /名称 调用。 */
+  commands?: { items?: CustomCommand[] };
+  /** 用户自定义规则：拼进系统提示词，跨会话生效。 */
+  rules?: { enabled?: boolean; text?: string };
+  /** 已归档会话的自动清理策略（启动时扫描一次）。 */
+  archive?: { auto?: boolean; retentionDays?: number };
   /** Model-failure resilience (retry/fallback/cooldown) — see resilience.ts. */
   resilience?: import("./resilience.js").ResilienceSettings;
   /** Sensitive tool-call confirmations — see tool-guard.ts. */
@@ -139,6 +169,14 @@ export interface SecAgentConfig {
   budget?: import("./model-budget.js").ModelBudgetSettings;
   /** Hallucination warning strip for final answers. */
   hallucination?: { enabled?: boolean };
+  /** UI theme tri-state (P3-5): light / dark / system. Invalid values fall back to light. */
+  theme?: "light" | "dark" | "system";
+  /** 渲染性能：auto 跟随大屏/触控，smooth 关闭重特效，quality 保留全部。 */
+  performance?: "auto" | "smooth" | "quality";
+  /** Windows 窗口按钮：custom 自绘（默认）/ native 系统 WCO（重启生效）。 */
+  windowControls?: "custom" | "native";
+  /** 联网搜索：开关、供应商、回退与条数。 */
+  webSearch?: WebSearchSettings;
 }
 
 /** A tool supplied by a locally installed SecAgent plugin. */

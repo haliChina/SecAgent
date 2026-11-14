@@ -7,7 +7,12 @@ contextBridge.exposeInMainWorld("secagent", {
   listModels: () => ipcRenderer.invoke("models:list"),
   listProviders: () => ipcRenderer.invoke("providers:list"),
   getSettings: () => ipcRenderer.invoke("settings:get"),
-  openSettings: () => ipcRenderer.invoke("settings:open"),
+  openSettings: (page?: string) => ipcRenderer.invoke("settings:open", typeof page === "string" && page ? page : undefined),
+  onSettingsNavigate: (callback: (page: string) => void) => {
+    const wrapped = (_event: Electron.IpcRendererEvent, page: string) => { callback(page); };
+    ipcRenderer.on("settings:navigate", wrapped);
+    return () => { ipcRenderer.removeListener("settings:navigate", wrapped); };
+  },
   getUpdateState: () => ipcRenderer.invoke("updates:get-state"),
   checkForUpdate: () => ipcRenderer.invoke("updates:check"),
   downloadUpdate: () => ipcRenderer.invoke("updates:download"),
@@ -24,12 +29,14 @@ contextBridge.exposeInMainWorld("secagent", {
   saveSettings: (payload: unknown) => ipcRenderer.invoke("settings:save", payload),
   listPlugins: () => ipcRenderer.invoke("plugins:list"),
   callPluginSettings: (pluginId: string, pageId: string, action: string, args?: unknown) => ipcRenderer.invoke("plugins:settings-call", pluginId, pageId, action, args || {}),
+  pickPluginPath: (kind?: "file" | "directory") => ipcRenderer.invoke("plugins:pick-path", kind === "file" ? "file" : "directory"),
   setPluginEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke("plugins:set-enabled", id, enabled),
   reloadPlugin: (id: string) => ipcRenderer.invoke("plugins:reload", id),
   uninstallPlugin: (id: string) => ipcRenderer.invoke("plugins:uninstall", id),
   installPlugin: () => ipcRenderer.invoke("plugins:install"),
   listMarketplace: () => ipcRenderer.invoke("marketplace:list"),
   installMarketplaceVersion: (version: unknown) => ipcRenderer.invoke("marketplace:install", version),
+    updateAllPlugins: () => ipcRenderer.invoke("plugins:update-all"),
   updatePlugin: (id: string) => ipcRenderer.invoke("plugins:update", id),
   detectInstalledApps: () => ipcRenderer.invoke("apps:detect"),
   detectClassIslandInstallations: () => ipcRenderer.invoke("classisland:detect"),
@@ -70,12 +77,28 @@ contextBridge.exposeInMainWorld("secagent", {
   openExternal: (url: string) => ipcRenderer.invoke("shell:open-external", url),
   completeOnboarding: () => ipcRenderer.invoke("oobe:complete"),
   createSession: () => ipcRenderer.invoke("sessions:create"),
+  syncWindowChrome: (colors: { background: string; symbol: string }) => ipcRenderer.invoke("window:chrome-sync", colors),
+  windowControl: (action: "minimize" | "toggle-maximize" | "close" | "state") => ipcRenderer.invoke("window:control", action),
+  onWindowMaximized: (callback: (maximized: boolean) => void) => {
+    const handler = (_event: unknown, maximized: boolean) => callback(maximized);
+    ipcRenderer.on("window:maximized-changed", handler);
+    return () => ipcRenderer.removeListener("window:maximized-changed", handler);
+  },
   deleteSession: (id: string) => ipcRenderer.invoke("sessions:delete", id),
+    archiveSession: (id: string, archived: boolean) => ipcRenderer.invoke("sessions:archive", id, archived),
+    renameSession: (id: string, title: string) => ipcRenderer.invoke("sessions:rename", id, title),
   getSession: (id: string) => ipcRenderer.invoke("sessions:get", id),
+  loadAttachment: (sessionId: string, messageId: string, attachmentId: string) => ipcRenderer.invoke("sessions:attachment", sessionId, messageId, attachmentId),
   getRuntimeEvents: (id: string) => ipcRenderer.invoke("sessions:runtime-events", id),
   uploadDiagnostic: (id: string) => ipcRenderer.invoke("sessions:diagnostic-upload", id),
   previewWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:preview-file", relativePath),
+    revealWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:reveal-file", relativePath),
+    setUnreadCount: (count: number) => ipcRenderer.invoke("ui:set-unread", count),
   sendMessage: (id: string, text: string, modelId?: string, reasoningEffort?: string, attachments?: unknown[]) => ipcRenderer.invoke("sessions:send", id, text, modelId, reasoningEffort, attachments),
+    regenerateMessage: (id: string, messageId: string, modelId?: string, reasoningEffort?: string) => ipcRenderer.invoke("sessions:regenerate", id, messageId, modelId, reasoningEffort),
+    selectVariant: (id: string, groupId: string, targetId?: string) => ipcRenderer.invoke("sessions:select-variant", id, groupId, targetId),
+    exportHistory: () => ipcRenderer.invoke("sessions:export-history"),
+    importHistory: () => ipcRenderer.invoke("sessions:import-history"),
   stopMessage: (id: string) => ipcRenderer.invoke("sessions:stop", id),
   startSpeech: (hotwords?: string[]) => ipcRenderer.invoke("speech:start", hotwords),
   sendSpeechAudio: (samples: Float32Array) => ipcRenderer.send("speech:audio", samples),
