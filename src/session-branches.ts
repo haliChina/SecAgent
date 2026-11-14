@@ -32,7 +32,7 @@ export function variantGroupId(message: BranchMessage): string | null {
  * - 组内（原始消息）的 selectedVariant 指向自己或未设 → 显示自己
  * - 变体消息：原始消息 selectedVariant === 自身 id → 显示
  * 兼容：原始消息被删除（导入修剪等）时变体全部显示（孤儿保底，不静默丢内容）。 */
-export function isMessageVisible(message: SessionMessage, byId: Map<string, SessionMessage>): boolean {
+export function isMessageVisible(message: BranchMessage, byId: Map<string, BranchMessage>): boolean {
   if (message.role !== "assistant") return true;
   const groupId = message.variantOf ?? message.id;
   if (!message.variantOf) {
@@ -45,7 +45,7 @@ export function isMessageVisible(message: SessionMessage, byId: Map<string, Sess
 }
 
 /** 过滤出当前路径上的可见消息（保持原顺序）。 */
-export function visibleMessages(messages: SessionMessage[]): SessionMessage[] {
+export function visibleMessages(messages: readonly BranchMessage[]): BranchMessage[] {
   const byId = new Map(messages.map((message) => [message.id, message]));
   return messages.filter((message) => isMessageVisible(message, byId));
 }
