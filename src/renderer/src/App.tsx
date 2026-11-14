@@ -5,7 +5,7 @@ import { ArrowDown, LoaderCircle, Search, Volume2 } from "lucide-react";
 import { ImagePreviewDialog } from "./components/ImagePreviewDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { BranchSwitcher } from "./components/BranchSwitcher.js";
-import { isMessageVisible, messageVersions, variantSelection } from "../../session-branches.js";
+import { isMessageVisible, messageVersions } from "../../session-branches.js";
 import { Toast } from "./components/Toast.js";
 import { applyDisplayMode, cacheDisplayMode } from "./display-mode.js";
 import { applyPerformanceMode, normalizePerformanceMode, resolvePerformanceMode, type PerformanceMode } from "./performance-mode.js";

@@ -1,9 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isMessageVisible, messageVersions, variantGroupId, variantSelection } from "./session-branches.js";
-import type { SessionMessage } from "./session-store.js";
+import { isMessageVisible, messageVersions, variantGroupId, variantSelection, type BranchMessage } from "./session-branches.js";
 
-function msg(id: string, role: "user" | "assistant" = "assistant", extra: Partial<SessionMessage> = {}): SessionMessage {
+function msg(id: string, role: "user" | "assistant" = "assistant", extra: Partial<BranchMessage> = {}): BranchMessage {
   return { id, role, content: `内容 ${id}`, createdAt: "2026-11-14T10:00:00.000Z", ...extra };
 }
 

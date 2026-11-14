@@ -12,10 +12,17 @@
  * 原位），编辑提问走既有「引用重发」路径不动。
  */
 
-import type { SessionMessage } from "./session-store.js";
+/** 最小结构契约：主进程 SessionMessage 与渲染层全局声明都满足——
+ * 分支逻辑只看这四个字段，跨层类型天然兼容（R98 CI 教训）。 */
+export interface BranchMessage {
+  id: string;
+  role: string;
+  variantOf?: string;
+  selectedVariant?: string;
+}
 
 /** 消息所属变体组：assistant 消息自身 id 或其 variantOf 指向的原始 id。 */
-export function variantGroupId(message: SessionMessage): string | null {
+export function variantGroupId(message: BranchMessage): string | null {
   if (message.role !== "assistant") return null;
   return message.variantOf ?? message.id;
 }
@@ -51,7 +58,7 @@ export interface MessageVersions {
 }
 
 /** 收集某条 assistant 消息所在组的全部版本与当前下标（无变体组返回单元素）。 */
-export function messageVersions(messages: SessionMessage[], messageId: string): MessageVersions | null {
+export function messageVersions(messages: readonly BranchMessage[], messageId: string): MessageVersions | null {
   const byId = new Map(messages.map((message) => [message.id, message]));
   const target = byId.get(messageId);
   if (!target || target.role !== "assistant") return null;
