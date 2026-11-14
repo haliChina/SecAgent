@@ -6,6 +6,7 @@ import { ImagePreviewDialog } from "./components/ImagePreviewDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
 import { BranchSwitcher } from "./components/BranchSwitcher.js";
 import { isMessageVisible, messageVersions } from "../../session-branches.js";
+import { closeUnbalancedMarkdown } from "./streaming-markdown.js";
 import { Toast } from "./components/Toast.js";
 import { applyDisplayMode, cacheDisplayMode } from "./display-mode.js";
 import { applyPerformanceMode, normalizePerformanceMode, resolvePerformanceMode, type PerformanceMode } from "./performance-mode.js";
@@ -1542,7 +1543,7 @@ export function App() {
             {modelFallback && modelFallback.sessionId === session?.meta.id && (modelFallback.failed.length > 0 || modelFallback.current) && <div className="model-fallback-progress" role="status">
               {modelFallback.failed.slice(-3).map((failure, index) => <span key={index} className="model-fallback-step fail">✕ {failure.model}：{({quota:"配额用尽",auth:"鉴权失败",rate_limit:"限流",network:"网络错误",server:"服务端错误",aborted:"已中止",schema:"响应异常"} as Record<string, string>)[failure.kind] || failure.message.slice(0, 60)}</span>)}
               {modelFallback.current && <span className="model-fallback-step switch">↻ 正在切换备用模型：{modelFallback.current}（第 {modelFallback.switchCount} 次切换）</span>}
-            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{stripWorkspaceFilesMarkup(streamingOutput)}</MarkdownContent> : <span className="stream-placeholder"><span className="stream-dots" aria-hidden><i /><i /><i /></span>正在准备回复…</span>}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}
+            </div>}<div className="bubble-row"><div className="avatar"><img src="/icon.svg" alt="SecAgent" /></div><div className="bubble loading markdown-bubble">{streamingOutput ? <MarkdownContent>{closeUnbalancedMarkdown(stripWorkspaceFilesMarkup(streamingOutput))}</MarkdownContent> : <span className="stream-placeholder"><span className="stream-dots" aria-hidden><i /><i /><i /></span>正在准备回复…</span>}</div><WorkspaceFileStrip content={streamingOutput} /></div>{liveWebSearch && <div className="message-websearch"><WebSearch status={liveWebSearch.searching ? "searching" : "done"} query={liveWebSearch.query} sources={liveWebSearch.sources} /></div>}
             {/* R95：小提示从回答上方移到下方（issue #26），不再抢占正文起始位置。 */}
             {responseTipsEnabled && <p className="response-tip">小提示：{responseTipsList[tipIndex % responseTipsList.length]}</p>}</div></article>}
           <div />
