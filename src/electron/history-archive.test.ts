@@ -44,6 +44,7 @@ test("导出→导入往返：会话与消息（含分支字段）完整迁移",
     const restoredSession = restoredStore.get(back[0].id)!;
     assert.equal(restoredSession.messages.length, 3);
     assert.equal(restoredSession.messages[2].variantOf, originalId);
+    closeSessionDb(dir2);
   } finally { closeSessionDb(dir); fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
