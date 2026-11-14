@@ -37,6 +37,9 @@ interface SessionRunOptions {
   reasoningEffort: ReasoningEffort;
   attachments: ChatAttachment[];
   senderId: number;
+  /** R98 重新生成：不追加新 user 消息，以指定 assistant 消息之前的对话重跑，
+   * 新回复作为该消息的变体落库（variantOf）并自动选中。 */
+  regenerate?: { messageId: string };
 }
 
 const activeSessionRuns = new Map<string, AbortController>();
@@ -108,7 +111,34 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
   const { senderId, modelId, reasoningEffort, attachments } = options;
   const sessionStore = store();
   const before = sessionStore.get(id);
-  sessionStore.appendMessage(id, "user", text, undefined, undefined, attachments);
+  /* R98 重新生成：定位组与截断点；历史剔除本组全部旧版本（带着旧答案重
+     生成只会得到相似输出）。正常发送路径零改动。 */
+  let regenerateGroupId: string | undefined;
+  let historyBase = before;
+  let runAttachments = attachments;
+  if (options.regenerate?.messageId) {
+    const target = before.messages.find((message) => message.id === options.regenerate!.messageId);
+    if (!target || target.role !== "assistant") throw new Error("重新生成只能作用于助手消息");
+    regenerateGroupId = target.variantOf ?? target.id;
+    const groupIndex = before.messages.findIndex((message) => message.id === regenerateGroupId);
+    if (groupIndex < 0) throw new Error("找不到被重新生成的消息组");
+    /* 组之前最近的 user 消息 = 本次重发的提问；其内容与附件原样复用。 */
+    const askIndex = before.messages.reduce((last, message, index) => (index < groupIndex && message.role === "user" ? index : last), -1);
+    if (askIndex < 0) throw new Error("找不到重新生成的提问消息");
+    text = before.messages[askIndex].content;
+    runAttachments = before.messages[askIndex].attachments ?? [];
+    /* 历史不含该提问（conversationInput 作为 current 补上，避免重复）；
+       并剔除本组全部旧版本——带着旧答案重生成只会得到相似输出。 */
+    historyBase = {
+      meta: before.meta,
+      autoLoadedSkills: before.autoLoadedSkills,
+      legacyHydrated: before.legacyHydrated,
+      messages: before.messages
+        .slice(0, askIndex)
+        .filter((message) => (message.variantOf ?? message.id) !== regenerateGroupId),
+    };
+  }
+  if (!options.regenerate) sessionStore.appendMessage(id, "user", text, undefined, undefined, attachments);
   const { workspace, config } = loadConfig(DEFAULT_WORKSPACE);
   useConfiguredModel(config, modelId);
   const requestedReasoningEffort: ReasoningEffort = ["none", "minimal", "low", "medium", "high", "xhigh", "max"].includes(reasoningEffort) ? reasoningEffort : "high";
@@ -188,7 +218,7 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     const visionConfig = resolveVisionAgentConfig(config);
     if (visionConfig) logMain("session.vision-model", { model: visionConfig.agent.model, provider: visionConfig.agent.provider, baseUrl: visionConfig.agent.baseUrl });
     const previousReadSkillNames = before.messages.flatMap((message) => message.toolCalls || []).filter((call) => call.name === "secagent__read_skill" || call.name === "read_skill").map((call) => typeof (call.arguments as { name?: unknown })?.name === "string" ? (call.arguments as { name: string }).name : "");
-    const result = await runtime.run(historyInput(before, text), selectedReasoningEffort, conversationInput(before, text, attachments), abortController.signal, { previousAutoLoadedSkills: before.autoLoadedSkills, previousReadSkillNames, preRule, sessionId: id });
+    const result = await runtime.run(historyInput(historyBase, text), selectedReasoningEffort, conversationInput(historyBase, text, runAttachments), abortController.signal, { previousAutoLoadedSkills: historyBase.autoLoadedSkills, previousReadSkillNames, preRule, sessionId: id });
     if (result.autoLoadedSkills?.length) {
       const current = sessionStore.get(id);
       current.autoLoadedSkills = [...new Set([...(current.autoLoadedSkills || []), ...result.autoLoadedSkills])];
@@ -200,7 +230,8 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     // notice strip (GuardrailNotice) instead of appending markdown text.
     // 回退提示不拼进对话内容，走独立字段单独一行渲染（用户可读性约定）。
     const fallbackNotice = "usedFallbackModels" in result && result.usedFallbackModels?.length ? `模型稳定性：已自动切换备用模型（${result.usedFallbackModels.join(" → ")}），原模型暂时不可用。` : undefined;
-    sessionStore.appendMessage(id, "assistant", result.message, toolCalls, activities, undefined, false, "hallucination" in result && result.hallucination?.signals.length ? result.hallucination : undefined, fallbackNotice);
+    sessionStore.appendMessage(id, "assistant", result.message, toolCalls, activities, undefined, false, "hallucination" in result && result.hallucination?.signals.length ? result.hallucination : undefined, fallbackNotice, regenerateGroupId);
+    if (regenerateGroupId) sessionStore.setVariantSelection(id, regenerateGroupId, sessionStore.get(id)!.messages.filter((message) => message.variantOf === regenerateGroupId).at(-1)?.id ?? regenerateGroupId);
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     trace({ stage: "assistant.response", data: { text: result.message } });
@@ -209,12 +240,12 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     if (abortController.signal.aborted) {
-      sessionStore.appendMessage(id, "assistant", "", toolCalls, activities, undefined, true);
+      sessionStore.appendMessage(id, "assistant", "", toolCalls, activities, undefined, true, undefined, undefined, regenerateGroupId);
       trace({ stage: "runtime.stopped", data: { toolCount: toolCalls.length } });
       return sessionStore.get(id);
     }
     const message = `执行失败：${error instanceof Error ? error.message : String(error)}`;
-    sessionStore.appendMessage(id, "assistant", message, toolCalls, activities);
+    sessionStore.appendMessage(id, "assistant", message, toolCalls, activities, undefined, false, undefined, undefined, regenerateGroupId);
     trace({ stage: "runtime.error", data: { message } });
     recordTelemetryFailure({ type: classifyAgentFailure(error), error, context: { sessionId: hashIdentifier(id), model: config.agent.model, provider: config.agent.provider, inputLength: text.length, attachmentCount: attachments.length, toolCount: toolCalls.length } });
     return sessionStore.get(id);

@@ -43,7 +43,7 @@ export type AssistantActivity =
   | { kind: "skill-auto-load"; name: string; path: string }
   | { kind: "tool"; name: string; arguments: unknown; result?: unknown };
 export interface HallucinationNotice { score: number; signals: Array<{ id: string; detail: string }> }
-export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: HallucinationNotice; fallbackNotice?: string }
+export interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: HallucinationNotice; fallbackNotice?: string; /** R98 消息分支：assistant 变体指向本组原始消息 id。 */ variantOf?: string; /** R98 消息分支：原始消息当前显示的变体 id（undefined=显示自身）。 */ selectedVariant?: string }
 export interface SessionData { meta: SessionMeta; messages: SessionMessage[]; autoLoadedSkills?: string[]; /** 存量会话的 runtime.jsonl 工具调用回填只做一次（每次 get 都全量扫描 229MB 日志会卡住主进程）。 */ legacyHydrated?: boolean }
 export interface SessionRuntimeEvent { sequence: number; at: string; stage: string; data: unknown }
 
@@ -168,10 +168,41 @@ export class SessionStore {
     deleteSessionRow(this.db, id);
     fs.rmSync(this.sessionDir(id), { recursive: true, force: true });
   }
-  appendMessage(id: string, role: SessionMessage["role"], content: string, toolCalls?: ToolCallRecord[], activities?: AssistantActivity[], attachments?: ChatAttachment[], stopped = false, hallucination?: HallucinationNotice, fallbackNotice?: string): SessionData {
+  /** R98 历史导入：事务性替换全部会话——调用方已先全量校验（readHistoryArchive），
+   * 这里只负责原子落库：任一步失败抛错回滚，原数据不动。 */
+  replaceAllSessions(sessions: SessionData[]): void {
+    withImmediateTransaction(this.db, () => {
+      for (const meta of this.list()) deleteSessionRow(this.db, meta.id);
+      for (const session of sessions) {
+        const now = new Date().toISOString();
+        insertSessionRow(this.db, {
+          id: session.meta.id,
+          title: session.meta.title,
+          createdAt: session.meta.createdAt,
+          updatedAt: session.meta.updatedAt,
+          preview: null,
+          archived: session.meta.archived === true,
+          listed: true,
+          legacyHydrated: true,
+        });
+        fs.mkdirSync(this.sessionDir(session.meta.id), { recursive: true });
+        session.messages.forEach((message, index) => {
+          insertMessageRow(this.db, { id: message.id, sessionId: session.meta.id, seq: index + 1, role: message.role, content: message.content, createdAt: message.createdAt, payload: payloadOf(message) });
+        });
+        updateSessionMeta(this.db, session.meta.id, { title: session.meta.title, updatedAt: now, preview: previewOfSession(session) });
+      }
+    });
+    /* 导入后孤儿目录（被替换掉的旧会话 runtime 日志）统一清理。 */
+    for (const entry of fs.readdirSync(this.root, { withFileTypes: true })) {
+      if (entry.isDirectory() && !sessions.some((session) => session.meta.id === entry.name)) {
+        fs.rmSync(path.join(this.root, entry.name), { recursive: true, force: true });
+      }
+    }
+  }
+  appendMessage(id: string, role: SessionMessage["role"], content: string, toolCalls?: ToolCallRecord[], activities?: AssistantActivity[], attachments?: ChatAttachment[], stopped = false, hallucination?: HallucinationNotice, fallbackNotice?: string, variantOf?: string): SessionData {
     const session = this.get(id);
     const now = new Date().toISOString();
-    const message: SessionMessage = { id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}), ...(hallucination?.signals.length ? { hallucination } : {}), ...(fallbackNotice ? { fallbackNotice } : {}) };
+    const message: SessionMessage = { id: randomUUID(), role, content, createdAt: now, ...(attachments?.length ? { attachments } : {}), ...(toolCalls?.length ? { toolCalls } : {}), ...(activities?.length ? { activities } : {}), ...(stopped ? { stopped: true } : {}), ...(hallucination?.signals.length ? { hallucination } : {}), ...(fallbackNotice ? { fallbackNotice } : {}), ...(variantOf ? { variantOf } : {}) };
     session.messages.push(message);
     session.meta.updatedAt = now;
     if (role === "user" && session.meta.title === "新会话") session.meta.title = content.replace(/\s+/g, " ").slice(0, 28) || "新会话";
@@ -180,6 +211,20 @@ export class SessionStore {
       updateSessionMeta(this.db, id, { title: session.meta.title, updatedAt: now, preview: previewOfSession(session) });
     });
     return session;
+  }
+  /** R98 消息分支：更新组显示状态（selectedVariant 存原始消息 payload）。
+   * 同时更新内存 session（供调用方直接拿到新视图）。 */
+  setVariantSelection(sessionId: string, messageId: string, selectedVariant: string | undefined): SessionData | undefined {
+    const session = this.get(sessionId);
+    const message = session.messages.find((item) => item.id === messageId);
+    if (!message || message.role !== "assistant") return session;
+    message.selectedVariant = selectedVariant;
+    const payload = payloadOf(message);
+    withImmediateTransaction(this.db, () => {
+      updateMessagePayload(this.db, messageId, payload);
+      updateSessionMeta(this.db, sessionId, { updatedAt: new Date().toISOString(), preview: previewOfSession(session) });
+    });
+    return this.get(sessionId);
   }
   setTitle(id: string, title: string): SessionData {
     const session = this.get(id);
@@ -426,5 +471,7 @@ function payloadOf(message: SessionMessage): string | null {
   if (message.stopped) extra.stopped = true;
   if (message.hallucination?.signals.length) extra.hallucination = message.hallucination;
   if (message.fallbackNotice) extra.fallbackNotice = message.fallbackNotice;
+  if (message.variantOf) extra.variantOf = message.variantOf;
+  if (message.selectedVariant) extra.selectedVariant = message.selectedVariant;
   return Object.keys(extra).length ? JSON.stringify(extra) : null;
 }

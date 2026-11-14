@@ -105,6 +105,7 @@ export function SettingsApp() {
   const [diagnosticBusy, setDiagnosticBusy] = useState(false);
   // R73 已归档会话管理（设置页分区，侧栏只留紧凑入口）
   const [archivedSessions, setArchivedSessions] = useState<SessionMeta[]>([]);
+  const [historyNotice, setHistoryNotice] = useState("");
   const [archiveBusyId, setArchiveBusyId] = useState("");
   const [archiveConfirmId, setArchiveConfirmId] = useState("");
   const [archiveError, setArchiveError] = useState("");
@@ -498,6 +499,14 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
       </article>
     </section>
     <section id="settings-sessions" className={`settings-section ${activePage === "settings-sessions" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>已归档会话</h2></div></div>
+      <article className="settings-card"><div className="card-heading"><strong>历史备份（R98）</strong></div>
+        <div className="form-grid">
+          <button className="secondary-button" type="button" onClick={() => { void bridge.exportHistory().then((result) => { if (!result.canceled) setHistoryNotice(`已导出 ${result.sessions} 个会话（${result.messages} 条消息）。`); }).catch((reason: unknown) => setHistoryNotice(`导出失败：${reason instanceof Error ? reason.message : String(reason)}`)); }}>导出全部会话历史…</button>
+          <button className="secondary-button" type="button" onClick={() => { if (!window.confirm("导入会替换当前全部会话，且无法撤销。确定继续？")) return; void bridge.importHistory().then(async (result) => { if (!result.canceled) { setHistoryNotice(`已导入 ${result.sessions} 个会话（${result.messages} 条消息）。`); await refreshArchivedSessions(); } }).catch((reason: unknown) => setHistoryNotice(`导入失败：${reason instanceof Error ? reason.message : String(reason)}`)); }}>从 ZIP 导入会话历史…</button>
+        </div>
+        {historyNotice && <p className="settings-help" role="status">{historyNotice}</p>}
+        <p className="settings-help">导出包含全部会话的文本与结构（含消息分支），不包含附件原图与密钥。导入会替换当前全部会话——导入失败时原数据保留不动。</p>
+      </article>
       <article className="settings-card"><div className="card-heading"><strong>自动归档</strong></div>
         <label className="toggle-row"><span className="toggle-copy"><strong>自动归档旧会话</strong><small>启动时扫描；超过保留期的会话会自动收进这里。</small></span><input type="checkbox" checked={settings.archive?.auto === true} onChange={(event) => setSettings((current) => current && { ...current, archive: { auto: event.target.checked, retentionDays: current.archive?.retentionDays || 7 } })} /></label>
         {settings.archive?.auto === true && <div className="form-grid"><label>保留时长<SelectCombobox ariaLabel="自动归档保留时长" value={String(settings.archive?.retentionDays || 7)} options={[{ value: "3", label: "3 天后归档" }, { value: "7", label: "7 天后归档" }, { value: "14", label: "14 天后归档" }, { value: "30", label: "30 天后归档" }]} onChange={(days) => setSettings((current) => current && { ...current, archive: { auto: current.archive?.auto === true, retentionDays: Number(days) } })} /></label></div>}

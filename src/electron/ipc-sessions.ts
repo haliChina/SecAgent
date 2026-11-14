@@ -7,11 +7,12 @@
  * - settings:save 编排 → settings-apply.ts
  * 跨域依赖（pluginManager/广播/更新管理器）经 deps 注入。
  */
-import { ipcMain } from "electron";
+import { ipcMain , dialog } from "electron";
 import { readSettings, type SettingsPayload } from "../config.js";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import { SessionStore, type SessionData } from "../session-store.js";
 import { hashIdentifier } from "../telemetry.js";
+import { exportHistoryArchive, readHistoryArchive } from "./history-archive.js";
 import { logMain } from "./main-log.js";
 import { getTelemetry } from "./main-telemetry.js";
 import { applySettings } from "./settings-apply.js";
@@ -94,6 +95,35 @@ export function registerSessionsIpc(deps: SessionIpcDeps): void {
     const attachments = normalizeAttachments(rawAttachments);
     if (typeof text !== "string" || (!text.trim() && !attachments.length)) throw new Error("消息不能为空");
     const result = await runSession(deps, id, text, { modelId, reasoningEffort, attachments, senderId: event.sender.id });
+    return result ? stripAttachmentData(result) : result;
+  });
+
+  /* R98 重新生成：复用 sessions:send 的运行管线，但以历史中该消息对应的
+     提问重跑（不追加新 user 消息），新回复作为变体落库。 */
+  ipcMain.handle("sessions:regenerate", async (event, id: string, messageId: string, modelId?: string, reasoningEffort: ReasoningEffort = "high") => {
+    if (typeof id !== "string" || typeof messageId !== "string") throw new Error("参数无效");
+    const result = await runSession(deps, id, "", { modelId, reasoningEffort, attachments: [], senderId: event.sender.id, regenerate: { messageId } });
+    return result ? stripAttachmentData(result) : result;
+  });
+
+  /* R98 历史导出/导入（学习 DeepSeek chat-demo）：ZIP 归档 + 事务性替换。 */
+  ipcMain.handle("sessions:export-history", async () => {
+    const target = await dialog.showSaveDialog({ title: "导出会话历史", defaultPath: `secagent-history-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{ name: "会话历史归档", extensions: ["zip"] }] });
+    if (target.canceled || !target.filePath) return { canceled: true as const };
+    return { canceled: false as const, ...exportHistoryArchive(store(), target.filePath) };
+  });
+  ipcMain.handle("sessions:import-history", async () => {
+    const picked = await dialog.showOpenDialog({ title: "导入会话历史", filters: [{ name: "会话历史归档", extensions: ["zip"] }], properties: ["openFile"] });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true as const };
+    const parsed = readHistoryArchive(picked.filePaths[0]);
+    store().replaceAllSessions(parsed);
+    return { canceled: false as const, sessions: parsed.length, messages: parsed.reduce((sum, session) => sum + session.messages.length, 0) };
+  });
+
+  /* R98 版本切换：更新组显示状态（渲染层按 visibleMessages 过滤）。 */
+  ipcMain.handle("sessions:select-variant", (_event, id: string, groupId: string, targetId?: string) => {
+    if (typeof id !== "string" || typeof groupId !== "string") throw new Error("参数无效");
+    const result = store().setVariantSelection(id, groupId, typeof targetId === "string" && targetId ? targetId : undefined);
     return result ? stripAttachmentData(result) : result;
   });
 }

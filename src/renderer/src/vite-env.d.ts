@@ -2,7 +2,7 @@ interface SessionMeta { id: string; title: string; createdAt: string; updatedAt:
 interface ToolCallRecord { name: string; arguments: unknown; result?: unknown }
 type AssistantActivity = { kind: "thinking" | "summary" | "text"; content: string; turn?: number } | { kind: "skill-auto-load"; name: string; path: string } | { kind: "tool"; name: string; arguments: unknown; result?: unknown }
 interface ChatAttachment { id: string; name: string; mimeType: string; dataUrl: string; size: number }
-interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> }; fallbackNotice?: string }
+interface SessionMessage { id: string; role: "user" | "assistant"; content: string; createdAt: string; attachments?: ChatAttachment[]; toolCalls?: ToolCallRecord[]; activities?: AssistantActivity[]; stopped?: boolean; hallucination?: { score: number; signals: Array<{ id: string; detail: string }> }; fallbackNotice?: string; variantOf?: string; selectedVariant?: string }
 interface SessionData { meta: SessionMeta; messages: SessionMessage[] }
 interface SessionRuntimeEvent { sessionId: string; sequence: number; at: string; stage: string; data: unknown }
 type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -127,6 +127,10 @@ interface Window {
     setUnreadCount(count: number): Promise<{ ok: true }>;
     updateAllPlugins(): Promise<{ updates: Array<{ id: string; from: string; to: string }>; errors: Array<{ id: string; error: string }> }>;
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;
+    regenerateMessage(id: string, messageId: string, modelId?: string, reasoningEffort?: string): Promise<SessionData | undefined>;
+    selectVariant(id: string, groupId: string, targetId?: string): Promise<SessionData | undefined>;
+    exportHistory(): Promise<{ canceled: true } | { canceled: false; sessions: number; messages: number }>;
+    importHistory(): Promise<{ canceled: true } | { canceled: false; sessions: number; messages: number }>;
     stopMessage(id: string): Promise<{ ok: true; stopped: boolean }>;
     onRuntimeEvent(listener: (event: unknown) => void): () => void;
     startSpeech(hotwords?: string[]): Promise<{ ok: true; remote?: boolean; provider?: string; fallbacks?: string[] }>;

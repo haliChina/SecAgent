@@ -1670,3 +1670,10 @@ body:has(.app-shell) { min-width: 320px; }
 .conversation { isolation: isolate; }
 .conversation > .messages,
 .conversation > .composer { position: relative; z-index: 1; }
+
+/* ===== R98 消息分支切换器 ===== */
+.branch-switcher { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-2); }
+.branch-switcher-button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border: none; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; }
+.branch-switcher-button:hover:not(:disabled) { background: var(--bg-3, var(--bg-2)); color: var(--text-1); }
+.branch-switcher-button:disabled { opacity: .35; cursor: default; }
+.branch-switcher-count { min-width: 34px; text-align: center; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; letter-spacing: .02em; }

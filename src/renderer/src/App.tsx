@@ -4,6 +4,8 @@ import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent
 import { ArrowDown, LoaderCircle, Search, Volume2 } from "lucide-react";
 import { ImagePreviewDialog } from "./components/ImagePreviewDialog.js";
 import { CommandPalette } from "./components/CommandPalette.js";
+import { BranchSwitcher } from "./components/BranchSwitcher.js";
+import { isMessageVisible, messageVersions, variantSelection } from "../session-branches.js";
 import { Toast } from "./components/Toast.js";
 import { applyDisplayMode, cacheDisplayMode } from "./display-mode.js";
 import { applyPerformanceMode, normalizePerformanceMode, resolvePerformanceMode, type PerformanceMode } from "./performance-mode.js";
@@ -121,6 +123,9 @@ export function App() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
+  /* R98 消息分支：消息索引（可见性判定与版本清单用）。 */
+  const messageById = useMemo(() => new Map((session?.messages ?? []).map((message) => [message.id, message])), [session?.messages]);
+
   /* R96 草稿持久化（学习 ZCode 三连修的教训）：切换/新建会话时草稿
      不再丢失——按会话 id 存 localStorage，回到会话恢复。发送成功或
      会话删除时清掉对应条目。 */
@@ -979,6 +984,34 @@ export function App() {
       messages.scrollTo({ top: nextScrollTop, behavior: "auto" });
     });
   };
+  /* R98 消息分支：重新生成（新回复作为变体追加，旧版本保留可切回）与版本切换。 */
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState("");
+  const regenerateMessage = async (messageId: string) => {
+    if (!session || sessionRunning) return;
+    markRunning(session.meta.id);
+    try {
+      setRegeneratingMessageId(messageId);
+      const effort = customModelMode ? reasoningEffort : defaultEffort;
+      const response = await bridge.regenerateMessage(session.meta.id, messageId, selectedModelId, effort);
+      setSession((current) => current && current.meta.id === session.meta.id ? response ?? current : current);
+    } catch (error) {
+      setSessionError(`重新生成未完成：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      clearRun(session.meta.id);
+      setRegeneratingMessageId("");
+    }
+  };
+  const switchVariant = async (message: { id: string; variantOf?: string }, targetId: string) => {
+    if (!session) return;
+    const groupId = message.variantOf ?? message.id;
+    try {
+      const next = await bridge.selectVariant(session.meta.id, groupId, targetId);
+      if (next) setSession((current) => current && current.meta.id === session.meta.id ? next : current);
+    } catch (error) {
+      setSessionError(`切换版本未完成：${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const submitMessage = async (text: string, sentAttachments: ChatAttachment[], optimisticMessageId?: string) => {
     stopReading();
     if ((!text && !sentAttachments.length) || !session || runningSessionsRef.current.includes(session.meta.id) || (voicePendingSendRef.current && !optimisticMessageId)) return;
@@ -1482,7 +1515,7 @@ export function App() {
             <div className="empty-state-prompts">{EMPTY_STATE_PROMPTS.map((prompt) => <button key={prompt} type="button" className="empty-state-chip" onClick={() => { setDraft(prompt); requestAnimationFrame(() => textareaRef.current?.focus()); }}>{prompt}</button>)}</div>
           </div>}
           {session && messageStart > 0 && <div className="load-earlier-row"><button type="button" className="load-earlier" onClick={() => loadEarlierMessages(messageStart)}>加载更早消息（还有 {messageStart} 条）</button></div>}
-          {session?.messages.slice(messageStart).map((message, visibleIndex) => {
+          {session?.messages.slice(messageStart).filter((message) => isMessageVisible(message, messageById)).map((message, visibleIndex) => {
             const index = messageStart + visibleIndex;
             const previous = index > 0 ? session.messages[index - 1] : undefined;
             const dayLabel = daySeparatorLabel(message.createdAt);
@@ -1500,7 +1533,9 @@ export function App() {
                   onSpeak={message.role === "assistant" ? () => { if (speakingMessageId === message.id) stopReading(); else void readMessage(message.id, message.content); } : undefined}
                   speaking={speakingMessageId === message.id}
                   onQuote={() => { setQuotedText(quoteSnippet(message.content)); requestAnimationFrame(() => textareaRef.current?.focus()); }}
-                />{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} onPreview={(path) => { void window.secagent.previewWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} onReveal={(path) => { void window.secagent.revealWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+                  onRegenerate={message.role === "assistant" && !sessionRunning && message.content && !message.content.startsWith("执行失败：") ? () => { void regenerateMessage(message.id); } : undefined}
+                  regenerating={sessionRunning && regeneratingMessageId === message.id}
+                />{message.role === "assistant" && session && <BranchSwitcher messages={session.messages} message={message} onSwitch={(targetId) => { void switchVariant(message, targetId); }} />}{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} onPreview={(path) => { void window.secagent.previewWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} onReveal={(path) => { void window.secagent.revealWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
           {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
