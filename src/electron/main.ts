@@ -21,7 +21,7 @@ import { configureSecretCipher, migratePlaintextSecrets } from "../secret-store.
 import { configureSpeech, stopSpeech, stopVoiceWake } from "./speech.js";
 import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
-import { openWorkspaceFilePreview, revealWorkspaceFile } from "./workspace-preview.js";
+import { openWorkspaceFilePreview, revealWorkspaceFile, listWorkspaceFiles } from "./workspace-preview.js";
 import { registerCompanionIpc } from "./ipc-companions.js";
 import { registerPluginIpc } from "./ipc-plugins.js";
 import { officialProvider, registerOfficialIpc, runSectlOAuthLogin } from "./ipc-official.js";
@@ -192,6 +192,9 @@ ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openW
 
 /* R96：交付卡「在资源管理器中打开并定位」——路径校验与预览同源。 */
 ipcMain.handle("workspace:reveal-file", (_event, relativePath: string) => revealWorkspaceFile(relativePath));
+
+/* R99 @ 文件引用：列工作区文件（@ 菜单数据源，只给路径与元信息）。 */
+ipcMain.handle("workspace:list-files", () => listWorkspaceFiles());
 
 /* R96 未读角标：渲染层只报数（含 0 清除），画法留在主进程（平台差异隔离）。 */
 ipcMain.handle("ui:set-unread", (_event, count: unknown) => { setUnreadCount(Number(count) || 0); return { ok: true }; });

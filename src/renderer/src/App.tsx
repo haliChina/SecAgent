@@ -124,6 +124,12 @@ export function App() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("high");
   const [defaultEffort, setDefaultEffort] = useState<ReasoningEffort>("high");
   const [customModelMode, setCustomModelMode] = useState(false);
+  /* R99 @ 文件引用：工作区文件清单（@ 菜单数据源，挂载拉一次）。 */
+  const [workspaceFiles, setWorkspaceFiles] = useState<Array<{ path: string; size: number; mtime: string }>>([]);
+  useEffect(() => {
+    void bridge.listWorkspaceFiles().then(setWorkspaceFiles).catch(() => setWorkspaceFiles([]));
+  }, [bridge]);
+
   /* R98 消息分支：消息索引（可见性判定与版本清单用）。 */
   const messageById = useMemo(() => new Map((session?.messages ?? []).map((message) => [message.id, message])), [session?.messages]);
 
@@ -1536,7 +1542,7 @@ export function App() {
                   onQuote={() => { setQuotedText(quoteSnippet(message.content)); requestAnimationFrame(() => textareaRef.current?.focus()); }}
                   onRegenerate={message.role === "assistant" && !sessionRunning && message.content && !message.content.startsWith("执行失败：") ? () => { void regenerateMessage(message.id); } : undefined}
                   regenerating={sessionRunning && regeneratingMessageId === message.id}
-                />{message.role === "assistant" && session && <BranchSwitcher messages={session.messages} message={message} onSwitch={(targetId) => { void switchVariant(message, targetId); }} />}{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} onPreview={(path) => { void window.secagent.previewWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} onReveal={(path) => { void window.secagent.revealWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
+                />{message.role === "assistant" && session && <BranchSwitcher messages={session.messages} message={message} onSwitch={(targetId) => { void switchVariant(message, targetId); }} />}{message.role === "assistant" && <DeliverableCard toolCalls={message.toolCalls} onQuote={(path) => { setDraft((current) => current.trim() ? `${current.trimEnd()} @${path} ` : `@${path} `); requestAnimationFrame(() => textareaRef.current?.focus()); }} onPreview={(path) => { void window.secagent.previewWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} onReveal={(path) => { void window.secagent.revealWorkspaceFile(path).catch((error: unknown) => window.alert(error instanceof Error ? error.message : String(error))); }} />}{message.role === "assistant" && (message.toolCalls || []).some((call) => call.name === "web_search") ? <div className="message-websearch"><WebSearch status="done" sources={webSearchSourcesFor(message.toolCalls)} /></div> : null}{message.role === "assistant" && message.fallbackNotice && <p className="fallback-notice" role="status">{message.fallbackNotice}</p>}{message.role === "assistant" && message.stopped && <AuiStoppedRun reason={`已手动停止 · ${new Date(message.createdAt).toLocaleTimeString()}`} />}{message.role === "assistant" && message.stopped && message.content.trim() && !sessionRunning && <button type="button" className="continue-reply-button" onClick={() => { setDraft(`请从中断处无缝继续写完下面这条未完成的回复，不要重复已有内容，直接续写正文：\n\n${message.content.slice(0, 2000)}`); requestAnimationFrame(() => textareaRef.current?.focus()); }}>继续写完</button>}{message.role === "assistant" && message.hallucination?.signals.length ? <AuiGuardrailNotice title="幻觉检测提醒（仅提示，不代表一定有错）" explanation={message.hallucination.signals.map((signal) => signal.detail).join("；")} /> : null}</div></article></Fragment>;
           })}
           {/* R59：运行态按会话隔离——只在「本会话在跑」时渲染思考指示；切到新会话不再继承老会话的提示与停止按钮。 */}
           {sessionRunning && !sessionFinishing && <article className="message assistant"><div className="message-content"><div className="message-meta">SecAgent · 正在生成</div><MessageActivities activities={traceActivities} elapsedSeconds={executionSeconds} isExecuting activeStepKind={activeStepKind} summaryRef={executionSummaryRef} /><AiStatus state={aiStatusState} states={{ thinking: { label: "正在思考" }, researching: { label: "正在调用工具" }, analyzing: { label: "正在分析" }, writing: { label: "正在撰写" }, finalizing: { label: "正在收尾" }, done: { label: (elapsed) => (elapsed ? `已完成 · ${elapsed}` : "已完成") }, error: { label: (elapsed) => (elapsed ? `失败 · 用时 ${elapsed}` : "失败") } }} />
@@ -1567,7 +1573,18 @@ export function App() {
                   name: item.title || "未命名会话",
                   description: `引用历史会话${item.preview ? ` · ${item.preview.slice(0, 20)}` : ""}`,
                   onPick: () => { void referenceSession(item); }
-                }))
+                })),
+              /* R99 @ 文件引用：最近修改的工作区文件——选中把 @路径 插入
+                 草稿（模型端 read 工具支持相对工作区路径，直接可读）。 */
+              ...workspaceFiles.slice(0, 15).map((file) => ({
+                key: `file-${file.path}`,
+                name: file.path.split("/").pop() || file.path,
+                description: `@${file.path} · ${(file.size / 1024).toFixed(1)} KB`,
+                onPick: () => {
+                  setDraft((current) => `${current}@${file.path} `);
+                  requestAnimationFrame(() => textareaRef.current?.focus());
+                }
+              }))
             ]}
             /* issue #26 合并项：「/」命令并入 ⌘P 快速跳转面板——这里不再重复一份。 */
             commands={[]}

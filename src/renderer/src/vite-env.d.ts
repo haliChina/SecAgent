@@ -124,6 +124,7 @@ interface Window {
     uploadDiagnostic(id: string): Promise<{ bytes: number }>;
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
     revealWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
+    listWorkspaceFiles(): Promise<Array<{ path: string; size: number; mtime: string }>>;
     setUnreadCount(count: number): Promise<{ ok: true }>;
     updateAllPlugins(): Promise<{ updates: Array<{ id: string; from: string; to: string }>; errors: Array<{ id: string; error: string }> }>;
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;

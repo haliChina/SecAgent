@@ -1677,3 +1677,7 @@ body:has(.app-shell) { min-width: 320px; }
 .branch-switcher-button:hover:not(:disabled) { background: var(--bg-3, var(--bg-2)); color: var(--text-1); }
 .branch-switcher-button:disabled { opacity: .35; cursor: default; }
 .branch-switcher-count { min-width: 34px; text-align: center; font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+
+/* ===== R99 续写按钮（停止的半截回复旁） ===== */
+.continue-reply-button { margin-top: 8px; padding: 5px 14px; border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--accent); font-size: 12px; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.continue-reply-button:hover { background: var(--accent); color: var(--on-accent, #fff); }

@@ -149,6 +149,8 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
   let traceSequence = 0;
   const toolCalls: ToolCallRecord[] = [];
   const activities: AssistantActivity[] = [];
+  /* R99 续写前提：answer 正文在主进程累积——用户停止时半截回复不再丢弃。 */
+  let answerDelta = "";
   let runtime: SecAgentRuntime | undefined;
   const isWakeRequest = isWakeSender(senderId);
   const shouldGenerateTitle = !before.messages.some((message) => message.role === "user");
@@ -167,6 +169,7 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     if (ordered.stage === "model.output.delta") {
       const data = ordered.data as { text?: unknown; kind?: unknown; turn?: unknown };
       const kind = data.kind === "thinking" || data.kind === "summary" ? data.kind : undefined;
+      if (data.kind === "answer" && typeof data.text === "string") answerDelta += data.text;
       if (kind && typeof data.text === "string") {
         const last = activities.at(-1);
         if (last?.kind === kind) last.content += data.text;
@@ -240,7 +243,7 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
     const title = await titlePromise;
     if (title) sessionStore.setTitle(id, title);
     if (abortController.signal.aborted) {
-      sessionStore.appendMessage(id, "assistant", "", toolCalls, activities, undefined, true, undefined, undefined, regenerateGroupId);
+      sessionStore.appendMessage(id, "assistant", answerDelta, toolCalls, activities, undefined, true, undefined, undefined, regenerateGroupId);
       trace({ stage: "runtime.stopped", data: { toolCount: toolCalls.length } });
       return sessionStore.get(id);
     }

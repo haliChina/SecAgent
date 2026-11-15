@@ -95,3 +95,34 @@ export function revealWorkspaceFile(relativePath: string): { ok: true } {
   void shell.showItemInFolder(filePath);
   return { ok: true };
 }
+
+/** R99 @ 文件引用：列工作区文件清单（@ 菜单用）。
+ * 只返回路径与元信息，不读内容；排除隐藏目录与常见构建/依赖目录、
+ * 会话数据库目录（sessions/ 是 SQLite 与 runtime 日志，非用户产物）；
+ * 深度 ≤3、最多 200 条、按修改时间降序（最近改的排最前）。 */
+const LIST_IGNORED_DIRS = new Set(["node_modules", "dist", "build", "out", "__pycache__", ".venv", "venv", "sessions", "audit"]);
+
+export function listWorkspaceFiles(): Array<{ path: string; size: number; mtime: string }> {
+  const root = path.resolve(DEFAULT_WORKSPACE);
+  const results: Array<{ path: string; size: number; mtime: string }> = [];
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 3 || results.length >= 200) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (results.length >= 200) return;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith(".") && !LIST_IGNORED_DIRS.has(entry.name)) walk(full, depth + 1);
+      } else if (entry.isFile() && !entry.name.startsWith(".")) {
+        try {
+          const stat = fs.statSync(full);
+          results.push({ path: path.relative(root, full).replaceAll("\\", "/"), size: stat.size, mtime: stat.mtime.toISOString() });
+        } catch { /* 文件被占用/已消失：跳过 */ }
+      }
+    }
+  };
+  walk(root, 0);
+  results.sort((a, b) => b.mtime.localeCompare(a.mtime));
+  return results.slice(0, 50);
+}

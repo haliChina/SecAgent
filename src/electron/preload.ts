@@ -93,6 +93,7 @@ contextBridge.exposeInMainWorld("secagent", {
   uploadDiagnostic: (id: string) => ipcRenderer.invoke("sessions:diagnostic-upload", id),
   previewWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:preview-file", relativePath),
     revealWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:reveal-file", relativePath),
+    listWorkspaceFiles: () => ipcRenderer.invoke("workspace:list-files"),
     setUnreadCount: (count: number) => ipcRenderer.invoke("ui:set-unread", count),
   sendMessage: (id: string, text: string, modelId?: string, reasoningEffort?: string, attachments?: unknown[]) => ipcRenderer.invoke("sessions:send", id, text, modelId, reasoningEffort, attachments),
     regenerateMessage: (id: string, messageId: string, modelId?: string, reasoningEffort?: string) => ipcRenderer.invoke("sessions:regenerate", id, messageId, modelId, reasoningEffort),
