@@ -125,6 +125,10 @@ interface Window {
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
     revealWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
     listWorkspaceFiles(): Promise<Array<{ path: string; size: number; mtime: string }>>;
+    virtualDisplayStatus(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean }>;
+    virtualDisplayInstall(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean }>;
+    virtualDisplayRevive(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean; revived: number }>;
+    virtualDisplayUninstall(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean; removed: number }>;
     setUnreadCount(count: number): Promise<{ ok: true }>;
     updateAllPlugins(): Promise<{ updates: Array<{ id: string; from: string; to: string }>; errors: Array<{ id: string; error: string }> }>;
     sendMessage(id: string, text: string, modelId?: string, reasoningEffort?: ReasoningEffort, attachments?: ChatAttachment[]): Promise<SessionData>;

@@ -19,7 +19,7 @@ import { WakeHotkeyField, updateReleaseLabel, formatUpdateBytes } from "./Settin
 // R49 重设计：导航分组（与侧栏 rail 的组标签对应）
 const settingsNavGroups: Array<{ label: string; items: Array<{ id: string; label: string }> }> = [
   { label: "通用", items: [{ id: "settings-account", label: "账户与通用" }] },
-  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-rules", label: "规则与记忆" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
+  { label: "基础", items: [{ id: "settings-wake", label: "随时唤醒" }, { id: "settings-rules", label: "规则与记忆" }, { id: "settings-sessions", label: "已归档会话" }, { id: "settings-vdisplay", label: "虚拟屏" }, { id: "settings-system", label: "系统" }, { id: "settings-updates", label: "更新" }, { id: "settings-telemetry", label: "诊断与隐私" }] },
   { label: "语音", items: [{ id: "settings-tts", label: "朗读" }, { id: "settings-asr", label: "语音识别" }] },
   { label: "模型与服务", items: [{ id: "settings-models", label: "模型" }, { id: "settings-websearch", label: "联网搜索" }, { id: "settings-mcp", label: "MCP 服务" }, { id: "settings-plugins", label: "插件" }, { id: "settings-commands", label: "命令" }] }
 ];
@@ -106,6 +106,13 @@ export function SettingsApp() {
   // R73 已归档会话管理（设置页分区，侧栏只留紧凑入口）
   const [archivedSessions, setArchivedSessions] = useState<SessionMeta[]>([]);
   const [historyNotice, setHistoryNotice] = useState("");
+  /* R100 虚拟屏管理（Agent 虚拟工作屏）。 */
+  const [vdStatus, setVdStatus] = useState<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean } | null>(null);
+  const [vdBusy, setVdBusy] = useState(false);
+  const [vdNotice, setVdNotice] = useState("");
+  const refreshVd = async () => {
+    try { setVdStatus(await bridge.virtualDisplayStatus()); } catch (error) { setVdNotice(`状态获取失败：${error instanceof Error ? error.message : String(error)}`); }
+  };
   const [archiveBusyId, setArchiveBusyId] = useState("");
   const [archiveConfirmId, setArchiveConfirmId] = useState("");
   const [archiveError, setArchiveError] = useState("");
@@ -161,6 +168,7 @@ export function SettingsApp() {
     void bridge.listProviders().then(setProviderPresets).catch(() => undefined);
     return () => { disposed = true; };
   }, [bridge]);
+  useEffect(() => { void refreshVd(); }, [bridge]);
   useEffect(() => {
     void bridge.listPlugins().then(setPlugins).catch((reason) => setError(String(reason)));
     return bridge.onPluginsChanged(setPlugins);
@@ -496,6 +504,25 @@ const asrProviderOptions: Array<{ value: string; label: string }> = [
         <label className="toggle-row"><span className="toggle-copy"><strong>启用自定义规则</strong><small>关闭后保留文本，但不会生效。</small></span><input type="checkbox" checked={settings.rules?.enabled !== false} onChange={(event) => setSettings((current) => current && { ...current, rules: { enabled: event.target.checked, text: current.rules?.text || "" } })} /></label>
         {settings.rules?.enabled !== false && <div className="form-grid"><label className="wide-field">规则内容<textarea rows={8} value={settings.rules?.text || ""} placeholder="例如：始终用简体中文回答；修改代码后必须运行 npm test；不要删除未备份的文件；解释时先给结论再展开。" onChange={(event) => setSettings((current) => current && { ...current, rules: { enabled: current.rules?.enabled !== false, text: event.target.value } })} /></label></div>}
         <p className="settings-help">规则只保存在本机，留空则使用默认设置。</p>
+      </article>
+    </section>
+    <section id="settings-vdisplay" className={`settings-section ${activePage === "settings-vdisplay" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>虚拟屏</h2></div></div>
+      <article className="settings-card"><div className="card-heading"><strong>Agent 虚拟工作屏</strong></div>
+        <p className="settings-help">给 Agent 一块独立显示器干活：你的物理屏完全不被打扰，随时在主界面观察窗围观它的操作与思考。基于 WDDM/IddCx 虚拟显示驱动（与网易 UU 远程同技术路线）。</p>
+        <div className="card-heading" style={{ marginTop: 12 }}><strong>当前状态</strong></div>
+        <p className="settings-hint">{vdBusy ? "操作进行中…" : vdStatus ? (vdStatus.installed ? `已检测到虚拟屏：${vdStatus.devices.join("、")}` : "未检测到虚拟屏") : "检测中…"}</p>
+        {vdStatus?.inactive?.length ? <>
+          <p className="settings-hint" role="status">检测到 {vdStatus.inactive.length} 个未启动的虚拟屏（{vdStatus.inactive.map((device) => `${device.description} · ${device.status === "Disabled" ? "已被禁用" : device.status === "Disconnected" ? "已断开" : device.status}`).join("；")}）——可能是系统或安全软件禁用了它。</p>
+          <button className="secondary-button" type="button" disabled={vdBusy} style={{ marginTop: 8 }} onClick={() => { setVdBusy(true); setVdNotice(""); void bridge.virtualDisplayRevive().then((result) => { setVdStatus(result); setVdNotice(result.installed ? `已恢复 ${result.revived} 个设备，虚拟屏重新可用。` : `恢复命令已执行，但仍未启动。若为断开状态，重启电脑一次通常即可恢复。`); }).catch((reason: unknown) => setVdNotice(`恢复失败：${reason instanceof Error ? reason.message : String(reason)}`)).finally(() => setVdBusy(false)); }}>恢复虚拟屏设备…</button>
+        </> : null}
+        <p className="settings-hint">{vdStatus?.driverPackaged === false ? "驱动包未随安装包分发——需要先下载虚拟屏组件（下轮提供）。" : ""}</p>
+        <div className="form-grid" style={{ marginTop: 10 }}>
+          <button className="secondary-button" type="button" disabled={vdBusy || vdStatus?.driverPackaged === false} onClick={() => { setVdBusy(true); setVdNotice(""); void bridge.virtualDisplayInstall().then((status) => { setVdStatus(status); setVdNotice(status.installed ? "安装成功。若系统未自动出现新显示器，重启电脑一次即可。" : "安装命令已执行但未检测到虚拟屏，请重启后刷新状态。"); }).catch((reason: unknown) => setVdNotice(`安装失败：${reason instanceof Error ? reason.message : String(reason)}`)).finally(() => setVdBusy(false)); }}>安装虚拟屏…</button>
+          <button className="secondary-button" type="button" disabled={vdBusy || !vdStatus?.installed} onClick={() => { setVdBusy(true); setVdNotice(""); void bridge.virtualDisplayUninstall().then((result) => { setVdStatus(result); setVdNotice(`已清理 ${result.removed} 个驱动包。`); }).catch((reason: unknown) => setVdNotice(`卸载失败：${reason instanceof Error ? reason.message : String(reason)}`)).finally(() => setVdBusy(false)); }}>卸载虚拟屏…</button>
+          <button className="secondary-button" type="button" disabled={vdBusy} onClick={() => { void refreshVd(); }}>刷新状态</button>
+        </div>
+        {vdNotice && <p className="settings-help" role="status">{vdNotice}</p>}
+        <p className="settings-help">安装/卸载会弹出系统 UAC 确认框（需管理员）。已装网易 UU 远程等虚拟屏软件时无需重复安装——本页能检测到即可直接使用。</p>
       </article>
     </section>
     <section id="settings-sessions" className={`settings-section ${activePage === "settings-sessions" ? "settings-section-active" : ""}`}><div className="section-title"><div><h2>已归档会话</h2></div></div>

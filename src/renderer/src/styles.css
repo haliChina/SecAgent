@@ -1681,3 +1681,13 @@ body:has(.app-shell) { min-width: 320px; }
 /* ===== R99 续写按钮（停止的半截回复旁） ===== */
 .continue-reply-button { margin-top: 8px; padding: 5px 14px; border: 1px solid var(--accent); border-radius: 999px; background: transparent; color: var(--accent); font-size: 12px; cursor: pointer; transition: background .15s ease, color .15s ease; }
 .continue-reply-button:hover { background: var(--accent); color: var(--on-accent, #fff); }
+
+/* ===== R101 HookSidebar（shadcn/ui 风格重设计） ===== */
+.hook-sidebar-group-label { padding: 0 12px 2px; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); }
+.hook-sidebar-item { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border-radius: 10px; font-size: 13px; color: var(--text-2); text-align: left; cursor: pointer; transition: background .15s ease, color .15s ease; }
+.hook-sidebar-item:hover { background: var(--accent-soft); color: var(--text-1); }
+.hook-sidebar-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.hook-sidebar-item-active { background: var(--accent-soft); color: var(--accent-text); font-weight: 500; }
+.hook-sidebar-indicator { position: absolute; left: 0; top: 22%; bottom: 22%; width: 3px; border-radius: 999px; background: var(--accent); }
+.hook-sidebar-icon { display: inline-flex; align-items: center; opacity: .75; }
+.hook-sidebar-item-active .hook-sidebar-icon { opacity: 1; }
