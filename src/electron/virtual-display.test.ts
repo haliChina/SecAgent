@@ -53,11 +53,11 @@ test("驱动清单解析：Published/Original Name 对应（卸载句柄）", as
 test("禁用/断开状态解析：Disabled 与 Disconnected 设备可被识别", async () => {
   const { parseEnumDevicesOutput } = await import("./virtual-display-pure.js");
   const stdout = [
-    "Instance ID:                ROOT\SYSTEM\0001",
+    "Instance ID:                ROOT\\SYSTEM\\0001",
     "Device Description:          Virtual Display Driver",
     "    Status:                  Disabled",
     "",
-    "Instance ID:                ROOT\SYSTEM\0002",
+    "Instance ID:                ROOT\\SYSTEM\\0002",
     "Device Description:          GameViewer Virtual Display Adapter",
     "    Status:                  Disconnected",
   ].join("\r\n");
