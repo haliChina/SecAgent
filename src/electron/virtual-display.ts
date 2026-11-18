@@ -68,7 +68,8 @@ function driverPackPath(): string {
 /** 当前虚拟屏状态（设置页/doctor 用）。 */
 export async function getVirtualDisplayStatus(): Promise<VirtualDisplayStatus> {
   const devices = await enumDisplayDevices();
-  const virtual = devices.map((device) => device.description).filter(isVirtualDisplayDescription);
+  /* 先筛后射：筛的是整个设备对象（map 成字符串再取字段=TS2339 教训）。 */
+  const virtual = devices.filter((device) => isVirtualDisplayDescription(device.description));
   const reports: VirtualDisplayDeviceReport[] = virtual.map((device) => ({ instanceId: device.instanceId, description: device.description, status: device.status }));
   const active = reports.filter((report) => report.status === "Started");
   const inactive = reports.filter((report) => report.status !== "Started");
