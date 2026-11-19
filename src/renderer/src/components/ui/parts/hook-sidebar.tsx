@@ -25,7 +25,7 @@
  *  - activeId 不在列表时不高亮任何项、reach 不展开（防误报首项）；
  *  - prefers-reduced-motion：描线与折叠动画全关，颜色语义不变。
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import type { ReactNode } from "react";
 
@@ -40,8 +40,9 @@ export interface HookSidebarItem {
   group?: string;
 }
 
-const ROW = 36; /* 每条目占用高度（CSS --bm-row 同值） */
-const TREE_PAD = 12; /* 树容器上下 padding 合计（CSS 6px×2） */
+const ROW = 33; /* 每条目占用高度（CSS --bm-row 同值；R103 36→33：内置 15 项+插件页并
+入后小窗口必滚，压行高让多数窗口免滚——用户实机报底部组头被切一半） */
+const TREE_PAD = 10; /* 树容器上下 padding 合计（CSS 5px×2） */
 
 /** 分支 path：从树干顶部下行到第 index 项的圆弧拐点再水平引出。
  *  与原作同构（M 14 0 V … A 10 10 0 0 0 24 … H 32）。 */
@@ -64,6 +65,9 @@ export function HookSidebar({ activeId, items, onSelect }: {
     else last.entries.push({ item, index: last.entries.length });
   }
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
+  /* R103：active 项滚入视口——打开设置窗直接定位当前页（此前初始视口底边
+     常切在末组头中线，用户报「异常截断」）。nearest：已可见零滚动。 */
+  const activeRef = useRef<HTMLButtonElement | null>(null);
   const toggle = (label: string | null) => {
     const key = label ?? "";
     setClosed((current) => {
@@ -73,6 +77,10 @@ export function HookSidebar({ activeId, items, onSelect }: {
       return next;
     });
   };
+
+  useEffect(() => {
+    activeRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeId]);
 
   return (
     <nav className="branched-menu" data-slot="hook-sidebar">
@@ -133,6 +141,7 @@ export function HookSidebar({ activeId, items, onSelect }: {
                         aria-current={active ? "page" : undefined}
                         className="branched-menu__item"
                         data-active={active || undefined}
+                        ref={active ? activeRef : undefined}
                       >
                         {entry.item.icon && <span aria-hidden className="branched-menu__icon">{entry.item.icon}</span>}
                         <span className="branched-menu__label">{entry.item.label}</span>

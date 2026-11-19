@@ -898,7 +898,18 @@ html.wake-mode, html.wake-mode body, body.wake-mode { min-width: 0; overflow: hi
 /* P3 R33：react-bits VoicePill 真源 CSS（.rb-vp 前缀，R24 注入）整段删除——
    rb-vp/voice-pill__* 类在全部 TSX 零引用（从未接线，录音 UI 用 VoicePill 适配版）。 */
 /* ==== 设置侧栏布局钩子（组件观感见 R102 .branched-menu__* 段） ==== */
-.settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 196px; padding: 14px 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 40%, transparent) transparent; }
+.settings-shell [data-slot="hook-sidebar"] { position: fixed; z-index: 5; top: 72px; bottom: 20px; left: 20px; box-sizing: border-box; width: 196px; padding: 14px 12px 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg-1); box-shadow: 0 2px 10px rgba(15, 23, 42, .05); overflow-y: auto; scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-3) 40%, transparent) transparent; }
+/* R103 底边截断减害（用户实机：末组头被视口底边切一半）——未滚到底时
+   底部 26px 渐隐（暗示可滚，替代"切一半"的 bug 观感）；滚到底最后 1% 行程
+   mask 淡出为全显（scroll-timeline 驱动，Electron/Chromium 115+ 支持；
+   不支持的环境常驻渐隐，可接受退化）。 */
+@supports (animation-timeline: scroll()) {
+  .settings-shell [data-slot="hook-sidebar"] { animation: sb-unmask linear both; animation-timeline: scroll(self block); /* self：侧栏自身即滚动容器，nearest 只找祖先 */ }
+  @keyframes sb-unmask {
+    0%, 99% { mask-image: linear-gradient(to bottom, #000 calc(100% - 26px), transparent 100%); }
+    100% { mask-image: linear-gradient(#000 0 0); }
+  }
+}
 /* 键盘焦点环：设置窗内按钮统一反馈（此前只有开关和输入框有焦点样式）。 */
 .settings-shell :is(button, [role="menuitem"], a):focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
 @media (max-width: 960px) { .settings-shell [data-slot="hook-sidebar"] { left: 12px; width: 186px; } .settings-shell:not(.oobe-shell) { padding-left: 218px; padding-right: 20px; } }
@@ -1684,7 +1695,7 @@ body:has(.app-shell) { min-width: 320px; }
   --bm-line: var(--line);
   --bm-muted: var(--text-2);
   --bm-font: 14px;
-  --bm-row: 36px;
+  --bm-row: 33px; /* R103：36→33 压行高（组件 ROW 常量同值） */
   --bm-indent: 40px;
   --bm-line-w: 1.5;
   --bm-draw: 400ms;
@@ -1727,7 +1738,7 @@ body:has(.app-shell) { min-width: 320px; }
 .branched-menu__head {
   display: block;
   margin: 0;
-  padding: 9px 0;
+  padding: 6px 0; /* R103：9→6 压组头 */
   border: 0;
   background: none;
   color: var(--bm-muted);
@@ -1746,7 +1757,7 @@ body:has(.app-shell) { min-width: 320px; }
 .branched-menu__body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows var(--bm-fold) var(--bm-ease-out); }
 .branched-menu__section[data-open] > .branched-menu__body { grid-template-rows: 1fr; }
 .branched-menu__fold { min-height: 0; overflow: hidden; }
-.branched-menu__tree { position: relative; padding: 6px 0; box-sizing: border-box; }
+.branched-menu__tree { position: relative; padding: 5px 0; box-sizing: border-box; /* R103：6→5，组件 TREE_PAD 同步 */ }
 .branched-menu__lines {
   position: absolute;
   top: 0;
