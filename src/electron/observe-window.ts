@@ -20,7 +20,11 @@
  * 渲染层为内嵌 data URL HTML（flash 同款模式，无构建产物依赖）。
  */
 
-import { BrowserWindow } from "electron";
+/* electron 是 CJS 且 BrowserWindow 为 lazy getter——node --test（CI 直跑 dist）
+   的 named import 会炸（R104 CI 实锤：SyntaxError: Named export 'BrowserWindow'
+   not found）。default import 走 CJS interop 恒安全；类型用 typeof import 保真。 */
+import electron from "electron";
+const { BrowserWindow } = electron as typeof import("electron");
 
 let observeWindow: BrowserWindow | null = null;
 
