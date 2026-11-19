@@ -24,9 +24,10 @@
    的 named import 会炸（R104 CI 实锤：SyntaxError: Named export 'BrowserWindow'
    not found）。default import 走 CJS interop 恒安全；类型用 typeof import 保真。 */
 import electron from "electron";
+import type { BrowserWindow as BrowserWindowRef } from "electron"; /* type-only：tsc 剥离，运行时零 named import */
 const { BrowserWindow } = electron as typeof import("electron");
 
-let observeWindow: BrowserWindow | null = null;
+let observeWindow: BrowserWindowRef | null = null;
 
 /** 光标事件投影（物理像素 + 动作类型/标签——渲染层换算显示比例）。 */
 interface ObserveCursorEvent {
