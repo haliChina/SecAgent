@@ -23,6 +23,7 @@ import { runSectlOAuthFlow, type SectlOAuthResult } from "./oauth.js";
 import { logMain } from "./main-log.js";
 import { openWorkspaceFilePreview, revealWorkspaceFile, listWorkspaceFiles } from "./workspace-preview.js";
 import { getVirtualDisplayStatus, installVirtualDisplayDriver, uninstallVirtualDisplayDriver, reviveVirtualDisplayDevices } from "./virtual-display.js";
+import { openObserveWindow, closeObserveWindow, observeWindowOpen, registerObserveIpc } from "./observe-window.js";
 import { registerCompanionIpc } from "./ipc-companions.js";
 import { registerPluginIpc } from "./ipc-plugins.js";
 import { officialProvider, registerOfficialIpc, runSectlOAuthLogin } from "./ipc-official.js";
@@ -193,6 +194,10 @@ ipcMain.handle("workspace:preview-file", (_event, relativePath: string) => openW
 
 /* R96：交付卡「在资源管理器中打开并定位」——路径校验与预览同源。 */
 ipcMain.handle("workspace:reveal-file", (_event, relativePath: string) => revealWorkspaceFile(relativePath));
+
+/* R104 观察窗：开关 + 把手交互协议。 */
+ipcMain.handle("observe:toggle", () => { if (observeWindowOpen()) { closeObserveWindow(); return false; } openObserveWindow(); return true; });
+registerObserveIpc(ipcMain);
 
 /* R100 虚拟屏管理（检测/安装/卸载）。安装卸载走 UAC 提权——用户在弹窗里自己确认。 */
 ipcMain.handle("virtual-display:status", () => getVirtualDisplayStatus());

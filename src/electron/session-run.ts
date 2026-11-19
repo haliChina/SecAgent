@@ -16,6 +16,7 @@ import { SessionStore, maskSecretsDeep, type AssistantActivity, type SessionData
 import { loadEnabledSkills } from "../skills.js";
 import { hashIdentifier } from "../telemetry.js";
 import { logMain } from "./main-log.js";
+import { pushObserveThought, pushObserveAction } from "./observe-window.js";
 import { getTelemetry, recordTelemetryFailure } from "./main-telemetry.js";
 import { isWakeSender, setWakeAbortController, clearWakeAbortController } from "./wake.js";
 import { confirmSensitiveToolCall } from "./tool-confirm.js";
@@ -174,6 +175,8 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
         const last = activities.at(-1);
         if (last?.kind === kind) last.content += data.text;
         else activities.push({ kind, content: data.text, ...(typeof data.turn === "number" ? { turn: data.turn } : {}) });
+        /* R104 观察窗字幕旁路（本机自显无脱敏需求；开着才推）。 */
+        try { pushObserveThought(kind, data.text); } catch { /* ignore */ }
       }
     }
     if (ordered.stage === "mcp.tools/call" || ordered.stage === "secagent.tools/call") {
@@ -181,6 +184,8 @@ export async function runSession(deps: SessionRunDeps, id: string, text: string,
       if (typeof data.name === "string") {
         toolCalls.push({ name: data.name, arguments: data.arguments ?? {} });
         activities.push({ kind: "tool", name: data.name, arguments: data.arguments ?? {} });
+        /* R104 观察窗动作行旁路。 */
+        try { pushObserveAction(`工具 · ${data.name}`); } catch { /* ignore */ }
       }
     }
     if (ordered.stage === "secagent.skills/auto-load") {

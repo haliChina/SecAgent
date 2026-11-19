@@ -125,6 +125,7 @@ interface Window {
     previewWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
     revealWorkspaceFile(relativePath: string): Promise<{ ok: true }>;
     listWorkspaceFiles(): Promise<Array<{ path: string; size: number; mtime: string }>>;
+    observeToggle(): Promise<boolean>;
     virtualDisplayStatus(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean }>;
     virtualDisplayInstall(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean }>;
     virtualDisplayRevive(): Promise<{ installed: boolean; inactive: Array<{ instanceId: string; description: string; status: string }>; devices: string[]; driverPackaged: boolean; revived: number }>;

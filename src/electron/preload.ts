@@ -95,6 +95,7 @@ contextBridge.exposeInMainWorld("secagent", {
     revealWorkspaceFile: (relativePath: string) => ipcRenderer.invoke("workspace:reveal-file", relativePath),
     listWorkspaceFiles: () => ipcRenderer.invoke("workspace:list-files"),
     virtualDisplayStatus: () => ipcRenderer.invoke("virtual-display:status"),
+    observeToggle: () => ipcRenderer.invoke("observe:toggle"),
     virtualDisplayInstall: () => ipcRenderer.invoke("virtual-display:install"),
     virtualDisplayUninstall: () => ipcRenderer.invoke("virtual-display:uninstall"),
     virtualDisplayRevive: () => ipcRenderer.invoke("virtual-display:revive"),

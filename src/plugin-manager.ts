@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { pushObserveFrame } from "./electron/observe-window.js";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -168,6 +169,12 @@ export interface PluginHostApi {
   flashMarker(x: number, y: number, opts?: { kind?: "click" | "type" | "focus" | "scroll" | "chord"; radius?: number; ms?: number; label?: string; direction?: number }): void;
   /** 插件动作会话期间反复调用以常驻显示「正在操作电脑」徽标（active=false 立即隐藏）。 */
   agentActivity(input: { active: boolean; label?: string }): void;
+  /**
+   * 观察窗帧推送（R104，computer-use 0.9.4+）：把 screenshot 的 base64 PNG
+   * 推给宿主观察窗（Agent 视角画面）。物理坐标语义同 flashMarker。
+   * fire-and-forget：失败静默，绝不拖累截图主链路。
+   */
+  agentFrame(png: string, meta?: { width?: number; height?: number; display?: number }): void;
   /**
    * 订阅 Agent 活动事件（回合/工具/审批/完成/失败）。
    * 事件是无内容投影：只有 kind/sessionId/at/label/reason，
@@ -675,6 +682,13 @@ export class PluginManager {
           const nx = Number(x), ny = Number(y);
           if (!Number.isFinite(nx) || !Number.isFinite(ny)) return;
           this.flashHandler(Math.round(nx), Math.round(ny), opts);
+        } catch { /* ignore */ }
+      },
+      agentFrame: (png, meta) => {
+        /* fire-and-forget：观察窗没开/数据异常静默——不拖累截图链路。 */
+        try {
+          if (typeof png !== "string" || !png) return;
+          pushObserveFrame(png, meta);
         } catch { /* ignore */ }
       },
       agentActivity: (input) => {

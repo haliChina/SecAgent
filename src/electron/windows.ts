@@ -9,6 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, Menu, nativeImage, nativeTheme, Notification, Tray, session, screen, shell, ipcMain, type BrowserWindowConstructorOptions } from "electron";
+import { pushObserveCursor } from "./observe-window.js";
 import { DEFAULT_WORKSPACE } from "../paths.js";
 import { readSettings } from "../config.js";
 import type { PluginManager, SvgPreviewRequest, OverlayRequest, PluginOverlayHandle, FlashMarkerKind, FlashHandler, AgentActivityHandler } from "../plugin-manager.js";
@@ -352,6 +353,9 @@ export function registerOverlayIpcOnce(): void {
 export const showPluginFlash: FlashHandler = (x, y, opts) => {
   try {
     if (!app.isReady()) return;
+    /* R104 观察窗旁路：每个坐标动作的光标事件（物理像素）转发给观察窗
+       （开着才推；失败静默——flash 主链路绝不因旁路挂）。 */
+    try { pushObserveCursor({ x, y, kind: (["click", "type", "focus", "scroll", "chord"] as const).includes(opts?.kind as never) ? (opts?.kind as "click" | "type" | "focus" | "scroll" | "chord") : "click", label: opts?.label }); } catch { /* ignore */ }
     const kind: FlashMarkerKind = (["click", "type", "focus", "scroll", "chord"] as FlashMarkerKind[]).includes(opts?.kind as FlashMarkerKind) ? (opts?.kind as FlashMarkerKind) : "click";
     const radius = Math.max(4, Math.min(40, Number(opts?.radius) || (kind === "focus" ? 16 : 12)));
     const ms = Math.max(300, Math.min(2000, Number(opts?.ms) || (kind === "chord" ? 1100 : kind === "type" ? 650 : kind === "scroll" ? 420 : 520)));
