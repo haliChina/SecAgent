@@ -1,63 +1,29 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ArrowRight, Check, ChevronDown, ChevronRight } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight, Check } from "lucide-react";
 import { PresetCombobox } from "./PresetCombobox.js";
 import { SelectCombobox } from "./SelectCombobox.js";
 import { emptyProvider } from "../utils.js";
 import { filterRecommendedCompanionApps } from "../companion-recommend.js";
+import { isClassIslandTargetReady, isClassWidgetsTargetReady, isIccceTargetReady, isSecRandomTargetReady, latestCompatibleVersion } from "./OobeWizardHelpers.js";
+import { OobePluginCard } from "./OobePluginCard.js";
 
 type SourcePath = "official" | "custom";
 type OobeStep = "source" | "config" | "plugins";
-type OobePageDirection = "forward" | "back";
 
 const OOBE_STEP_ORDER: OobeStep[] = ["source", "config", "plugins"];
-
-function latestCompatibleVersion(plugin: MarketplacePlugin | undefined, platform: NodeJS.Platform): MarketplaceVersion | undefined {
-  const latest = plugin?.latest;
-  return latest && latest.minHostApiVersion <= 1 && latest.platforms.includes(platform) ? latest : undefined;
-}
-
-function isClassIslandTargetReady(target: ClassIslandInstallCandidate): boolean {
-  return Boolean(target.installedPluginVersion && (!target.isRunning || target.pluginHealthy === true));
-}
-
-function isSecRandomTargetReady(target: SecRandomInstallCandidate): boolean {
-  return Boolean(target.installedPluginVersion && (!target.isRunning || target.pluginHealthy === true));
-}
-
-function isIccceTargetReady(target: IccceInstallCandidate): boolean {
-  return Boolean(target.installedPluginVersion && (!target.isRunning || target.pluginHealthy === true));
-}
-
-function isClassWidgetsTargetReady(target: ClassWidgetsInstallCandidate): boolean {
-  return Boolean(target.installedPluginVersion && (!target.isRunning || target.pluginHealthy === true));
-}
-
-function companionPluginStatus(
-  appName: string,
-  target: { installedPluginVersion?: string; isRunning: boolean; pluginHealthy?: boolean }
-): string {
-  if (!target.installedPluginVersion) return `${appName} 端插件未安装`;
-  if (target.isRunning && target.pluginHealthy === false) return `${appName} 端插件文件已安装，但当前进程尚未加载`;
-  return `${appName} 端插件已安装 v${target.installedPluginVersion}`;
-}
-
-function companionProgressForPhase(phase: string, appName: string, percent?: number): { value: number; label: string } {
-  const value = Math.max(0, Math.min(100, percent ?? ({ downloading: 18, verifying: 38, installing: 62, closing: 72, restarting: 80 } as Record<string, number>)[phase] ?? 0));
-  switch (phase) {
-    case "downloading": return { value, label: `正在下载 ${appName} 端插件…` };
-    case "verifying": return { value, label: `正在等待 ${appName} 插件响应…` };
-    case "installing": return { value, label: `正在写入 ${appName} 端插件…` };
-    case "closing": return { value, label: `正在关闭 ${appName}…` };
-    case "restarting": return { value, label: `正在启动 ${appName}…` };
-    default: return { value, label: `等待安装 ${appName} 端插件…` };
-  }
-}
 
 export function OobeWizard() {
   const bridge = window.secagent;
   const [step, setStep] = useState<OobeStep>("source");
-  const [pageTransition, setPageTransition] = useState<"idle" | "exit" | "enter">("idle");
-  const [pageDirection, setPageDirection] = useState<OobePageDirection>("forward");
+  /* R65 转场重写（reactbits Stepper View 模型）：此前 exit→setTimeout→enter→setTimeout
+     双 timer 编排 + splash 三重动画（icon 飞出/title 移栏/content 滑入）叠加是
+     「动效出现两次」的来源。改为单动画系统：view.id 每次切换只递增一次，
+     useLayoutEffect 里用 Web Animations API 对进/出两个 pane 各注册一次动画，
+     首次挂载（id===0）不播；CSS 不再持有会重复触发的 animation class。 */
+  const [view, setView] = useState<{ step: OobeStep; previous: OobeStep | null; direction: number; id: number }>({ step: "source", previous: null, direction: 1, id: 0 });
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const leavingRef = useRef<HTMLDivElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
   const transitionTimer = useRef<number | undefined>(undefined);
   const [introPhase, setIntroPhase] = useState<"intro" | "transition" | "complete">("intro");
   const introTimer = useRef<number | undefined>(undefined);
@@ -138,20 +104,31 @@ export function OobeWizard() {
   };
 
   const goToStep = (nextStep: OobeStep) => {
-    if (nextStep === step || pageTransition !== "idle") return;
-    const currentIndex = OOBE_STEP_ORDER.indexOf(step);
+    if (nextStep === view.step) return;
+    const currentIndex = OOBE_STEP_ORDER.indexOf(view.step);
     const nextIndex = OOBE_STEP_ORDER.indexOf(nextStep);
-    setPageDirection(nextIndex > currentIndex ? "forward" : "back");
-    setPageTransition("exit");
-    transitionTimer.current = window.setTimeout(() => {
-      setStep(nextStep);
-      setPageTransition("enter");
-      transitionTimer.current = window.setTimeout(() => {
-        setPageTransition("idle");
-        transitionTimer.current = undefined;
-      }, 240);
-    }, 160);
+    setView((current) => ({ step: nextStep, previous: current.step, direction: nextIndex > currentIndex ? 1 : -1, id: current.id + 1 }));
   };
+
+  /* 进出场动画：Web Animations API 单次注册（自动覆盖旧动画），先 cancel 残留，
+     reduced-motion 降级为纯淡入淡出。动画结束后清 previous（卸载离场 pane）。 */
+  useLayoutEffect(() => {
+    if (view.id === 0 || view.previous === null) return;
+    const pane = paneRef.current;
+    const leaving = leavingRef.current;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    for (const element of [pane, leaving]) element?.getAnimations().forEach((animation) => animation.cancel());
+    const finish = () => setView((current) => (current.id === view.id ? { ...current, previous: null } : current));
+    if (!pane || typeof pane.animate !== "function") { finish(); return; }
+    const shift = reduced ? 0 : 28;
+    if (shift) pane.animate([{ transform: `translateX(${view.direction * shift}px)`, opacity: 0.4 }, { transform: "none", opacity: 1 }], { duration: 360, easing: "cubic-bezier(.2, .8, .2, 1)" });
+    else pane.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: "ease-out" });
+    if (leaving && typeof leaving.animate === "function") {
+      const exit = leaving.animate([{ transform: "none", opacity: 1 }, { transform: `translateX(${-view.direction * shift}px)`, opacity: 0 }], { duration: 200, easing: "cubic-bezier(.4, 0, 1, 1)", fill: "forwards" });
+      exit.onfinish = finish;
+      window.setTimeout(finish, 400);
+    } else finish();
+  }, [view.id]);
 
   useEffect(() => {
     let disposed = false;
@@ -227,6 +204,7 @@ export function OobeWizard() {
       const progress = savedProgress || (status.loggedIn ? { step: "config" as const, source: "official" as const } : undefined);
       if (progress) {
         setStep(progress.step);
+        setView((current) => ({ step: progress.step, previous: null, direction: 1, id: current.id + 1 }));
         setSource(progress.source || null);
         if (progress.provider) setProvider({ ...emptyProvider(), ...progress.provider, models: progress.provider.models.map((model) => ({ ...model })) });
         setIntroPhase("complete");
@@ -946,31 +924,8 @@ export function OobeWizard() {
     });
   }, [apps, classIslandTargets, iccceTargets, cwTargets, plugins, secRandomTargets]);
 
-  if (!settings || !progressReady) return <main className="settings-shell oobe-shell has-window-title"><p>正在读取配置…</p></main>;
-
-  return <main className={`settings-shell oobe-shell has-window-title ${introPhase === "intro" ? "oobe-intro-active" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
-    <div className={`settings-window-title oobe-window-title ${introPhase === "intro" ? "oobe-window-title-intro" : introPhase === "transition" ? "oobe-window-title-transition" : "oobe-window-title-ready"}`}>欢迎使用 SecAgent</div>
-    {introPhase !== "complete" && <section className={`oobe-splash ${introPhase === "transition" ? "oobe-splash-exit" : ""}`} aria-label="SecAgent 欢迎页">
-      <img className="oobe-splash-icon" src="/icon.svg" alt="SecAgent" />
-      <button className="oobe-splash-start" type="button" aria-label="开始配置 SecAgent" onClick={beginIntro}><ArrowRight aria-hidden="true" size={30} strokeWidth={1.8} /></button>
-    </section>}
-    <div className={`oobe-content ${introPhase === "intro" ? "oobe-content-hidden" : introPhase === "transition" ? "oobe-content-intro-enter" : "oobe-content-ready"}`}>
-    <div className={`oobe-page ${pageTransition === "exit" ? "oobe-page-exit" : pageTransition === "enter" ? "oobe-page-enter" : ""} oobe-page-${pageDirection} ${step === "plugins" ? "oobe-page-plugins" : ""} ${pluginsReveal ? "oobe-plugins-reveal" : ""}`}>
-    <header className="oobe-header">
-      <div className="oobe-progress" role="progressbar" aria-label="OOBE 步骤进度" aria-valuemin={1} aria-valuemax={OOBE_STEP_ORDER.length} aria-valuenow={OOBE_STEP_ORDER.indexOf(step) + 1}>
-        {OOBE_STEP_ORDER.map((item, index) => <span className={`oobe-progress-segment ${index <= OOBE_STEP_ORDER.indexOf(step) ? "is-active" : ""}`} key={item} />)}
-      </div>
-      <p className="oobe-step-label">第 {step === "source" ? "1" : step === "config" ? "2" : "3"} / 3 步</p>
-      {step === "plugins" ? <div className="oobe-plugin-heading"><h1>安装课堂联动插件</h1><button className="secondary-button oobe-install-all-button" type="button" disabled={!companionDetectionReady || Boolean(installingId) || busy || allDetectedCompanionsInstalled || recommended.length === 0} onClick={() => void installAllPlugins()}>{!companionDetectionReady ? "检测本机应用中…" : allDetectedCompanionsInstalled ? <><Check aria-hidden="true" size={16} strokeWidth={2.5} />已安装所有</> : "一键安装所有"}</button></div> : <h1>{step === "source" ? "选择模型服务" : "配置模型服务"}</h1>}
-      {step !== "plugins" && <p>{step === "source"
-        ? "先选择使用 SECTL 官方模型服务，还是接入自己的模型提供商。"
-        : step === "config"
-          ? "完成模型服务的登录或接口配置，之后即可开始使用 SecAgent。"
-          : ""}</p>}
-    </header>
-    {error && <div className="settings-error">{error}</div>}
-
-    {step === "source" && <>
+  const renderStep = (s: OobeStep) => <>
+    {s === "source" && <>
       <div className="oobe-choice-grid">
         <button type="button" className="oobe-choice" onClick={() => void chooseSource("official")}>
           <span className="oobe-choice-copy"><strong>登录官方服务</strong><span>使用 SECTL 账号使用官方模型，不必自己准备 API Key。默认关闭自定义模型模式。</span></span>
@@ -984,7 +939,7 @@ export function OobeWizard() {
 
     </>}
 
-    {step === "config" && <>
+    {s === "config" && <>
       {source === "official" && <article className="settings-card oobe-panel">
         <p>{officialLoggedIn ? `已登录 ${officialEmail || "SECTL 账号"}。继续后将使用官方模型服务。` : "将打开浏览器登录 SECTL。登录完成后会自动返回，并使用官方模型服务。"}</p>
         {!officialLoggedIn && <button className="primary-button" type="button" disabled={officialBusy} onClick={() => void loginOfficial()}>{officialBusy ? "等待浏览器授权…" : "打开浏览器登录 SECTL"}</button>}
@@ -1027,7 +982,7 @@ export function OobeWizard() {
       </div>
     </>}
 
-    {step === "plugins" && <>
+    {s === "plugins" && <>
       {marketError && <div className="settings-error">{marketError}</div>}
       {!companionDetectionReady ? <div className="oobe-plugin-detection-loading" role="status" aria-live="polite">
         <span className="oobe-plugin-detection-spinner" aria-hidden="true" />
@@ -1043,180 +998,7 @@ export function OobeWizard() {
             <button className="secondary-button" type="button" onClick={() => void pickIccceExecutable()}>选择 ICC-CE 可执行文件</button>
           </div>
         </div>}
-        {recommended.map((app, index) => {
-          const market = marketPlugins.find((plugin) => plugin.id === app.pluginId);
-          const installed = plugins.find((plugin) => plugin.id === app.pluginId);
-          const version = latestCompatibleVersion(market, bridge.platform);
-          const isClassIsland = app.pluginId === "classisland-connector";
-          const isSecRandom = app.pluginId === "secrandom";
-          const isIccce = app.pluginId === "iccce-connector";
-          const isClassWidgets = app.pluginId === "class-widgets";
-          const batchCompanionInstalling = installingId === "companions:batch";
-          const selectedClassIslandTargets = classIslandTargets.filter((target) => classIslandSelectedIds.includes(target.id));
-          const selectedSecRandomTargets = secRandomTargets.filter((target) => secRandomSelectedIds.includes(target.id));
-          const selectedIccceTargets = iccceTargets.filter((target) => iccceSelectedIds.includes(target.id));
-          const selectedCwTargets = cwTargets.filter((target) => cwSelectedIds.includes(target.id));
-          const companionInstalling = installingId === `${app.pluginId}:companion` || (batchCompanionInstalling && (
-            (isClassIsland && Boolean(batchCompanionTargets.classIsland?.length)) ||
-            (isSecRandom && Boolean(batchCompanionTargets.secRandom?.length)) ||
-            (isIccce && Boolean(batchCompanionTargets.iccce?.length)) ||
-            (isClassWidgets && Boolean(batchCompanionTargets.cw?.length))
-          ));
-          const saInstalling = installingId === app.pluginId;
-          const classIslandInstalledTargetCount = selectedClassIslandTargets.filter(isClassIslandTargetReady).length;
-          const classIslandCompanionInstalled = selectedClassIslandTargets.length > 0 && selectedClassIslandTargets.every(isClassIslandTargetReady);
-          const classIslandCanInstall = selectedClassIslandTargets.length > 0 && selectedClassIslandTargets.every((target) => target.compatible) && !classIslandCompanionInstalled;
-          const classIslandPhaseLabel = classIslandPhase === "downloading" ? "下载中…" : classIslandPhase === "verifying" ? "等待插件响应…" : classIslandPhase === "installing" ? "写入中…" : classIslandPhase === "closing" ? "关闭中…" : classIslandPhase === "restarting" ? "启动中…" : "安装 ClassIsland 端插件";
-          const secRandomInstalledTargetCount = selectedSecRandomTargets.filter(isSecRandomTargetReady).length;
-          const secRandomCompanionInstalled = selectedSecRandomTargets.length > 0 && selectedSecRandomTargets.every(isSecRandomTargetReady);
-          const secRandomCanInstall = selectedSecRandomTargets.length > 0 && selectedSecRandomTargets.every((target) => target.compatible) && !secRandomCompanionInstalled;
-          const secRandomPhaseLabel = secRandomPhase === "downloading" ? "下载中…" : secRandomPhase === "verifying" ? "等待插件响应…" : secRandomPhase === "installing" ? "写入中…" : secRandomPhase === "closing" ? "关闭中…" : secRandomPhase === "restarting" ? "启动中…" : "安装 SecRandom 端插件";
-           const iccceInstalledTargetCount = selectedIccceTargets.filter(isIccceTargetReady).length;
-           const iccceCompanionInstalled = selectedIccceTargets.length > 0 && selectedIccceTargets.every(isIccceTargetReady);
-          const iccceCanInstall = selectedIccceTargets.length > 0 && selectedIccceTargets.every((target) => target.compatible) && !iccceCompanionInstalled;
-          const icccePhaseLabel = icccePhase === "downloading" ? "下载中…" : icccePhase === "verifying" ? "等待插件响应…" : icccePhase === "installing" ? "写入中…" : icccePhase === "closing" ? "关闭中…" : icccePhase === "restarting" ? "启动中…" : "安装 ICC-CE 端插件";
-          const cwInstalledTargetCount = selectedCwTargets.filter(isClassWidgetsTargetReady).length;
-          const cwCompanionInstalled = selectedCwTargets.length > 0 && selectedCwTargets.every(isClassWidgetsTargetReady);
-          const cwCanInstall = selectedCwTargets.length > 0 && selectedCwTargets.every((target) => target.compatible) && !cwCompanionInstalled;
-          const cwPhaseLabel = cwPhase === "downloading" ? "下载中…" : cwPhase === "verifying" ? "等待插件响应…" : cwPhase === "installing" ? "写入中…" : cwPhase === "closing" ? "关闭中…" : cwPhase === "restarting" ? "启动中…" : "安装 Class Widgets 端插件";
-          const companionPhase = isClassIsland ? classIslandPhase : isSecRandom ? secRandomPhase : isIccce ? icccePhase : cwPhase;
-          const rawCompanionPercent = isClassIsland ? classIslandProgressPercent : isSecRandom ? secRandomProgressPercent : isIccce ? iccceProgressPercent : cwProgressPercent;
-          const companionPercent = Math.max(rawCompanionPercent, companionHighWater[app.pluginId] ?? 0);
-          const companionProgress = companionInstalling
-            ? companionProgressForPhase(companionPhase, app.appName, companionPercent > 0 ? companionPercent : undefined)
-            : undefined;
-          const companionPending = isClassIsland
-            ? selectedClassIslandTargets.length > 0 && !classIslandCompanionInstalled
-            : isSecRandom
-              ? selectedSecRandomTargets.length > 0 && !secRandomCompanionInstalled
-              : isIccce
-                ? selectedIccceTargets.length > 0 && !iccceCompanionInstalled
-                : isClassWidgets
-                  ? selectedCwTargets.length > 0 && !cwCompanionInstalled
-                  : false;
-          // Dual-end cards reserve 0-50% of the background bar for the
-          // SecAgent connector and 50-100% for the companion plugin, so the
-          // bar advances monotonically across both halves. Single-side
-          // plugins use the full card background.
-          const dualEnd = isClassIsland || isSecRandom || isIccce || isClassWidgets;
-          const saProgressValue = saProgress[app.pluginId] || 10;
-          const saHalfOnHalf = dualEnd && companionPending;
-          const saHalfPresent = Boolean(installed) || Boolean(batchSecAgentTargets[app.pluginId]);
-          const companionOnHalf = dualEnd && saHalfPresent;
-          // Between the SecAgent half finishing and the companion half
-          // starting (the batch may still be working on other apps), the card
-          // holds at 50% instead of collapsing to an empty bar.
-          const holdingBetweenHalves = batchActive && Boolean(batchSecAgentTargets[app.pluginId])
-            && plugins.some((plugin) => plugin.id === app.pluginId)
-            && companionPending && !saInstalling && !companionInstalling;
-          const cardBusy = saInstalling || companionInstalling || holdingBetweenHalves;
-          // While any install runs, every card's install buttons stay disabled
-          // so a batch cannot be interleaved with a per-app install.
-          const installing = cardBusy || Boolean(installingId);
-          const overallProgress = saInstalling
-            ? saHalfOnHalf ? saProgressValue / 2 : saProgressValue
-            : companionInstalling && companionProgress
-              ? companionOnHalf ? 50 + companionProgress.value / 2 : companionProgress.value
-              : holdingBetweenHalves
-                ? 50
-                : cardProgressHold[app.pluginId];
-          const cardStyle = {
-            animationDelay: `${index * 70}ms`,
-            ...(overallProgress !== undefined ? { "--oobe-plugin-progress": `${overallProgress}%` } : {})
-          } as CSSProperties;
-          return <article className={`settings-card oobe-plugin-card${isClassIsland ? " oobe-plugin-card-classisland" : isSecRandom ? " oobe-plugin-card-secrandom" : isIccce ? " oobe-plugin-card-iccce" : isClassWidgets ? " oobe-plugin-card-classwidgets" : ""}${cardBusy ? " is-installing" : ""}`} aria-busy={cardBusy} style={cardStyle} key={app.pluginId}>
-            <div className="oobe-plugin-main">
-              <span className={`oobe-plugin-icon${installed?.icon ? " has-plugin-icon" : ""}`} aria-hidden="true">
-                <img className="oobe-plugin-icon-app" src={app.icon} alt="" />
-                {installed?.icon && <img className="oobe-plugin-icon-plugin" key={installed.icon} src={installed.icon} alt="" />}
-              </span>
-              <div className="oobe-plugin-copy">
-                <strong>{app.appName}</strong>
-                <span>{isClassIsland ? `${classIslandTargets.length ? app.description : "未自动找到安装目录，可手动选择"} · 需要配置两端插件` : isSecRandom ? `${secRandomTargets.length ? app.description : "未自动找到安装目录，可手动选择"} · 需要配置两端插件` : isIccce ? `${iccceTargets.length ? app.description : "未自动找到安装目录，可手动选择"} · 需要配置两端插件` : isClassWidgets ? `${cwTargets.length ? app.description : "未自动找到安装目录，可手动选择"} · 需要配置两端插件` : `${app.description} · 已在本机找到`}</span>
-              </div>
-            </div>
-            {(isClassIsland || isSecRandom || isIccce || isClassWidgets) ? <div className="oobe-plugin-side-actions oobe-plugin-side-actions-dual">
-              <div className="oobe-plugin-side-action">
-                <span className="oobe-plugin-side-label">SecAgent 端</span>
-                {installed ? <span className="oobe-plugin-side-state is-installed" aria-label={`SecAgent 端已安装 v${installed.version}`} title={`SecAgent 端已安装 v${installed.version}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装{installed.version ? ` v${installed.version}` : ""}</span> : market && version ? <button className="primary-button" type="button" disabled={installing} onClick={() => void installPlugin(market)}>{saInstalling ? "安装中…" : "安装 SecAgent 端插件"}</button> : <span className="oobe-plugin-side-state is-unavailable">{market?.releaseError ? "暂不可用" : "暂无可用版本"}</span>}
-              </div>
-              <div className="oobe-plugin-side-action">
-                <span className="oobe-plugin-side-label">{app.appName} 端</span>
-                {isClassIsland ? classIslandCompanionInstalled ? <span className="oobe-plugin-side-state is-installed" aria-label={`ClassIsland 端已安装 ${classIslandInstalledTargetCount}/${selectedClassIslandTargets.length}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装 {classIslandInstalledTargetCount}/{selectedClassIslandTargets.length}</span> : !selectedClassIslandTargets.length ? <span className="oobe-plugin-side-state is-unavailable">未选择安装目标</span> : <button className="primary-button" type="button" disabled={installing || !classIslandCanInstall} onClick={() => void installClassIslandPlugin(market)}>{companionInstalling ? classIslandPhaseLabel : classIslandInstalledTargetCount ? "安装剩余 ClassIsland 端插件" : "安装 ClassIsland 端插件"}</button>
-                  : isSecRandom ? secRandomCompanionInstalled ? <span className="oobe-plugin-side-state is-installed" aria-label={`SecRandom 端已安装 ${secRandomInstalledTargetCount}/${selectedSecRandomTargets.length}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装 {secRandomInstalledTargetCount}/{selectedSecRandomTargets.length}</span> : !selectedSecRandomTargets.length ? <span className="oobe-plugin-side-state is-unavailable">未选择安装目标</span> : <button className="primary-button" type="button" disabled={installing || !secRandomCanInstall} onClick={() => void installSecRandomPlugin(market)}>{companionInstalling ? secRandomPhaseLabel : secRandomInstalledTargetCount ? "安装剩余 SecRandom 端插件" : "安装 SecRandom 端插件"}</button>
-                    : isIccce ? (iccceCompanionInstalled ? <span className="oobe-plugin-side-state is-installed" aria-label={`ICC-CE 端已安装 ${iccceInstalledTargetCount}/${selectedIccceTargets.length}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装 {iccceInstalledTargetCount}/{selectedIccceTargets.length}</span> : !selectedIccceTargets.length ? <span className="oobe-plugin-side-state is-unavailable">未选择安装目标</span> : <button className="primary-button" type="button" disabled={installing || !iccceCanInstall} onClick={() => void installIcccePlugin(market)}>{companionInstalling ? icccePhaseLabel : iccceInstalledTargetCount ? "安装剩余 ICC-CE 端插件" : "安装 ICC-CE 端插件"}</button>)
-                      : cwCompanionInstalled ? <span className="oobe-plugin-side-state is-installed" aria-label={`Class Widgets 端已安装 ${cwInstalledTargetCount}/${selectedCwTargets.length}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装 {cwInstalledTargetCount}/{selectedCwTargets.length}</span> : !selectedCwTargets.length ? <span className="oobe-plugin-side-state is-unavailable">未选择安装目标</span> : <button className="primary-button" type="button" disabled={installing || !cwCanInstall} onClick={() => void installClassWidgetsPlugin(market)}>{companionInstalling ? cwPhaseLabel : cwInstalledTargetCount ? "安装剩余 Class Widgets 端插件" : "安装 Class Widgets 端插件"}</button>}
-              </div>
-            </div> : <div className="oobe-plugin-side-actions oobe-plugin-side-actions-single">
-              <span className="oobe-plugin-side-label">SecAgent 端</span>
-              {installed ? <span className="oobe-plugin-side-state is-installed" aria-label={`SecAgent 端已安装 v${installed.version}`} title={`SecAgent 端已安装 v${installed.version}`}><Check aria-hidden="true" size={17} strokeWidth={2.5} />已安装{installed.version ? ` v${installed.version}` : ""}</span> : market && version ? <button className="primary-button" type="button" disabled={installing} onClick={() => void installPlugin(market)}>{saInstalling ? "安装中…" : "安装 SecAgent 端插件"}</button> : <span className="oobe-plugin-side-state is-unavailable">{market?.releaseError ? "暂不可用" : "暂无可用版本"}</span>}
-            </div>}
-            {isClassIsland && <div className="oobe-classisland-targets">
-              <div className="oobe-classisland-target-heading">
-                <button className="oobe-target-toggle" type="button" disabled={installing} aria-expanded={classIslandTargetsExpanded} aria-controls="oobe-classisland-target-list" onClick={() => setClassIslandTargetsExpanded((expanded) => !expanded)}><strong>选择 ClassIsland 安装目标</strong>{classIslandTargetsExpanded ? <ChevronDown aria-hidden="true" size={17} /> : <ChevronRight aria-hidden="true" size={17} />}</button>
-                {classIslandTargetsExpanded && <button className="secondary-button" type="button" disabled={installing} onClick={() => void pickClassIslandExecutable()}>选择 ClassIsland.exe</button>}
-              </div>
-              {classIslandTargetsExpanded && <div id="oobe-classisland-target-list">
-                {!classIslandTargets.length && <p className="empty-list">未找到 ClassIsland，可选择其可执行文件。</p>}
-                {classIslandTargets.map((target) => {
-                  const result = classIslandResults[target.id];
-                  return <label className={`oobe-classisland-target${target.compatible ? "" : " is-incompatible"}`} key={target.id}>
-                    <input type="checkbox" checked={classIslandSelectedIds.includes(target.id)} disabled={!target.compatible || installing} onChange={() => setClassIslandSelectedIds((current) => current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id])} />
-                    <span><strong>ClassIsland {target.version ? `v${target.version}` : "版本未知"}{target.isRunning ? " · 正在运行" : ""}</strong><small>{target.executablePath} · {companionPluginStatus("ClassIsland", target)}</small>{!target.compatible && <em>{target.reason}</em>}{result && <em className={result.ok ? "is-success" : "is-error"}>{result.message}</em>}</span>
-                  </label>;
-                })}
-              </div>}
-            </div>}
-            {isSecRandom && <div className="oobe-classisland-targets">
-              <div className="oobe-classisland-target-heading">
-                <button className="oobe-target-toggle" type="button" disabled={installing} aria-expanded={secRandomTargetsExpanded} aria-controls="oobe-secrandom-target-list" onClick={() => setSecRandomTargetsExpanded((expanded) => !expanded)}><strong>选择 SecRandom 安装目标</strong>{secRandomTargetsExpanded ? <ChevronDown aria-hidden="true" size={17} /> : <ChevronRight aria-hidden="true" size={17} />}</button>
-                {secRandomTargetsExpanded && <button className="secondary-button" type="button" disabled={installing} onClick={() => void pickSecRandomExecutable()}>选择 SecRandom 可执行文件</button>}
-              </div>
-              {secRandomTargetsExpanded && <div id="oobe-secrandom-target-list">
-                {!secRandomTargets.length && <p className="empty-list">未找到 SecRandom，可选择其可执行文件。</p>}
-                {secRandomTargets.map((target) => {
-                  const result = secRandomResults[target.id];
-                  return <label className={`oobe-classisland-target${target.compatible ? "" : " is-incompatible"}`} key={target.id}>
-                    <input type="checkbox" checked={secRandomSelectedIds.includes(target.id)} disabled={!target.compatible || installing} onChange={() => setSecRandomSelectedIds((current) => current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id])} />
-                    <span><strong>SecRandom {target.version ? `v${target.version}` : "版本未知"}{target.isRunning ? " · 正在运行" : ""}</strong><small>{target.executablePath} · {companionPluginStatus("SecRandom", target)}</small>{!target.compatible && <em>{target.reason}</em>}{result && <em className={result.ok ? "is-success" : "is-error"}>{result.message}</em>}</span>
-                  </label>;
-                })}
-              </div>}
-            </div>}
-            {isIccce && <div className="oobe-classisland-targets">
-              <div className="oobe-classisland-target-heading">
-                <button className="oobe-target-toggle" type="button" disabled={installing} aria-expanded={iccceTargetsExpanded} aria-controls="oobe-iccce-target-list" onClick={() => setIccceTargetsExpanded((expanded) => !expanded)}><strong>选择 ICC-CE 安装目标</strong>{iccceTargetsExpanded ? <ChevronDown aria-hidden="true" size={17} /> : <ChevronRight aria-hidden="true" size={17} />}</button>
-                {iccceTargetsExpanded && <button className="secondary-button" type="button" disabled={installing} onClick={() => void pickIccceExecutable()}>选择 ICC-CE 可执行文件</button>}
-              </div>
-              {iccceTargetsExpanded && <div id="oobe-iccce-target-list">
-                {!iccceTargets.length && <p className="empty-list">未找到 ICC-CE，可选择其可执行文件。</p>}
-                {iccceTargets.map((target) => {
-                  const result = iccceResults[target.id];
-                  return <label className={`oobe-classisland-target${target.compatible ? "" : " is-incompatible"}`} key={target.id}>
-                    <input type="checkbox" checked={iccceSelectedIds.includes(target.id)} disabled={!target.compatible || installing} onChange={() => setIccceSelectedIds((current) => current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id])} />
-                    <span><strong>ICC-CE {target.version ? `v${target.version}` : "版本未知"}{target.isRunning ? " · 正在运行" : ""}</strong><small>{target.executablePath} · {companionPluginStatus("ICC-CE", target)}</small>{!target.compatible && <em>{target.reason}</em>}{result && <em className={result.ok ? "is-success" : "is-error"}>{result.message}</em>}</span>
-                  </label>;
-                })}
-              </div>}
-            </div>}
-            {isClassWidgets && <div className="oobe-classisland-targets">
-              <div className="oobe-classisland-target-heading">
-                <button className="oobe-target-toggle" type="button" disabled={installing} aria-expanded={cwTargetsExpanded} aria-controls="oobe-cw-target-list" onClick={() => setCwTargetsExpanded((expanded) => !expanded)}><strong>选择 Class Widgets 安装目标</strong>{cwTargetsExpanded ? <ChevronDown aria-hidden="true" size={17} /> : <ChevronRight aria-hidden="true" size={17} />}</button>
-                {cwTargetsExpanded && <button className="secondary-button" type="button" disabled={installing} onClick={() => void pickClassWidgetsExecutable()}>选择 Class Widgets 可执行文件</button>}
-              </div>
-              {cwTargetsExpanded && <div id="oobe-cw-target-list">
-                {!cwTargets.length && <p className="empty-list">未找到 Class Widgets，可选择其可执行文件。</p>}
-                {cwTargets.map((target) => {
-                  const result = cwResults[target.id];
-                  return <label className={`oobe-classisland-target${target.compatible ? "" : " is-incompatible"}`} key={target.id}>
-                    <input type="checkbox" checked={cwSelectedIds.includes(target.id)} disabled={!target.compatible || installing} onChange={() => setCwSelectedIds((current) => current.includes(target.id) ? current.filter((id) => id !== target.id) : [...current, target.id])} />
-                    <span><strong>Class Widgets {target.version ? `v${target.version}` : "版本未知"}{target.isRunning ? " · 正在运行" : ""}</strong><small>{target.executablePath} · {companionPluginStatus("Class Widgets", target)}</small>{!target.compatible && <em>{target.reason}</em>}{result && <em className={result.ok ? "is-success" : "is-error"}>{result.message}</em>}</span>
-                  </label>;
-                })}
-              </div>}
-            </div>}
-          </article>;
-        })}
+        {recommended.map((app, index) => <OobePluginCard key={app.pluginId} app={app} index={index} marketPlugins={marketPlugins} plugins={plugins} platform={bridge.platform} installingId={installingId} batchActive={batchActive} batchCompanionTargets={batchCompanionTargets} batchSecAgentTargets={batchSecAgentTargets} saProgress={saProgress} companionHighWater={companionHighWater} cardProgressHold={cardProgressHold} classIslandTargets={classIslandTargets} secRandomTargets={secRandomTargets} iccceTargets={iccceTargets} cwTargets={cwTargets} classIslandSelectedIds={classIslandSelectedIds} secRandomSelectedIds={secRandomSelectedIds} iccceSelectedIds={iccceSelectedIds} cwSelectedIds={cwSelectedIds} setClassIslandSelectedIds={setClassIslandSelectedIds} setSecRandomSelectedIds={setSecRandomSelectedIds} setIccceSelectedIds={setIccceSelectedIds} setCwSelectedIds={setCwSelectedIds} classIslandTargetsExpanded={classIslandTargetsExpanded} secRandomTargetsExpanded={secRandomTargetsExpanded} iccceTargetsExpanded={iccceTargetsExpanded} cwTargetsExpanded={cwTargetsExpanded} setClassIslandTargetsExpanded={setClassIslandTargetsExpanded} setSecRandomTargetsExpanded={setSecRandomTargetsExpanded} setIccceTargetsExpanded={setIccceTargetsExpanded} setCwTargetsExpanded={setCwTargetsExpanded} classIslandResults={classIslandResults} secRandomResults={secRandomResults} iccceResults={iccceResults} cwResults={cwResults} classIslandPhase={classIslandPhase} secRandomPhase={secRandomPhase} icccePhase={icccePhase} cwPhase={cwPhase} classIslandProgressPercent={classIslandProgressPercent} secRandomProgressPercent={secRandomProgressPercent} iccceProgressPercent={iccceProgressPercent} cwProgressPercent={cwProgressPercent} installPlugin={installPlugin} installClassIslandPlugin={installClassIslandPlugin} installSecRandomPlugin={installSecRandomPlugin} installIcccePlugin={installIcccePlugin} installClassWidgetsPlugin={installClassWidgetsPlugin} pickClassIslandExecutable={pickClassIslandExecutable} pickSecRandomExecutable={pickSecRandomExecutable} pickIccceExecutable={pickIccceExecutable} pickClassWidgetsExecutable={pickClassWidgetsExecutable} />)}
       </section>}
       <div className="oobe-actions">
         <button className="secondary-button" type="button" onClick={() => void saveProgress({ step: "config", source: source || undefined, ...(source === "custom" ? { provider } : {}) }).then(() => goToStep("config")).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)))}>上一步</button>
@@ -1224,6 +1006,31 @@ export function OobeWizard() {
         <button className="primary-button" type="button" disabled={busy} onClick={() => void finish()}>{busy ? "完成中…" : "完成并开始使用"}</button>
       </div>
     </>}
+  </>;
+
+  if (!settings || !progressReady) return <main className="settings-shell oobe-shell has-window-title"><p>正在读取配置…</p></main>;
+
+  return <main className={`settings-shell oobe-shell has-window-title ${introPhase === "intro" ? "oobe-intro-active" : ""} ${bridge.platform === "darwin" ? "macos-settings" : ""} ${bridge.platform !== "darwin" ? "windows-settings" : ""}`}>
+    <div className={`settings-window-title oobe-window-title ${introPhase === "intro" ? "oobe-window-title-intro" : introPhase === "transition" ? "oobe-window-title-transition" : "oobe-window-title-ready"}`}>欢迎使用 SecAgent</div>
+    {introPhase !== "complete" && <section className={`oobe-splash ${introPhase === "transition" ? "oobe-splash-exit" : ""}`} aria-label="SecAgent 欢迎页">
+      <img className="oobe-splash-icon" src="/icon.svg" alt="SecAgent" />
+      <button className="oobe-splash-start" type="button" aria-label="开始配置 SecAgent" onClick={beginIntro}><ArrowRight aria-hidden="true" size={30} strokeWidth={1.8} /></button>
+    </section>}
+    <div className={`oobe-content ${introPhase === "intro" ? "oobe-content-hidden" : introPhase === "transition" ? "oobe-content-intro-enter" : "oobe-content-ready"}`}>
+    <div className={`oobe-page ${view.step === "plugins" ? "oobe-page-plugins" : ""} ${pluginsReveal ? "oobe-plugins-reveal" : ""}`}>
+    <header className="oobe-header">
+      {view.step === "plugins" ? <div className="oobe-plugin-heading"><h1>安装课堂联动插件</h1><button className="secondary-button oobe-install-all-button" type="button" disabled={!companionDetectionReady || Boolean(installingId) || busy || allDetectedCompanionsInstalled || recommended.length === 0} onClick={() => void installAllPlugins()}>{!companionDetectionReady ? "检测本机应用中…" : allDetectedCompanionsInstalled ? <><Check aria-hidden="true" size={16} strokeWidth={2.5} />已安装所有</> : "一键安装所有"}</button></div> : <h1>{view.step === "source" ? "选择模型服务" : "配置模型服务"}</h1>}
+      {view.step !== "plugins" && <p>{view.step === "source" ? "先选择使用 SECTL 官方模型服务，还是接入自己的模型提供商。" : "完成模型服务的登录或接口配置，之后即可开始使用 SecAgent。"}</p>}
+    </header>
+    {error && <div className="settings-error">{error}</div>}
+      <div className="oobe-progress" role="progressbar" aria-label="OOBE 步骤进度" aria-valuemin={1} aria-valuemax={OOBE_STEP_ORDER.length} aria-valuenow={OOBE_STEP_ORDER.indexOf(view.step) + 1}>
+        {OOBE_STEP_ORDER.map((item, index) => <span className={`oobe-progress-segment ${index <= OOBE_STEP_ORDER.indexOf(view.step) ? "is-active" : ""}`} key={item} />)}
+      </div>
+      <p className="oobe-step-label">第 {view.step === "source" ? "1" : view.step === "config" ? "2" : "3"} / 3 步</p>
+      <div className="oobe-viewport" ref={viewportRef}>
+        {view.previous !== null && <div className="oobe-pane oobe-pane-leaving" ref={leavingRef} aria-hidden="true">{renderStep(view.previous)}</div>}
+        <div className="oobe-pane" ref={paneRef}>{renderStep(view.step)}</div>
+      </div>
     </div>
     </div>
   </main>;

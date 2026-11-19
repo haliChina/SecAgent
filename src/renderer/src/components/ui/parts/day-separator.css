@@ -1,0 +1,5 @@
+/* DaySeparator (assistant-ui) — 组件级样式（P3：随组件走）。
+ * 类名不变、规则自全局 styles.css 原样迁移。 */
+.day-separator { display: flex; align-items: center; gap: 14px; margin: 10px 0 -4px; color: var(--text-3); font-size: 11.5px; user-select: none; }
+.day-separator-line { flex: 1; height: 1px; background: var(--line); }
+.day-separator-label { min-width: 48px; text-align: center; letter-spacing: .04em; }

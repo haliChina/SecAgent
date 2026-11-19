@@ -1,0 +1,9 @@
+/* ThoughtLine (reactbits thought-line) — 组件级样式（P3：随组件走）。
+ * 类名不变、规则自全局 styles.css 原样迁移；动画尊重 prefers-reduced-motion。 */
+.thought-line { display: inline-flex; align-items: center; gap: 8px; margin: 2px 0 6px; color: var(--text-3); font-size: 12.5px; }
+.thought-line-spinner { width: 13px; height: 13px; border-radius: 50%; border: 2px solid var(--bg-1); border-top-color: var(--accent); animation: thought-spin 0.9s linear infinite; }
+.thought-line.done .thought-line-spinner { animation: none; border: 2px solid var(--accent); border-radius: 3px; width: 10px; height: 10px; background: transparent; }
+@keyframes thought-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .thought-line-spinner { animation: none !important; transition: none !important; }
+}

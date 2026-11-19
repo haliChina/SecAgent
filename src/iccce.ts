@@ -6,6 +6,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { compareVersions, describeDownloadAttempt, marketplaceRequestUrls, type DownloadAttemptLogger } from "./marketplace.js";
 import { closeHostProcesses, enumerateHostProcesses, installCompanionPackage, startCompanionProcess, startCompanionProcessWithSameElevation, type CompanionExecutor, type CompanionLogger, type CompanionPackageSpec, type HostProcessFilter, type HostProcessInfo } from "./companion-package.js";
+import { defaultCommandRunner, defaultExists, defaultForceTerminate, defaultIsProcessRunning, defaultReadFile, defaultRequestGracefulClose, discoverWindowsExternalPaths, fetchReleasePageMetadata, hashId, normalizePath, parseJsonList, parseWindowsCommandLine, platformPath, quotePowerShell, waitForInstalledPlugin, type CommandRunner, type DiscoveredProcess, type Fetcher, type PathApi, type SupportedPlatform } from "./companion-installer-shared.js";
 
 export const ICCCE_PLUGIN_REPOSITORY = "SECTL/ICC-CE-SecAgent-Plugin";
 export const ICCCE_PLUGIN_ID = "inkcanvas.iccce.secagent";
@@ -18,11 +19,6 @@ const ICCCE_PLUGIN_VERSION_PATTERN = /["']?Version["']?\s*:\s*["']([^"']+)["']/i
 const ICCCE_PLUGIN_ID_PATTERN = /["']?Id["']?\s*:\s*["']([^"']+)["']/i;
 const WINDOWS_ICCCE_EXECUTABLES = ["InkCanvasForClass.exe", "Ink Canvas.exe", "InkCanvas.exe", "ICC-CE.exe"];
 const MAX_ICCCE_PLUGIN_BYTES = 100 * 1024 * 1024;
-
-type SupportedPlatform = NodeJS.Platform;
-type PathApi = typeof path.win32;
-type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Response>;
-type CommandRunner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
 export interface IccceInstallCandidate {
   id: string;
@@ -134,91 +130,8 @@ interface ReleaseMetadata {
 
 const execFileAsync = promisify(execFile);
 
-function platformPath(platform: SupportedPlatform): PathApi {
-  return platform === "win32" ? path.win32 : path.posix;
-}
-
-function normalizePath(value: string, platform: SupportedPlatform): string {
-  const api = platformPath(platform);
-  const normalized = api.normalize(value);
-  return platform === "win32" ? normalized.toLowerCase() : normalized;
-}
-
-function hashId(executablePath: string, rootPath: string, platform: SupportedPlatform): string {
-  return crypto.createHash("sha256").update(`${normalizePath(executablePath, platform)}\0${normalizePath(rootPath, platform)}`).digest("hex").slice(0, 20);
-}
-
-function defaultExists(candidate: string): boolean {
-  try { return fs.existsSync(candidate); } catch { return false; }
-}
-
-function defaultReadFile(filePath: string): string {
-  return fs.readFileSync(filePath, "utf8");
-}
-
 function defaultListDir(directory: string): string[] {
   try { return fs.readdirSync(directory); } catch { return []; }
-}
-
-function defaultCommandRunner(file: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
-  return execFileAsync(file, args, { encoding: "utf8", windowsHide: true, maxBuffer: 2 * 1024 * 1024 }).then((result) => ({ stdout: result.stdout, stderr: result.stderr }));
-}
-
-function quotePowerShell(value: string): string {
-  return `'${value.replaceAll("'", "''")}'`;
-}
-
-function parseJsonList(output: string): string[] {
-  if (!output.trim()) return [];
-  try {
-    const parsed = JSON.parse(output) as unknown;
-    if (Array.isArray(parsed)) return parsed.filter((item): item is string => typeof item === "string");
-    return typeof parsed === "string" ? [parsed] : [];
-  } catch {
-    return [];
-  }
-}
-
-async function discoverWindowsExternalPaths(commandRunner: CommandRunner, env: NodeJS.ProcessEnv): Promise<string[]> {
-  const registryScript = String.raw`
-$keys = @(
-  'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
-  'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-)
-$result = Get-ItemProperty -Path $keys -ErrorAction SilentlyContinue |
-  Where-Object { $_.DisplayName -and $_.DisplayName -match '(?i)(ICC\s*[- ]?CE|Ink\s*Canvas)' } |
-  ForEach-Object { @($_.InstallLocation, ($_.DisplayIcon -replace ',\d+$', '')) } |
-  Where-Object { $_ -and $_.ToString().Trim() }
-@($result) | ConvertTo-Json -Compress
-`;
-  const shortcutRoots = [
-    path.win32.join(env.APPDATA || "", "Microsoft", "Windows", "Start Menu", "Programs"),
-    path.win32.join(env.ProgramData || "C:\\ProgramData", "Microsoft", "Windows", "Start Menu", "Programs"),
-    path.win32.join(env.USERPROFILE || "", "Desktop")
-  ];
-  const shortcutScript = String.raw`
-$roots = @(${shortcutRoots.map(quotePowerShell).join(",")})
-$shell = New-Object -ComObject WScript.Shell
-$result = Get-ChildItem -Path $roots -Filter '*.lnk' -File -Recurse -ErrorAction SilentlyContinue |
-  ForEach-Object {
-    try {
-      $shortcut = $shell.CreateShortcut($_.FullName)
-      if ($shortcut.TargetPath -match '(?i)(InkCanvasForClass|Ink Canvas|ICC[- ]?CE)') { $shortcut.TargetPath }
-    } catch { }
-  }
-@($result) | ConvertTo-Json -Compress
-`;
-  const paths: string[] = [];
-  try {
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", registryScript]);
-    paths.push(...parseJsonList(result.stdout));
-  } catch { /* Registry access is best effort. */ }
-  try {
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", shortcutScript]);
-    paths.push(...parseJsonList(result.stdout));
-  } catch { /* Shortcut access is best effort. */ }
-  return paths;
 }
 
 async function discoverRunningProcesses(platform: SupportedPlatform, commandRunner: CommandRunner): Promise<IccceRunningProcess[]> {
@@ -253,34 +166,6 @@ Get-CimInstance Win32_Process |
   } catch {
     return [];
   }
-}
-
-function parseWindowsCommandLine(commandLine: string | undefined): string[] {
-  if (!commandLine?.trim()) return [];
-  const args: string[] = [];
-  let current = "";
-  let quoted = false;
-  let slashCount = 0;
-  const pushSlashes = (count: number) => { current += "\\".repeat(count); };
-  for (let index = 0; index < commandLine.length; index++) {
-    const char = commandLine[index];
-    if (char === "\\") { slashCount++; continue; }
-    if (char === '"') {
-      pushSlashes(Math.floor(slashCount / 2));
-      if (slashCount % 2 === 1) current += '"';
-      else quoted = !quoted;
-      slashCount = 0;
-      continue;
-    }
-    pushSlashes(slashCount);
-    slashCount = 0;
-    if (/\s/.test(char) && !quoted) {
-      if (current) { args.push(current); current = ""; }
-    } else current += char;
-  }
-  pushSlashes(slashCount);
-  if (current) args.push(current);
-  return args;
 }
 
 function executableCandidates(input: string, platform: SupportedPlatform): string[] {
@@ -351,21 +236,6 @@ function installedPluginVersion(layout: ResolvedIccceLayout, platform: Supported
   }
 }
 
-async function waitForInstalledPlugin(
-  readVersion: () => string | undefined,
-  expectedVersion: string,
-  timeoutMs = 15_000,
-  pollMs = 250
-): Promise<string | undefined> {
-  const deadline = Date.now() + timeoutMs;
-  while (true) {
-    const current = readVersion();
-    if (current && compareVersions(current, expectedVersion) >= 0) return current;
-    if (Date.now() >= deadline) return undefined;
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-}
-
 interface PluginHealthResult {
   healthy: boolean;
   reason: string;
@@ -415,7 +285,10 @@ export async function discoverIccceInstallations(options: IccceDiscoveryOptions 
   const readFile = options.readFile || defaultReadFile;
   const commandRunner = options.commandRunner || defaultCommandRunner;
   const running = options.runningProcesses || await discoverRunningProcesses(platform, commandRunner);
-  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env) : [];
+  const externalPaths = platform === "win32" && !options.executablePaths?.length && !options.runningProcesses ? await discoverWindowsExternalPaths(commandRunner, env, {
+      displayNameFilter: "-match '(?i)(ICC\\s*[- ]?CE|Ink\\s*Canvas)'",
+      targetPathPattern: "(?i)(InkCanvasForClass|Ink Canvas|ICC[- ]?CE)"
+    }) : [];
   const inputPaths = [
     ...staticExecutablePaths(platform, home, env),
     ...(options.executablePaths || []),
@@ -463,10 +336,6 @@ export async function discoverIccceInstallations(options: IccceDiscoveryOptions 
     if (!previous || (!previous.isRunning && candidate.isRunning)) candidates.set(key, candidate);
   }
   return [...candidates.values()].map(({ canonicalExecutablePath: _executable, canonicalRootPath: _root, ...candidate }) => candidate);
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 interface IccePluginDisabledState {
@@ -695,53 +564,6 @@ async function resetIccePluginErrorRecovery(rootPath: string, platform: Supporte
   }
 }
 
-function releaseTagFromPage(url: string | undefined, html: string): string | undefined {
-  const candidates = [url || "", ...(html.match(/\/releases\/tag\/[^\s"'<]+/gi) || [])];
-  for (const candidate of candidates) {
-    const match = candidate.match(/\/releases\/tag\/([^/?#"'<]+)/i);
-    if (match?.[1]) return decodeURIComponent(match[1]);
-  }
-  return undefined;
-}
-
-function releaseAssetFromExpandedPage(html: string): ReleaseMetadata["assets"][number] | undefined {
-  const blocks = html.match(/<li\b[\s\S]*?<\/li>/gi) || [];
-  for (const block of blocks) {
-    if (!new RegExp(`>${escapeRegExp(ICCCE_PLUGIN_ASSET_NAME)}<`, "i").test(block)) continue;
-    const href = block.match(/href=["']([^"']+\/releases\/download\/[^"']+)["']/i)?.[1]?.replaceAll("&amp;", "&");
-    const digest = block.match(/sha256:([a-f0-9]{64})/i)?.[1];
-    if (!href || !digest) continue;
-    const browserDownloadUrl = new URL(href, "https://github.com").toString();
-    if (new URL(browserDownloadUrl).hostname !== "github.com") continue;
-    return { name: ICCCE_PLUGIN_ASSET_NAME, browser_download_url: browserDownloadUrl, digest: `sha256:${digest}` };
-  }
-  return undefined;
-}
-
-async function fetchReleasePageMetadata(fetcher: Fetcher, now: () => number): Promise<ReleaseMetadata | undefined> {
-  let lastError: unknown;
-  for (const pageUrl of marketplaceRequestUrls(`${ICCCE_RELEASE_PAGE_URL}?secagent_cache=${now()}`)) {
-    try {
-      const response = await fetcher(pageUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
-      if (!response.ok) { lastError = new Error(`HTTP ${response.status}`); continue; }
-      const html = await response.text();
-      const tag = releaseTagFromPage(response.url, html);
-      if (!tag) { lastError = new Error("GitHub Release 页面缺少版本标签"); continue; }
-      const expandedUrl = `https://github.com/${ICCCE_PLUGIN_REPOSITORY}/releases/expanded_assets/${encodeURIComponent(tag)}?secagent_cache=${now()}`;
-      for (const assetsUrl of marketplaceRequestUrls(expandedUrl)) {
-        try {
-          const assetsResponse = await fetcher(assetsUrl, { signal: AbortSignal.timeout(12_000), headers: { Accept: "text/html", "User-Agent": "SecAgent" } });
-          if (!assetsResponse.ok) { lastError = new Error(`HTTP ${assetsResponse.status}`); continue; }
-          const asset = releaseAssetFromExpandedPage(await assetsResponse.text());
-          if (asset) return { tag_name: tag, assets: [asset] };
-          lastError = new Error(`Release 页面缺少 ${ICCCE_PLUGIN_ASSET_NAME} 或 SHA-256`);
-        } catch (error) { lastError = error; }
-      }
-    } catch (error) { lastError = error; }
-  }
-  return undefined;
-}
-
 async function downloadLatestIcccePlugin(fetcher: Fetcher, now: () => number, onProgress?: (phase: IccceInstallPhase, message?: string) => void, onRoute?: DownloadAttemptLogger): Promise<{ bytes: Buffer; version: string; sha256: string }> {
   onProgress?.("downloading", "正在通过 ghproxy.sectl.cn 下载最新 ICC-CE 插件");
   let release: ReleaseMetadata | undefined;
@@ -771,7 +593,7 @@ async function downloadLatestIcccePlugin(fetcher: Fetcher, now: () => number, on
       onRoute?.(describeDownloadAttempt("release-metadata", candidate, startedAt, { error: error instanceof Error ? error.message : String(error) }, metadataCandidates.slice(index + 1)));
     }
   }
-  if (!release) release = await fetchReleasePageMetadata(fetcher, now);
+  if (!release) release = await fetchReleasePageMetadata(fetcher, now, ICCCE_RELEASE_PAGE_URL, ICCCE_PLUGIN_REPOSITORY, ICCCE_PLUGIN_ASSET_NAME);
   if (!release) throw new Error(`无法读取 ICC-CE 侧插件最新 Release：${lastError instanceof Error ? lastError.message : String(lastError)}`);
   const asset = release.assets.find((item) => item.name === ICCCE_PLUGIN_ASSET_NAME && typeof item.browser_download_url === "string");
   if (!asset) throw new Error(`最新 ICC-CE Release 缺少 ${ICCCE_PLUGIN_ASSET_NAME}；该仓库需要先发布编译后的 .icpx 插件包`);
@@ -820,29 +642,6 @@ async function downloadLatestIcccePlugin(fetcher: Fetcher, now: () => number, on
     }
   }
   throw new Error(`下载 ICC-CE 插件失败：${lastError instanceof Error ? lastError.message : String(lastError)}`);
-}
-
-async function defaultRequestGracefulClose(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<boolean> {
-  if (platform === "win32") {
-    const script = `$process = Get-Process -Id ${pid} -ErrorAction Stop; [bool]$process.CloseMainWindow()`;
-    const result = await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return result.stdout.trim().toLowerCase() !== "false";
-  }
-  process.kill(pid, "SIGTERM");
-  return true;
-}
-
-async function defaultForceTerminate(pid: number, platform: SupportedPlatform, commandRunner: CommandRunner): Promise<void> {
-  if (platform === "win32") {
-    const script = `Stop-Process -Id ${pid} -Force -ErrorAction Stop`;
-    await commandRunner("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script]);
-    return;
-  }
-  process.kill(pid, "SIGKILL");
-}
-
-async function defaultIsProcessRunning(pid: number): Promise<boolean> {
-  try { process.kill(pid, 0); return true; } catch { return false; }
 }
 
 export class IccceInstaller {

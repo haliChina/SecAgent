@@ -1,8 +1,17 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import * as Sentry from "@sentry/electron/renderer";
-import { App } from "./App.js";
+import { MotionConfig } from "motion/react";
+import { WindowRouter } from "./components/WindowRouter.js";
+import { applyTheme, cacheTheme, watchSystemTheme, type Theme } from "./theme.js";
+import { applyDisplayMode, readStoredDisplayMode, resolveDisplayMode, watchTouchInput } from "./display-mode.js";
+import { applyPerformanceMode } from "./performance-mode.js";
 import "./styles.css";
+
+/* R83：首帧前应用显示模式，避免大屏上先闪一下桌面小字。 */
+applyDisplayMode(resolveDisplayMode(readStoredDisplayMode(), window.screen.width, navigator.maxTouchPoints));
+applyPerformanceMode("auto", document.documentElement.dataset.display === "big-touch");
+watchTouchInput();
 
 const sentryDsn = window.secagent.telemetryConfig.sentryDsn;
 let sentryTelemetryEnabled = window.secagent.telemetryConfig.enabled;
@@ -45,9 +54,30 @@ window.secagent.onSettingsChanged((settings) => {
   }
 });
 
+// 主题三态（P3-5）：theme-boot.js 已按缓存先行防闪烁；这里用 settings
+// 真值校正并持续跟随（保存后 sendToAppWindows 广播，双窗同步）。
+// system 模式额外挂 OS 偏好监听，切换即换肤。
+let unwatchSystemTheme: (() => void) | undefined;
+function activateTheme(theme: unknown): void {
+  if (theme !== "light" && theme !== "dark" && theme !== "system") return;
+  cacheTheme(theme);
+  applyTheme(theme);
+  unwatchSystemTheme?.();
+  unwatchSystemTheme = theme === "system" ? watchSystemTheme("system", () => applyTheme("system")) : undefined;
+}
+void window.secagent.getSettings().then((settings) => {
+  activateTheme((settings as { theme?: unknown }).theme);
+  applyPerformanceMode((settings as { performance?: unknown }).performance, document.documentElement.dataset.display === "big-touch");
+}).catch(() => undefined);
+window.secagent.onSettingsChanged((settings) => {
+  activateTheme((settings as { theme?: unknown }).theme);
+  applyPerformanceMode((settings as { performance?: unknown }).performance, document.documentElement.dataset.display === "big-touch");
+});
+
 // WakeOverlay starts a microphone/WebSocket session as soon as it mounts. React
 // StrictMode intentionally mounts effects twice in development, which races the
 // first socket's cleanup against the second start. Keep StrictMode for the main
 // app while giving the one-shot wake window a single initialization.
 const isWakeWindow = new URLSearchParams(window.location.search).has("wake") || new URLSearchParams(window.location.search).has("voice-wake");
-createRoot(document.getElementById("root")!).render(isWakeWindow ? <App /> : <StrictMode><App /></StrictMode>);
+const app = <MotionConfig reducedMotion="user"><WindowRouter /></MotionConfig>;
+createRoot(document.getElementById("root")!).render(isWakeWindow ? app : <StrictMode>{app}</StrictMode>);

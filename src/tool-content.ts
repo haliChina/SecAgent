@@ -47,10 +47,47 @@ export function toolResultParts(value: unknown): ToolResultParts {
   return { text: textFromValue(value), images: [] };
 }
 
-export function toolResultText(parts: ToolResultParts): string {
-  if (parts.text) return parts.text;
-  if (parts.images.length) return `已返回 ${parts.images.length} 张图片供模型查看。`;
-  return "工具未返回内容。";
+/** UTF-8 byte budget for one tool result rendered into the model prompt. */
+export const TOOL_RESULT_BYTE_BUDGET = 32 * 1024;
+/** Stable prefix of the truncation notice so callers can detect a clipped result. */
+export const TOOL_RESULT_TRUNCATED_PREFIX = "[结果已截断";
+
+function utf8Bytes(char: string): number {
+  const code = char.codePointAt(0) ?? 0;
+  return code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+}
+
+/** Byte-accurate clip that never splits a surrogate pair or a CJK character. */
+function clipToBytes(text: string, maxBytes: number): { text: string; bytes: number; truncated: boolean } {
+  if (maxBytes <= 0) return { text: "", bytes: 0, truncated: text.length > 0 };
+  let used = 0;
+  let end = 0;
+  for (const char of text) {
+    const cost = utf8Bytes(char);
+    if (used + cost > maxBytes) return { text: text.slice(0, end), bytes: used, truncated: true };
+    used += cost;
+    end += char.length;
+  }
+  return { text, bytes: used, truncated: false };
+}
+
+function utf8ByteLength(text: string): number {
+  let total = 0;
+  for (const char of text) total += utf8Bytes(char);
+  return total;
+}
+
+/**
+ * Text the model sees for a tool result, capped at `maxBytes` UTF-8 bytes.
+ * Oversized output is clipped with an explicit notice instead of silently
+ * pretending the result is complete — the model can narrow the query or page.
+ */
+export function toolResultText(parts: ToolResultParts, maxBytes = TOOL_RESULT_BYTE_BUDGET): string {
+  const raw = parts.text || (parts.images.length ? `已返回 ${parts.images.length} 张图片供模型查看。` : "工具未返回内容。");
+  const total = utf8ByteLength(raw);
+  const clipped = clipToBytes(raw, maxBytes);
+  if (!clipped.truncated) return raw;
+  return `${clipped.text}\n\n${TOOL_RESULT_TRUNCATED_PREFIX}：原始 ${total} 字节，仅显示前 ${clipped.bytes} 字节（单次上限 ${maxBytes} 字节）。这不是完整结果，请缩小查询范围、分页读取或改写参数后重试。]`;
 }
 
 /** Keep binary image data out of audit logs and renderer trace events. */

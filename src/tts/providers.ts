@@ -34,7 +34,7 @@ function escapeXml(value: string): string {
 }
 
 /** "+"→1.0 multiplier, "-"→slower; SAPI Rate is -10..10. */
-export function percentRateToSapi(rate: string | undefined): number {
+function percentRateToSapi(rate: string | undefined): number {
   const parsed = Number((rate || "+0%").replace(/[+%\s]/g, ""));
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(-10, Math.min(10, Math.round(parsed / 10)));
@@ -153,16 +153,14 @@ export async function listWindowsVoices(): Promise<Array<{ id: string; label: st
 
 /* ------------------------------------------------------------------ mimo -- */
 
-export const MIMO_TTS_VOICES = ["mimo_default", "冰糖", "茉莉", "苏打", "白桦", "Mia", "Chloe", "Milo", "Dean"] as const;
-
-export interface MimoTtsProviderOptions {
+interface MimoTtsProviderOptions {
   getSettings(): MimoTtsSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
   fetchImpl?: typeof fetch;
 }
 
-export interface ResolvedMimoTtsConfig {
+interface ResolvedMimoTtsConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
@@ -171,7 +169,7 @@ export interface ResolvedMimoTtsConfig {
   voiceDescription: string;
 }
 
-export const MIMO_TTS_DEFAULTS = {
+const MIMO_TTS_DEFAULTS = {
   apiKeyEnv: "MIMO_API_KEY",
   baseUrl: "https://api.xiaomimimo.com/v1",
   model: "mimo-v2.5-tts",
@@ -180,7 +178,7 @@ export const MIMO_TTS_DEFAULTS = {
   voiceDescription: "默认"
 } as const;
 
-export function resolveMimoTtsConfig(settings: MimoTtsSettings | undefined, getApiKey: (name: string) => string | undefined): ResolvedMimoTtsConfig | null {
+function resolveMimoTtsConfig(settings: MimoTtsSettings | undefined, getApiKey: (name: string) => string | undefined): ResolvedMimoTtsConfig | null {
   const apiKey = (settings?.apiKeyEnv?.trim() && getApiKey(settings.apiKeyEnv.trim())) || process.env.MIMO_API_KEY;
   if (!apiKey) return null;
   return {
@@ -213,7 +211,7 @@ export class MimoTtsProvider implements TtsProvider {
     }
   }
 
-  async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
+  async synthesize(text: string): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
     if (!clean) return { data: Buffer.alloc(0) };
     const config = resolveMimoTtsConfig(this.options.getSettings(), this.options.getApiKey);
@@ -221,13 +219,15 @@ export class MimoTtsProvider implements TtsProvider {
     const fetchImpl = this.options.fetchImpl || fetch;
     // Docs: user message = 语气描述（voicedesign 必填，其余可选），
     // assistant message = 待合成正文；audio = { format, voice }。
+    // 音色/语气只取 miMo 自己的子配置——全局「语音音色」是 Edge/Windows 的
+    // voice id，传进来会覆盖掉用户选的 MiMo 音色。
     const body = {
       model: config.model,
       messages: [
-        { role: "user", content: options.voice || config.voiceDescription || "默认" },
+        { role: "user", content: config.voiceDescription || "默认" },
         { role: "assistant", content: clean }
       ],
-      audio: { format: config.format, voice: options.voice || config.voice }
+      audio: { format: config.format, voice: config.voice }
     };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 60000);
@@ -255,7 +255,7 @@ export class MimoTtsProvider implements TtsProvider {
 
 /* --------------------------------------------------------------- bailian -- */
 
-export interface BailianTtsProviderOptions {
+interface BailianTtsProviderOptions {
   getSettings(): BailianTtsSettings | undefined;
   getApiKey(name: string): string | undefined;
   log?(message: string): void;
@@ -263,9 +263,9 @@ export interface BailianTtsProviderOptions {
 }
 
 /** `ws` package constructor shape (headers in handshake). */
-export type BailianTtsWsConstructor = new (url: string, options?: { headers?: Record<string, string> }) => { send(data: unknown): void; close(): void; binaryType: string; onopen: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null; onerror: ((event: unknown) => void) | null; onclose: (() => void) | null; readyState: number };
+type BailianTtsWsConstructor = new (url: string, options?: { headers?: Record<string, string> }) => { send(data: unknown): void; close(): void; binaryType: string; onopen: (() => void) | null; onmessage: ((event: { data: unknown }) => void) | null; onerror: ((event: unknown) => void) | null; onclose: (() => void) | null; readyState: number };
 
-export const BAILIAN_TTS_DEFAULTS = {
+const BAILIAN_TTS_DEFAULTS = {
   apiKeyEnv: "BAILIAN_API_KEY",
   wsUrl: "wss://dashscope.aliyuncs.com/api-ws/v1/inference",
   model: "cosyvoice-v3-flash",
@@ -331,12 +331,13 @@ export class BailianTtsProvider implements TtsProvider {
     }
   }
 
-  async synthesize(text: string, options: TtsSynthesisOptions = {}): Promise<TtsAudioChunk> {
+  async synthesize(text: string): Promise<TtsAudioChunk> {
     const clean = cleanText(text);
     if (!clean) return { data: Buffer.alloc(0) };
     const config = resolveBailianTtsConfig(this.options.getSettings(), this.options.getApiKey);
     if (!config) throw new Error("百炼 CosyVoice 未配置：请在工作区 .env 设置 BAILIAN_API_KEY");
-    const voice = options.voice || config.voice;
+    // 同 MiMo：音色只取 CosyVoice 子配置，全局 voice 是 Edge/Windows 的 id。
+    const voice = config.voice;
     const chunks = splitForCosyvoice(clean);
     const parts: Buffer[] = [];
     for (const chunk of chunks) parts.push(await this.runTask(config, chunk, voice));

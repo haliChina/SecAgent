@@ -88,7 +88,7 @@ function CameraTarget({ target }: { target: Vec3 }) {
   return null;
 }
 
-function Scene({ spec }: { spec: R3FSpec }) {
+function Scene({ spec, lowPower = false }: { spec: R3FSpec; lowPower?: boolean }) {
   const camera = spec.camera || {};
   const grid = spec.grid;
   const target = vec3(camera.target, [0, 0, 0]);
@@ -100,7 +100,7 @@ function Scene({ spec }: { spec: R3FSpec }) {
     <directionalLight position={[4, 6, 5]} intensity={1.4} castShadow />
     {grid !== false && <Grid args={[Number(typeof grid === "object" ? grid.size ?? 10 : 10), Number(typeof grid === "object" ? grid.divisions ?? 10 : 10)]} cellColor={typeof grid === "object" && grid.color ? grid.color : "#cbd5e1"} sectionColor={typeof grid === "object" && grid.color ? grid.color : "#94a3b8"} fadeDistance={Number(typeof grid === "object" ? grid.fadeDistance ?? 20 : 20)} />}
     {(spec.objects || []).map((object, index) => <R3FObject key={index} object={object} index={index} />)}
-    {spec.shadows !== false && <ContactShadows position={[0, -1.01, 0]} opacity={.3} scale={12} blur={2.5} far={4} />}
+    {!lowPower && spec.shadows !== false && <ContactShadows position={[0, -1.01, 0]} opacity={.3} scale={12} blur={2.5} far={4} />}
     {spec.controls !== false && <OrbitControls makeDefault enableDamping target={target} autoRotate={controls.autoRotate ?? false} autoRotateSpeed={controls.autoRotateSpeed ?? 2} enablePan={controls.enablePan ?? true} enableZoom={controls.enableZoom ?? true} />}
   </>;
 }
@@ -108,8 +108,12 @@ function Scene({ spec }: { spec: R3FSpec }) {
 export function R3FBlock({ source }: { source: string }) {
   try {
     const spec = parseVisualizationJson(source) as R3FSpec;
-    return <div className="r3f-block" role="img" aria-label="三维交互图示"><R3FErrorBoundary><Canvas shadows={spec.shadows !== false} dpr={[1, 2]} camera={{ position: spec.camera?.position ?? [4, 3, 5], fov: spec.camera?.fov ?? 45, near: spec.camera?.near ?? .1, far: spec.camera?.far ?? 100 }} fallback={<div className="r3f-error">当前环境不支持 WebGL 三维渲染。</div>}>
-      <Scene spec={spec} />
+    /* R85：希沃 OPS 是 UHD 630 核显。大屏模式关阴影/抗锯齿、锁 1x DPR，
+       静态场景改 demand，避免每个 3D 图都常驻 60fps 渲染。 */
+    const lowPower = document.documentElement.dataset.performance === "smooth";
+    const autoRotate = typeof spec.controls === "object" && spec.controls.autoRotate === true;
+    return <div className="r3f-block" role="img" aria-label="三维交互图示"><R3FErrorBoundary><Canvas shadows={!lowPower && spec.shadows !== false} dpr={lowPower ? [1, 1] : [1, 2]} frameloop={autoRotate ? "always" : "demand"} gl={{ antialias: !lowPower, powerPreference: "high-performance" }} camera={{ position: spec.camera?.position ?? [4, 3, 5], fov: spec.camera?.fov ?? 45, near: spec.camera?.near ?? .1, far: spec.camera?.far ?? 100 }} fallback={<div className="r3f-error">当前环境不支持 WebGL 三维渲染。</div>}>
+      <Scene spec={spec} lowPower={lowPower} />
     </Canvas></R3FErrorBoundary><div className="r3f-hint">拖动旋转 · 滚轮缩放 · 右键平移</div></div>;
   } catch (error) {
     return <pre className="r3f-error">R3F 图示解析失败：{error instanceof Error ? error.message : String(error)}</pre>;

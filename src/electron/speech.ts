@@ -86,13 +86,33 @@ let currentSession: StartedAsr | undefined;
 
 /** Start a recognition utterance for `window`; falls back down the provider chain. */
 export async function startSpeech(window: BrowserWindow | undefined): Promise<{ ok: true; provider: string; remote: boolean; fallbacks: string[] }> {
+  /* R84：听写期间暂停 KWS——两条麦克风链路同时跑会抢 CPU，且老师说话
+     容易被唤醒引擎当成唤醒词。 */
+  voiceWake.pause();
+  /* R62 修复"语音打架"：旧实现是"共享一句话"——唤醒窗 start 时只把事件
+     重路由到新窗，旧窗的麦克风仍往同一会话灌音频：主页听写结果全被路由
+     走（主页啥也没有），双窗音频交错进一个 ASR（唤醒窗里"明天什么课"和
+     "明天什么课？"交替刷）。改为会话独占：换窗先 cancel 旧会话并向旧窗
+     发 stopped（旧窗 UI 退出听写态、停推音频），再为新窗开全新会话；
+     同窗重复 start 保持幂等（重发 ready）。 */
+  if (currentSession && speechWindow && window && speechWindow !== window && !speechWindow.isDestroyed()) {
+    const previous = speechWindow;
+    const session = currentSession;
+    currentSession = undefined;
+    try { session.session.cancel(); } catch { /* best effort */ }
+    send(previous, { type: "stopped" });
+  }
   speechWindow = window;
   if (currentSession) {
-    // The chat window and the wake overlay share one utterance; re-route events.
     send(speechWindow, { type: "ready", provider: currentSession.providerId });
     return { ok: true, provider: currentSession.providerId, remote: currentSession.providerId !== "local", fallbacks: [] };
   }
-  currentSession = await manager.start((event) => send(speechWindow, event));
+  try {
+    currentSession = await manager.start((event) => send(speechWindow, event));
+  } catch (error) {
+    voiceWake.resume();
+    throw error;
+  }
   return { ok: true, provider: currentSession.providerId, remote: currentSession.providerId !== "local", fallbacks: currentSession.fallbacks };
 }
 
@@ -106,6 +126,7 @@ export async function stopSpeech(): Promise<void> {
   currentSession = undefined;
   try { await active.session.stop(); } catch (error) { send(speechWindow, { type: "error", message: error instanceof Error ? error.message : String(error) }); }
   speechWindow = undefined;
+  voiceWake.resume();
 }
 
 export function cancelSpeech(): void {
@@ -114,6 +135,7 @@ export function cancelSpeech(): void {
   currentSession = undefined;
   try { active.session.cancel(); } catch { /* best effort */ }
   speechWindow = undefined;
+  voiceWake.resume();
 }
 
 /** Connectivity probe for the settings page; `kind` scopes which providers run. */

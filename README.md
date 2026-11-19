@@ -171,10 +171,17 @@ SecAgent 会优先读取签名的 `updates.json` 通道清单；清单暂不可�
 
 发布者如需启用签名清单，应将与 `src/update-public-key.ts` 匹配的私钥配置为 GitHub Actions Secret：`SECAGENT_UPDATE_PRIVATE_KEY`。私钥不得提交到仓库。
 
+## 开源致谢
+
+本项目的部分界面组件（滚动进度、空状态球体、侧导航、删除确认、数字滚动、语音消息等）按 [Rare UI](https://rareui.com/)（[GitHub](https://github.com/swamimalode07/rare-ui)，MIT）的源码移植，
+动效使用同款 [Motion](https://motion.dev/) 引擎；
+消息操作、日期分隔、错误状态、工具失败卡等交互模式参考自 [assistant-ui](https://www.assistant-ui.com/)（[GitHub](https://github.com/assistant-ui/assistant-ui)）；
+录音状态、思考折叠线等动效参考自 [React Bits](https://reactbits.dev/)（[GitHub](https://github.com/DavidHDev/react-bits)）。
+感谢这些项目带来的设计启发。
+
 ## 贡献与支持
 
 如您对代码有更好的看法或您发现任何问题，请您随时开issue或联系我们。
 项目代码90%来自AI且由于国模各种猎奇的表现导致代码质量堪忧，敬请谅解。
 
 避雷Meta旗下所有LLM，全是做题家模型 写的代码都是大份
-

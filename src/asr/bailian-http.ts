@@ -24,7 +24,7 @@ const MAX_DATA_URL_LENGTH = 10 * 1024 * 1024;
 const RATE_LIMIT_RETRIES = 3;
 const RATE_LIMIT_BASE_DELAY_MS = 500;
 
-export interface BailianHttpAsrOptions {
+interface BailianHttpAsrOptions {
   /** Current 百炼 settings (re-read on each start). */
   getSettings: () => BailianAsrSettings | undefined;
   /** Resolves the API key for an env var name (usually process.env). */
@@ -67,13 +67,31 @@ function toWavDataUrl(samples: Float32Array, log?: (message: string) => void): s
   return `data:audio/wav;base64,${Buffer.from(wav).toString("base64")}`;
 }
 
+/** 厂商错误信封透传（学习自 OpenMinis）：DashScope 的错误带自己的 code/message
+ *  （如 `{"error":{"code":"InvalidApiKey","message":"Incorrect API key..."}}`），
+ *  提取真实原因拼进报错，比只按状态码猜更可诊断。 */
+function extractApiErrorDetail(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: unknown; code?: unknown } | string; message?: unknown };
+    if (typeof parsed.error === "string" && parsed.error.trim()) return parsed.error.trim();
+    if (parsed.error && typeof parsed.error === "object") {
+      const code = typeof parsed.error.code === "string" && parsed.error.code ? `${parsed.error.code} ` : "";
+      if (typeof parsed.error.message === "string" && parsed.error.message.trim()) return `${code}${parsed.error.message.trim()}`;
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim();
+  } catch { /* body 不是 JSON——按原样截断 */ }
+  return "";
+}
+
 function statusMessage(status: number, body: string): string {
-  if (status === 401 || status === 403) return "API Key 无效或额度已耗尽（百炼“用完即停”）：请检查密钥与免费额度，或在设置中切换识别服务";
-  if (status === 404) return "接口不存在（404）：请检查 Base URL 是否包含 /compatible-mode/v1";
-  if (status === 400) return `请求被拒绝（400）：音频超过 10MB 或格式不支持${body.slice(0, 160) ? `：${body.slice(0, 160)}` : ""}`;
-  if (status === 429) return "请求过于频繁（429 限流），已退避重试仍失败，请稍后重试";
-  if (status >= 500) return `百炼服务端错误（${status}）：${body.slice(0, 160)}`;
-  return `请求失败（${status}）：${body.slice(0, 200)}`;
+  const detail = extractApiErrorDetail(body) || body.slice(0, 160).trim();
+  const suffix = detail ? `：${detail.slice(0, 160)}` : "";
+  if (status === 401 || status === 403) return `API Key 无效或额度已耗尽（百炼“用完即停”）：请检查密钥与免费额度，或在设置中切换识别服务${suffix}`;
+  if (status === 404) return `接口不存在（404）：请检查 Base URL 是否包含 /compatible-mode/v1${suffix}`;
+  if (status === 400) return `请求被拒绝（400）：音频超过 10MB 或格式不支持${suffix}`;
+  if (status === 429) return `请求过于频繁（429 限流），已退避重试仍失败，请稍后重试${suffix}`;
+  if (status >= 500) return `百炼服务端错误（${status}）${suffix}`;
+  return `请求失败（${status}）${suffix}`;
 }
 
 /** `choices[0].message.content` is the transcript (string, or text parts). */
